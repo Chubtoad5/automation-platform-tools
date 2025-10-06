@@ -20,6 +20,9 @@ LONGHORN_VERSION=1.9.2
 METALLB_VERSION=0.15.2
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.7
+DAP_VERSION=1.0.0.0
+DAP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
+DOWNLOAD_DAP_BUNDLE=false
 
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
 ENABLE_CIS=false
@@ -324,6 +327,13 @@ download_helm_images () {
   ./image_pull_push.sh -f ./helm-images.txt save
   cd $base_dir
 
+}
+
+download_dap_bundle () {
+  if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
+    echo "Downloading DAP bundle..."
+    wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL
+  fi
 }
 
 create_offline_prep_archive () {

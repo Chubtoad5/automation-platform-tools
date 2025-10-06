@@ -62,7 +62,7 @@ Commands:
   push         : Pushes container images images to the specified registry. [-registry] must be specified.
   join         : Joins the host to an existing cluster as a [server] or [agent]. [join-token-string] must be specified.
   -tls-san     : Adds specified FQDN to rke2 tls-san configuration for multi-node setup.
-  -registry    : When used with [install rke2], configures a private registry for the cluster. When used with [push], pushes container images to the registry.
+  -registry    : When used with [install rke2], creates a private registry config. When used with [push], pushes container images to the registry.
 
 EOF
     exit 1
@@ -218,11 +218,11 @@ display_args() {
 
 # -- Install & Join Definitions -- #
 
-rke2_install () {
+install_rke2 () {
   echo "Installing rke2..."
 }
 
-helm_install () {
+install_helm () {
   echo "Installing helm..."
 }
 
@@ -259,6 +259,7 @@ run_offline_prep () {
       download_rke2
       download_helm_binaries
       download_helm_images
+      download_dap_bundle
       create_offline_prep_archive
       echo "--- Offline prep workflow complete ---"
       echo "Copy the archive to an air-gapped host running the same version of $os_id"
@@ -463,3 +464,6 @@ cleanup () {
 }
 
 # --- Main Script Execution --- #
+
+os_check
+run_debug display_args

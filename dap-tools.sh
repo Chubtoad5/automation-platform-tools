@@ -49,6 +49,7 @@ REG_USER=""
 REG_PASS=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+RKE2_CMD_ARGS=""
 
 # --- USAGE FUNCTION --- #
 
@@ -60,7 +61,7 @@ Commands:
   install      : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation, cannot be used with [install] [push] [join].
   push         : Pushes container images images to the specified registry. [-registry] must be specified.
-  join         : Joins the host to an existing cluster as a [server] or [agent]. [join-token-string] must be specified.
+  join         : Joins the host to an existing cluster as a [server] or [agent]. [server-fqdn] and [join-token-string] must be specified.
   -tls-san     : Adds specified FQDN to rke2 tls-san configuration for multi-node setup.
   -registry    : When used with [install rke2], creates a private registry config. When used with [push], pushes container images to the registry.
 
@@ -116,17 +117,17 @@ while [[ "$#" -gt 0 ]]; do
             JOIN_SERVER_FQDN="${3:-}"
             JOIN_TOKEN="${4:-}"
             if [[ -z "$JOIN_TYPE" || "$JOIN_TYPE" != "agent" && "$JOIN_TYPE" != "server" ]]; then
-                echo "Error: 'join' command requires a join type. Format: join [server|agent] [join-token-string]"
+                echo "Error: 'join' command requires a join type. Format: join [server|agent] [server-fqdn] [join-token-string]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
             if [[ -z "$JOIN_SERVER_FQDN" ]]; then
-                echo "Error: 'join' command requires a server fqdn/ip. Format: join [server|agent] [join-token-string]"
+                echo "Error: 'join' command requires a server fqdn/ip. Format: join [server|agent] [server-fqdn] [join-token-string]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
             if [[ -z "$JOIN_TOKEN" ]]; then
-                echo "Error: 'join' command requires a join token. Format: join [server|agent] [join-token-string]"
+                echo "Error: 'join' command requires a join token. Format: join [server|agent] [server-fqdn] [join-token-string]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -139,7 +140,7 @@ while [[ "$#" -gt 0 ]]; do
             TLS_SAN_MODE=1
             TLS_SAN="${2:-}"
             if [[ -z "$TLS_SAN" ]]; then
-                echo "Error: 'tls-san' command requires a server fqdn/ip. Format: tls-san [server-fqdn-ip]"
+                echo "Error: '-tls-san' command requires a server fqdn/ip. Format: -tls-san [server-fqdn-ip]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -148,7 +149,7 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         -registry)
             REGISTRY_MODE=1
-            REGISTRY_INFO="$2"
+            REGISTRY_INFO="${2:-}"
             REG_USER="${3:-}"
             REG_PASS="${4:-}"
             if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
@@ -192,6 +193,25 @@ if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then
     fi
 fi
 
+# Verify PUSH_MODE has registry info and not used with JOIN_MODE
+if [[ "$PUSH_MODE" == "1"  ]]; then
+    if [[ "$JOIN_MODE" == "1" ]]; then
+        echo "Error: 'push' command cannot be used with 'join'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ "$REGISTRY_MODE" == "0" ]]; then
+        echo "Error: 'push' command requires registry config. Format: push -registry [registry:port] [username] [password]"
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ "$TLS_SAN_MODE" == "1" && "$INSTALL_MODE" == "0" ]]; then
+        echo "Error: 'push' command cannot be used with '-tls-san' unless used with 'install rke2'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
 
 # Displays the parsed and validated arguments
 display_args() {
@@ -214,12 +234,83 @@ display_args() {
     echo "REG_PASS: $REG_PASS"
     echo "---"
 }
+
+build_command_syntax() {
+    local install="$INSTALL_MODE"
+    local push="$PUSH_MODE"
+    local reg="$REGISTRY_MODE"
+    local tls="$TLS_SAN_MODE"
+    local join="$JOIN_MODE"
+    if [[ $JOIN_TYPE == "agent" ]]; then
+        local agent="1"
+    else
+        local agent="0"
+    fi
+    if [[ $JOIN_TYPE == "server" ]]; then
+        local server="1"
+    else
+        local server="0"
+    fi
+    local key=""
+    key="${install}${push}${reg}${tls}${join}${agent}${server}"
+    # Use a case statement on the binary key to find the corresponding syntax
+    case "$key" in
+        # install
+        1000000) RKE2_CMD_ARGS="install rke2" ;;
+        # install tls
+        1001000) RKE2_CMD_ARGS="install rke2 -tls-san $TLS_SAN" ;;
+        # install push reg
+        1110000) RKE2_CMD_ARGS="install rke2 push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        # install push reg tls
+        1111000) RKE2_CMD_ARGS="install rke2 push -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        # install reg
+        1010000) RKE2_CMD_ARGS="install rke2 -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        # install reg tls
+        1011000) RKE2_CMD_ARGS="install rke2 -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        # push reg
+        0110000) RKE2_CMD_ARGS="push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        # join agent
+        0000110) RKE2_CMD_ARGS="join agent $JOIN_SERVER_FQDN $JOIN_TOKEN" ;;
+        # join agent reg
+        0010110) RKE2_CMD_ARGS="join agent $JOIN_SERVER_FQDN $JOIN_TOKEN -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        # join server
+        0000101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN" ;;
+        # join server reg
+        0010101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        # join server reg tls
+        0011101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        # join server tls
+        0001101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -tls-san $TLS_SAN" ;;
+        # Default case for invalid/unsupported combinations
+        *)
+            echo "ERROR: Invalid combination of arguments. Please check usage."
+            return 1 # Return non-zero to indicate error
+            ;;
+    esac
+    echo "parsed command args: $RKE2_CMD_ARGS"
+    return 0
+}
 # --- End of Argument Parsing --- #
 
-# -- Install & Join Definitions -- #
+# -- Install, Join, Push Definitions -- #
 
 install_rke2 () {
-  echo "Installing rke2..."
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    if [[ ! -d $base_dir/dap-install ]]; then
+      echo "Error: Air-gapped archive detected, but 'dap-install' directory not found. Extract with 'tar xzf dap-offline.tar.gz' first."
+      exit 1
+    fi
+    echo "Installing rke2 in air-gapped mode..."
+    cd $WORKING_DIR/rke2
+    ./rke2_installer.sh $RKE2_CMD_ARGS
+    cd $base_dir
+  else
+    echo "Installing rke2 with online mode..."
+    rke2_installer_check
+    cd $WORKING_DIR/rke2
+    ./rke2_installer.sh $RKE2_CMD_ARGS
+    cd $base_dir
+  fi
 }
 
 install_helm () {
@@ -238,8 +329,12 @@ helm_install_metallb () {
   echo "Installing helm chart..."
 }
 
+install_docker () {
+  
+}
+
 dap_host_config () {
-  echo "Configuring host settings for DAP..."
+  echo "Configuring host settings for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-dap-orchestrator.conf
   systemctl restart systemd-sysctl
   if [ $? -ne 0 ]; then
@@ -256,9 +351,8 @@ run_offline_prep () {
   if [[ $OFFLINE_PREP_MODE == "1" ]]; then
       echo "--- Running offline prep workflow ---"
       download_packages
-      download_rke2
       download_helm_binaries
-      download_helm_images
+      download_rke2
       download_dap_bundle
       create_offline_prep_archive
       echo "--- Offline prep workflow complete ---"
@@ -299,6 +393,8 @@ download_helm_binaries () {
   cd $WORKING_DIR/dap-utilities/helm/haproxy
   helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
+  cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+
 
   # LONGHORN
   mkdir -p $WORKING_DIR/dap-utilities/helm/longhorn
@@ -306,6 +402,7 @@ download_helm_binaries () {
   helm pull longhorn/longhorn --version $LONGHORN_VERSION
   # curl -OL https://github.com/longhorn/longhorn/raw/refs/heads/v1.9.x/chart/values.yaml
   curl -OL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
+  cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
 
   # METALLB
   mkdir -p $WORKING_DIR/dap-utilities/helm/metallb
@@ -315,19 +412,8 @@ download_helm_binaries () {
 quay.io/metallb/controller:v$METALLB_VERSION
 quay.io/metallb/speaker:v$METALLB_VERSION
 EOF
-
+  cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
-}
-
-download_helm_images () {
-  cat $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-images.txt > $WORKING_DIR/dap-utilities/images/helm-images.txt
-  cat $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-images.txt >> $WORKING_DIR/dap-utilities/images/helm-images.txt
-  cat $WORKING_DIR/dap-utilities/helm/metallb/metallb-images.txt >> $WORKING_DIR/dap-utilities/images/helm-images.txt
-  image_pull_push_check
-  cd $WORKING_DIR/dap-utilities/images
-  ./image_pull_push.sh -f ./helm-images.txt save
-  cd $base_dir
-
 }
 
 download_dap_bundle () {
@@ -339,12 +425,10 @@ download_dap_bundle () {
 
 create_offline_prep_archive () {
     # saves downloaded files into dap-offline.tar.gz
-    echo "Creating final archive..."
+    echo "Creating offline archive..."
     tar -czf dap-offline.tar.gz dap-install dap-tools.sh
     echo "Air-gapped archive 'dap-offline.tar.gz' created."
 }
-
-# -- Push Definitions -- #
 
 # --- Helper Functions --- #
 
@@ -352,9 +436,8 @@ create_working_dir () {
     # check for rke2-install directory and supporting directories, then create them
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
     [ -d "$WORKING_DIR/dap-utilities/packages" ] || mkdir -p "$WORKING_DIR/dap-utilities/packages"
-    [ -d "$WORKING_DIR/dap-utilities/images" ] || mkdir -p "$WORKING_DIR/dap-utilities/images"
     [ -d "$WORKING_DIR/dap-utilities/helm" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm"
-    [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2"
+    [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
 
 
@@ -467,3 +550,5 @@ cleanup () {
 
 os_check
 run_debug display_args
+create_working_dir
+run_debug run_offline_prep

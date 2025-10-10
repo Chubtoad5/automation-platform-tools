@@ -58,12 +58,14 @@ RKE_FRONTEND_ARGS=""
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [install rke2|dap-bundle] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   instal       : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
                   [rke2] Installs rke2 as a server.
                   [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command based off the defined variables. Must be used with [-registry].
+                  [harbor] Installs the harbor registry.
+                  [nginx] Installs an nginx static file server.
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation, cannot be used with [install] [push] [join].
   push         : Pushes all kubernetes and utility container images to the specified registry. [-registry] must be specified. Does not push Dell Automation Platform images.
   join         : Joins the host to an existing cluster as a [server] or [agent]. [server-fqdn] and [join-token-string] must be specified.

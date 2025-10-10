@@ -61,7 +61,7 @@ usage() {
 Usage: $SCRIPT_NAME [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
-  install       : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
+  install      : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
                   [rke2] Installs rke2 as a server.
                   [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command based off the defined variables. Must be used with [-registry].
                   [harbor] Installs the harbor registry.
@@ -308,16 +308,26 @@ run_install_join_push () {
       echo "Error: Air-gapped archive detected, but 'dap-install' directory not found. Extract with 'tar xzf dap-offline.tar.gz' first."
       exit 1
     fi
-    echo "Installing rke2 in air-gapped mode..."
+    echo "Running rke2_installer in air-gapped mode..."
     cd $WORKING_DIR/rke2
     eval "RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS"
     cd $base_dir
   else
-    echo "Installing rke2 with online mode..."
+    echo "Running rke2_installer with online mode..."
     rke2_installer_check
+    if [[ $PUSH_MODE == "1" ]]; then
+      generate_images_file
+    fi
     cd $WORKING_DIR/rke2
     eval "RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS"
     cd $base_dir
+  fi
+  if [[ $INSTALL_TYPE == "rke2" ]]; then
+  install_helm
+  helm_install_haproxy
+  helm_install_metallb
+  if [[ $INSTALL_LOCAL_PATH_PROVISIONER=false ]]; then
+    helm_install_longhorn
   fi
 }
 
@@ -393,6 +403,19 @@ EOF
 }
 
 # --- DAP Bundle prep defenitions --- #
+
+dap_bundle_prep () {
+  if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+    echo "Bundle prep"
+    dap_host_config
+    install_reg_certs
+    install_docker
+    download_dap_bundle
+    extract_dap_bundle
+    prep_dap_installer_cmd
+  fi
+}
+
 install_docker () {
   echo "yes docker"
   cd $WORKING_DIR/dap-utilities/images
@@ -409,8 +432,12 @@ install_reg_certs () {
   cd $base_dir
 }
 
-pre_dap_installer_cmd () {
+prep_dap_installer_cmd () {
   echo "dap installer cmd"
+}
+
+extract_dap_bundle () {
+  echo "Extracting DAP bundle..."
 }
 
 dap_host_config () {
@@ -432,8 +459,11 @@ run_offline_prep () {
       echo "--- Running offline prep workflow ---"
       download_packages
       download_helm_binaries
+      generate_images_file
       download_rke2
-      download_dap_bundle
+      if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
+        download_dap_bundle
+      fi
       create_offline_prep_archive
       echo "--- Offline prep workflow complete ---"
       echo "Copy the archive to an air-gapped host running the same version of $OS_ID"
@@ -467,36 +497,43 @@ download_helm_binaries () {
   helm repo add longhorn https://charts.longhorn.io
   helm repo update
   echo "Pulling helm charts..."
-
   # HAPROXY
   cd $WORKING_DIR/dap-utilities/helm/haproxy
   helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
-  echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
-  cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
-
   # LONGHORN
   cd $WORKING_DIR/dap-utilities/helm/longhorn
   helm pull longhorn/longhorn --version $LONGHORN_VERSION
-  # curl -OL https://github.com/longhorn/longhorn/raw/refs/heads/v1.9.x/chart/values.yaml
-  curl -OL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
-  cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
-
   # METALLB
   cd $WORKING_DIR/dap-utilities/helm/metallb
   helm pull metallb/metallb --version $METALLB_VERSION
+}
+
+download_dap_bundle () {
+  if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip ]]; then
+    echo "Downloading DAP bundle..."
+    wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL
+  else
+    echo "DAP bundle already downloaded."
+  fi
+}
+
+generate_images_file () {
+  # Haproxy images
+  cd $WORKING_DIR/dap-utilities/helm/haproxy
+  echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
+  cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  # Longhorn images
+  cd $WORKING_DIR/dap-utilities/helm/longhorn
+  curl -OL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
+  cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  # Metallb images
+  cd $WORKING_DIR/dap-utilities/helm/metallb
   cat > metallb-images.txt <<EOF
 quay.io/metallb/controller:v$METALLB_VERSION
 quay.io/metallb/speaker:v$METALLB_VERSION
 EOF
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
-}
-
-download_dap_bundle () {
-  if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
-    echo "Downloading DAP bundle..."
-    wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL
-  fi
 }
 
 create_offline_prep_archive () {
@@ -632,3 +669,4 @@ run_debug display_args
 create_working_dir
 run_debug run_offline_prep
 run_debug run_install_join_push
+run_debug dap_bundle_prep

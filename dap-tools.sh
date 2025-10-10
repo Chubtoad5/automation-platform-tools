@@ -61,7 +61,7 @@ usage() {
 Usage: $SCRIPT_NAME [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
-  instal       : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
+  install       : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
                   [rke2] Installs rke2 as a server.
                   [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command based off the defined variables. Must be used with [-registry].
                   [harbor] Installs the harbor registry.

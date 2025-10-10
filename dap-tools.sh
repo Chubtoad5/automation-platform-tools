@@ -38,10 +38,12 @@ INSTALL_TYPE=""
 TLS_SAN_MODE=0
 TLS_SAN=""
 JOIN_MODE=0
-JOIN_TYPE="server"
+JOIN_TYPE=""
 JOIN_TOKEN=""
 JOIN_SERVER_FQDN=""
 base_dir=$(pwd)
+mgmt_ip=$(hostname -I | awk '{print $1}')
+mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
 WORKING_DIR="$base_dir/dap-install"
 REGISTRY_MODE=0
 REGISTRY_INFO=""
@@ -50,6 +52,7 @@ REG_PASS=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
 RKE2_CMD_ARGS=""
+RKE_FRONTEND_ARGS=""
 
 # --- USAGE FUNCTION --- #
 
@@ -256,17 +259,17 @@ build_command_syntax() {
     # Use a case statement on the binary key to find the corresponding syntax
     case "$key" in
         # install
-        1000000) RKE2_CMD_ARGS="install rke2" ;;
+        1000000) RKE2_CMD_ARGS="install" ;;
         # install tls
-        1001000) RKE2_CMD_ARGS="install rke2 -tls-san $TLS_SAN" ;;
+        1001000) RKE2_CMD_ARGS="install -tls-san $TLS_SAN" ;;
         # install push reg
-        1110000) RKE2_CMD_ARGS="install rke2 push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        1110000) RKE2_CMD_ARGS="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
         # install push reg tls
-        1111000) RKE2_CMD_ARGS="install rke2 push -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        1111000) RKE2_CMD_ARGS="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
         # install reg
-        1010000) RKE2_CMD_ARGS="install rke2 -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        1010000) RKE2_CMD_ARGS="install -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
         # install reg tls
-        1011000) RKE2_CMD_ARGS="install rke2 -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        1011000) RKE2_CMD_ARGS="install -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
         # push reg
         0110000) RKE2_CMD_ARGS="push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
         # join agent
@@ -283,7 +286,7 @@ build_command_syntax() {
         0001101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -tls-san $TLS_SAN" ;;
         # Default case for invalid/unsupported combinations
         *)
-            echo "ERROR: Invalid combination of arguments. Please check usage."
+            echo "ERROR: Invalid combination of arguments. - $key - Please check usage."
             return 1 # Return non-zero to indicate error
             ;;
     esac
@@ -294,7 +297,8 @@ build_command_syntax() {
 
 # -- Install, Join, Push Definitions -- #
 
-install_rke2 () {
+run_install_join_push () {
+  build_command_syntax
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
     if [[ ! -d $base_dir/dap-install ]]; then
       echo "Error: Air-gapped archive detected, but 'dap-install' directory not found. Extract with 'tar xzf dap-offline.tar.gz' first."
@@ -302,35 +306,102 @@ install_rke2 () {
     fi
     echo "Installing rke2 in air-gapped mode..."
     cd $WORKING_DIR/rke2
-    ./rke2_installer.sh $RKE2_CMD_ARGS
+    eval "RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS"
     cd $base_dir
   else
     echo "Installing rke2 with online mode..."
     rke2_installer_check
     cd $WORKING_DIR/rke2
-    ./rke2_installer.sh $RKE2_CMD_ARGS
+    eval "RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS"
     cd $base_dir
   fi
 }
 
 install_helm () {
   echo "Installing helm..."
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    curl -fsSLo $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
+  fi
+    tar -xvf $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
+    mv linux-amd64/helm /usr/local/bin/helm
+    rm -rf linux-amd64
+    echo "Adding helm charts..."
+    helm repo add metallb https://metallb.github.io/metallb
+    helm repo add haproxytech https://haproxytech.github.io/helm-charts
+    helm repo add longhorn https://charts.longhorn.io
+    helm repo update
 }
 
 helm_install_haproxy () {
   echo "Installing helm chart..."
+  cat << EOF > $WORKING_DIR/dap-utilities/helm/haproxy-values.yaml
+controller:
+  image:
+    pullPolicy: IfNotPresent
+  service:
+    type: LoadBalancer
+  config:
+    ssl-passthrough: "true"
+  hostNetwork: true
+  kind: DaemonSet
+  defaultTLSSecret:
+     enabled: false
+EOF
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/dap-utilities/helm/haproxy-values.yaml
+  else
+    #Add Airgapped
+  fi
 }
 
 helm_install_longhorn () {
   echo "Installing helm chart..."
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION --set persistence.defaultClassReplicaCount=1 --set defaultSettings.defaultReplicatCount=1
+  else
+    #Add Airgapped
+  fi
 }
 
 helm_install_metallb () {
   echo "Installing helm chart..."
+  cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb-values.yaml
+ipAddressPools:
+  - name: default-ip-pool
+    addresses:
+      - $mgmt_ip/32
+    autoAssign: true
+
+l2Advertisements:
+  - name: l2-advertisement
+    ipAddressPools:
+      - default-ip-pool
+    interfaces:
+      - $mgmt_if
+EOF
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION -f $WORKING_DIR/dap-utilities/helm/metallb-values.yaml
+  else
+    #Add Airgapped
+  fi
 }
 
 install_docker () {
-  
+  echo "yes docker"
+  cd $WORKING_DIR/rke2
+  ./rke2_installer.sh docker
+  #Needs airgapped?
+}
+
+install_reg_certs () {
+  echo "yes reg"
+  cd $WORKING_DIR/rke2
+  ./rke2_installer.sh reg-cert -registry $REGISTRY_INFO
+  #Needs airgapped?
+}
+
+pre_dap_installer_cmd () {
+  echo "dap installer cmd"
 }
 
 dap_host_config () {
@@ -394,7 +465,6 @@ download_helm_binaries () {
   helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
   cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
-
 
   # LONGHORN
   mkdir -p $WORKING_DIR/dap-utilities/helm/longhorn
@@ -552,3 +622,4 @@ os_check
 run_debug display_args
 create_working_dir
 run_debug run_offline_prep
+run_debug run_install_join_push

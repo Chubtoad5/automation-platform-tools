@@ -58,15 +58,17 @@ RKE_FRONTEND_ARGS=""
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [install rke2] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|dap-bundle] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
-  install      : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
+  instal       : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
+                  [rke2] Installs rke2 as a server.
+                  [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command based off the defined variables. Must be used with [-registry].
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation, cannot be used with [install] [push] [join].
-  push         : Pushes container images images to the specified registry. [-registry] must be specified.
+  push         : Pushes all kubernetes and utility container images to the specified registry. [-registry] must be specified. Does not push Dell Automation Platform images.
   join         : Joins the host to an existing cluster as a [server] or [agent]. [server-fqdn] and [join-token-string] must be specified.
-  -tls-san     : Adds specified FQDN to rke2 tls-san configuration for multi-node setup.
-  -registry    : When used with [install rke2], creates a private registry config. When used with [push], pushes container images to the registry.
+  -tls-san     : Optional, adds specified FQDN to rke2 tls-san configuration for multi-node setup. Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
+  -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
 
 EOF
     exit 1
@@ -97,9 +99,9 @@ while [[ "$#" -gt 0 ]]; do
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
             # if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" ]]; then
-                # echo "Error: 'install' command requires an install type. Format: install [rke2|harbor|nginx]"
-                echo "Error: 'install' command requires an install type. Format: install [rke2]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" || "$INSTALL_TYPE" != "dap-bundle" ]]; then
+                # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
+                echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -333,8 +335,8 @@ install_helm () {
 }
 
 helm_install_haproxy () {
-  echo "Installing helm chart..."
-  cat << EOF > $WORKING_DIR/dap-utilities/helm/haproxy-values.yaml
+  echo "Installing haproxy chart..."
+  cat << EOF > $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
 controller:
   image:
     pullPolicy: IfNotPresent
@@ -348,24 +350,26 @@ controller:
      enabled: false
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/dap-utilities/helm/haproxy-values.yaml
+    helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
   else
-    #Add Airgapped
+    helm install haproxy-ingress $WORKING_DIR/dap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
   fi
+  check_namespace_pods_ready "haproxy-controller"
 }
 
 helm_install_longhorn () {
+  # Add a check for singlenode vs multinode
   echo "Installing helm chart..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION --set persistence.defaultClassReplicaCount=1 --set defaultSettings.defaultReplicatCount=1
   else
-    #Add Airgapped
+    helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace --set persistence.defaultClassReplicaCount=1 --set defaultSettings.defaultReplicatCount=1
   fi
 }
 
 helm_install_metallb () {
   echo "Installing helm chart..."
-  cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb-values.yaml
+  cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb/metallb-values.yaml
 ipAddressPools:
   - name: default-ip-pool
     addresses:
@@ -380,24 +384,27 @@ l2Advertisements:
       - $mgmt_if
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION -f $WORKING_DIR/dap-utilities/helm/metallb-values.yaml
+    helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-values.yaml
   else
-    #Add Airgapped
+    helm install metallb $WORKING_DIR/dap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-values.yaml
   fi
 }
 
+# --- DAP Bundle prep defenitions --- #
 install_docker () {
   echo "yes docker"
-  cd $WORKING_DIR/rke2
-  ./rke2_installer.sh docker
+  cd $WORKING_DIR/dap-utilities/images
+  ./image_pull_push.sh docker
   #Needs airgapped?
+  cd $base_dir
 }
 
 install_reg_certs () {
   echo "yes reg"
-  cd $WORKING_DIR/rke2
-  ./rke2_installer.sh reg-cert -registry $REGISTRY_INFO
+  cd $WORKING_DIR/dap-utilities/images
+  ./image_pull_push.sh reg-cert -registry $REGISTRY_INFO
   #Needs airgapped?
+  cd $base_dir
 }
 
 pre_dap_installer_cmd () {
@@ -427,7 +434,7 @@ run_offline_prep () {
       download_dap_bundle
       create_offline_prep_archive
       echo "--- Offline prep workflow complete ---"
-      echo "Copy the archive to an air-gapped host running the same version of $os_id"
+      echo "Copy the archive to an air-gapped host running the same version of $OS_ID"
   fi
 }
 
@@ -460,14 +467,12 @@ download_helm_binaries () {
   echo "Pulling helm charts..."
 
   # HAPROXY
-  mkdir -p $WORKING_DIR/dap-utilities/helm/haproxy
   cd $WORKING_DIR/dap-utilities/helm/haproxy
   helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
   cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
 
   # LONGHORN
-  mkdir -p $WORKING_DIR/dap-utilities/helm/longhorn
   cd $WORKING_DIR/dap-utilities/helm/longhorn
   helm pull longhorn/longhorn --version $LONGHORN_VERSION
   # curl -OL https://github.com/longhorn/longhorn/raw/refs/heads/v1.9.x/chart/values.yaml
@@ -475,7 +480,6 @@ download_helm_binaries () {
   cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
 
   # METALLB
-  mkdir -p $WORKING_DIR/dap-utilities/helm/metallb
   cd $WORKING_DIR/dap-utilities/helm/metallb
   helm pull metallb/metallb --version $METALLB_VERSION
   cat > metallb-images.txt <<EOF
@@ -506,7 +510,9 @@ create_working_dir () {
     # check for rke2-install directory and supporting directories, then create them
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
     [ -d "$WORKING_DIR/dap-utilities/packages" ] || mkdir -p "$WORKING_DIR/dap-utilities/packages"
-    [ -d "$WORKING_DIR/dap-utilities/helm" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm"
+    [ -d "$WORKING_DIR/dap-utilities/helm/haproxy" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/haproxy
+    [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/metallb
+    [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/longhorn
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
 
@@ -517,13 +523,14 @@ os_check () {
         # shellcheck disable=SC1091
         source /etc/os-release
         echo "OS type is: $ID"
-        os_id="$ID"
+        OS_ID_LIKE="${ID_LIKE:-}"
+        OS_ID="${ID:-}"
     else
-        echo "Unknown or unsupported OS $os_id."
+        echo "Unknown or unsupported OS $OS_ID."
         exit 1
     fi
-    if [[ ! "$os_id" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
-        echo "Unknown or unsupported OS $os_id."
+    if [[ ! "$OS_ID" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
+        echo "Unknown or unsupported OS $OS_ID."
         exit 1
     fi
 }

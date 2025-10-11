@@ -374,10 +374,30 @@ EOF
 helm_install_longhorn () {
   # Add a check for singlenode vs multinode
   echo "Installing helm chart..."
+  cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
+# UI Deployment Replica Count
+ui:
+  replicaCount: 1
+
+# CSI Components Replica Counts
+csi:
+  attacherReplicaCount: 1
+  provisionerReplicaCount: 1
+  resizerReplicaCount: 1
+  snapshotterReplicaCount: 1
+
+# Default Settings for new volumes (via Longhorn API/UI)
+defaultSettings:
+  defaultReplicaCount: 1
+
+# Default setting for the Longhorn StorageClass
+persistence:
+  defaultClassReplicaCount: 1
+EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION --set persistence.defaultClassReplicaCount=1 --set defaultSettings.defaultReplicatCount=1
+    helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION -f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
   else
-    helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace --set persistence.defaultClassReplicaCount=1 --set defaultSettings.defaultReplicatCount=1
+    helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace -f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
   fi
 }
 

@@ -457,6 +457,7 @@ install_docker () {
 
 install_reg_certs () {
   echo "yes reg"
+  image_pull_push_check
   cd $WORKING_DIR/dap-utilities/images
   ./image_pull_push.sh reg-cert -registry $REGISTRY_INFO
   #Needs airgapped?
@@ -582,6 +583,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/metallb
     [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/longhorn
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
+    [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/dap-install/dap-utilities/images"
 }
 
 
@@ -703,5 +705,5 @@ if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INST
   run_debug run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
-  run_debug run_dap_bundle_prep
+  run_debug dap_bundle_prep
 fi

@@ -1,34 +1,68 @@
 #!/bin/bash
 
-# --- Script Configuration - DO NOT EDIT --- #
-set -o errexit
-set -o nounset
-set -o pipefail
+# --- Dell Automation Platform Configuration --- #
+DAP_VERSION=1.0.0.0
+DAP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
+DOWNLOAD_DAP_BUNDLE=false
+SKIP_IMAGES_LOADER=false
+REGISTRY_PROJECT_NAME=dell-automation
+ORCHESTRATOR_NAMESPACE=dell-orchestrator
+PORTAL_NAMESPACE=dell-portal 
+PORTAL_COOKIE_DOMAIN=edge.lab
+ORCHESTRATOR_FQDN=orchestrator.edgehost.edge.lab
+PORTAL_FQDN=portal.edgehost.edge.lab
+PORTAL_INGRESS_CLASS_NAME=haproxy-controller
+ORG_NAME=changeme 
+ORG_DESC=changeme 
+FIRST_NAME=changeme 
+LAST_NAME=changeme
+USERNAME=administrator
+EMAIL=changeme@example.com
 
-# --- USER DEFINED VARIABLES ---#
+# --- Harbor and NGINX Configuration --- #
+HARBOR_VERSION=2.12.2
+HARBOR_FQDN=registry.edge.lab
+HARBOR_PORT=443
+HARBOR_USERNAME=admin
+HARBOR_PASSWORD=Harbor12345
+HARBOR_PROJECT_NAME=dell-automation
+NGINX_HTUSER=edgeuser
+NGINX_HTPASS=NativeEdge123!
+NGINX_PORT=4443
+
+# --- Self-Signed Certificate Configuration for Harbor and NGINX --- $
+COUNTRY=US
+STATE=MA
+LOCATION=HOPKINTON
+ORGANIZATION=DELL
+NGINX_COMMON_NAME=artifacts.edge.lab
+HARBOR_COMMON_NAME=registry.edge.lab
+DURATION_DAYS=3650
+
+# --- Kubernetes Configuration ---#
+DEBUG=1
 RKE2_VERSION=v1.32.5+rke2r1
+MAX_PODS=180
 CNI_TYPE=calico
 CLUSTER_CIDR="10.42.0.0/16"
 SERVICE_CIDR="10.43.0.0/16"
-MAX_PODS=180
+INSTALL_DNS_UTILITY=true
 INSTALL_LOCAL_PATH_PROVISIONER=false
 LOCAL_PATH_PROVISIONER_VERSION=v0.0.32
-INSTALL_DNS_UTILITY=true
-DEBUG=1
 HELM_VERSION=3.12.0
 LONGHORN_VERSION=1.9.2
 METALLB_VERSION=0.15.2
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.7
-DAP_VERSION=1.0.0.0
-DAP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
-DOWNLOAD_DAP_BUNDLE=false
 
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
+set -o errexit
+set -o nounset
+set -o pipefail
 ENABLE_CIS=false
 INSTALL_INGRESS=false
 INSTALL_SERVICELB=false
-user_name=$SUDO_USER
+user_name=${SUDO_USER:-$(whoami)}
 SCRIPT_NAME=$(basename "$0")
 AIR_GAPPED_MODE=0
 OFFLINE_PREP_MODE=0
@@ -159,12 +193,10 @@ while [[ "$#" -gt 0 ]]; do
             REGISTRY_INFO="${2:-}"
             REG_USER="${3:-}"
             REG_PASS="${4:-}"
-            if [[ $INSTALL_TYPE != "dap-bundle" ]]; then
-              if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
-                  echo "Error: Registry info requires a username and password. Format: registry [registry:port username password]"
-                  echo "Type './$SCRIPT_NAME -h' for help."
-                  exit 1
-              fi
+            if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
+                echo "Error: Registry info requires a username and password. Format: registry [registry:port username password]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
             fi
             shift
             shift
@@ -441,27 +473,19 @@ dap_bundle_prep () {
   if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
     echo "Bundle prep"
     dap_host_config
-    install_reg_certs
-    install_docker
+    install_reg_docker
     download_dap_bundle
     extract_dap_bundle
     prep_dap_installer_cmd
   fi
 }
 
-install_docker () {
-  echo "yes docker"
-  cd $WORKING_DIR/dap-utilities/images
-  ./image_pull_push.sh docker
-  #Needs airgapped?
-  cd $base_dir
-}
-
-install_reg_certs () {
+install_reg_docker () {
   echo "yes reg"
   image_pull_push_check
   cd $WORKING_DIR/dap-utilities/images
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
+  ./image_pull_push.sh docker
   #Needs airgapped?
   cd $base_dir
 }
@@ -471,7 +495,33 @@ prep_dap_installer_cmd () {
 }
 
 extract_dap_bundle () {
-  echo "Extracting DAP bundle..."
+  if [[ ! -d $WORKING_DIR/bundle ]]; then
+    mkdir $WORKING_DIR/bundle
+    unzip $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip -d $WORKING_DIR/bundle
+  else
+    echo "Bundle already extracted."
+  fi
+  if [[ -f "$WORKING_DIR/bundle/*.zip" ]]; then
+    unzip $WORKING_DIR/bundle/*.zip -d $WORKING_DIR/bundle
+  fi
+  if [[ -f "$WORKING_DIR/bundle/install-update.sh" ]]; then
+    chmod +x $WORKING_DIR/bundle/install-update.sh
+  else
+    echo "Error: install-update.sh not found in bundle."
+    exit 1
+  fi
+  local registry_hostname=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
+  local reg_cert_file_path=""
+  if [[ -f "/usr/local/share/ca-certificates/$registry_hostname.crt" ]]; then
+    reg_cert_file_path="/usr/local/share/ca-certificates/$registry_hostname.crt"
+  elif [[ -f "/etc/pki/ca-trust/source/anchors/$registry_hostname.crt" ]]; then
+    reg_cert_file_path="/etc/pki/ca-trust/source/anchors/$registry_hostname.crt"
+  else
+    echo "Error: registry certificate not found."
+    exit 1
+  fi
+  echo "Run the following command to install Dell Automation Platform Portal and Orchestrator:"
+  echo "sudo data/nativeedge/install/install-upgrade.sh EO_HOST=$ORCHESTRATOR_FQDN IMAGE_REG_URL=$REGISTRY_URL/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER REGISTRY_CERT_FILE_PATH=$reg_cert_file_path NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME PORTAL_HOST=$PORTAL_FQDN ORG_NAME=$ORG_NAME ORG_DESC=$ORG_DESC FIRST_NAME=$FIRST_NAME LAST_NAME=$LAST_NAME USERNAME=$USERNAME EMAIL=$EMAIL"
 }
 
 dap_host_config () {
@@ -484,6 +534,10 @@ dap_host_config () {
   else
     echo "systemd-sysctl.service restarted successfully."
   fi
+  install_packages_check
+  cd $WORKING_DIR/dap-utilities/packages
+  ./install_packages.sh jq zip unzip
+  cd $base_dir
 }
 
 # -- Offline Prep Definitions -- #
@@ -584,7 +638,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/dap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/haproxy"
     [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/longhorn"
-    [ -d "$WORKING_DIR/dap-utilities/images" ] || mkdir -p "$WORKING_DIR/dap-install/dap-utilities/images"
+    [ -d "$WORKING_DIR/dap-utilities/images" ] || mkdir -p "$WORKING_DIR/dap-utilities/images"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
 

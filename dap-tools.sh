@@ -310,7 +310,7 @@ run_install_join_push () {
     fi
     echo "Running rke2_installer in air-gapped mode..."
     cd $WORKING_DIR/rke2
-    eval "RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS"
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
   else
     echo "Running rke2_installer with online mode..."
@@ -319,7 +319,7 @@ run_install_join_push () {
       generate_images_file
     fi
     cd $WORKING_DIR/rke2
-    eval "RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS"
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
@@ -328,7 +328,7 @@ run_install_join_push () {
     install_helm
     helm_install_haproxy
     helm_install_metallb
-    if [[ $INSTALL_LOCAL_PATH_PROVISIONER=false ]]; then
+    if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
       helm_install_longhorn
     fi
   fi
@@ -379,18 +379,15 @@ helm_install_longhorn () {
 # UI Deployment Replica Count
 ui:
   replicaCount: 1
-
 # CSI Components Replica Counts
 csi:
   attacherReplicaCount: 1
   provisionerReplicaCount: 1
   resizerReplicaCount: 1
   snapshotterReplicaCount: 1
-
 # Default Settings for new volumes (via Longhorn API/UI)
 defaultSettings:
   defaultReplicaCount: 1
-
 # Default setting for the Longhorn StorageClass
 persistence:
   defaultClassReplicaCount: 1
@@ -400,6 +397,7 @@ EOF
   else
     helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace -f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
   fi
+  check_namespace_pods_ready "longhorn-system"
 }
 
 helm_install_metallb () {
@@ -428,11 +426,11 @@ spec:
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
-    kubectl apply -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
   else
     helm install metallb $WORKING_DIR/dap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace 
-    kubectl apply -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
   fi
+  check_namespace_pods_ready "metallb-system"
+  kubectl apply -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
 }
 
 # --- DAP Bundle prep defenitions --- #

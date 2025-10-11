@@ -486,19 +486,17 @@ dap_host_config () {
 # -- Offline Prep Definitions -- #
 
 run_offline_prep () {
-  if [[ $OFFLINE_PREP_MODE == "1" ]]; then
-      echo "--- Running offline prep workflow ---"
-      download_packages
-      download_helm_binaries
-      generate_images_file
-      download_rke2
-      if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
-        download_dap_bundle
-      fi
-      create_offline_prep_archive
-      echo "--- Offline prep workflow complete ---"
-      echo "Copy the archive to an air-gapped host running the same version of $OS_ID"
-  fi
+    echo "--- Running offline prep workflow ---"
+    download_packages
+    download_helm_binaries
+    generate_images_file
+    download_rke2
+    if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
+      download_dap_bundle
+    fi
+    create_offline_prep_archive
+    echo "--- Offline prep workflow complete ---"
+    echo "Copy the archive to an air-gapped host running the same version of $OS_ID"
 }
 
 download_packages () {
@@ -698,6 +696,12 @@ cleanup () {
 os_check
 run_debug display_args
 create_working_dir
-run_debug run_offline_prep
-run_debug run_install_join_push
-run_debug dap_bundle_prep
+if [[ $OFFLINE_PREP_MODE == "1" ]]; then
+  run_debug run_offline_prep
+fi
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle") ]]; then
+  run_debug run_install_join_push
+fi
+if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+  run_debug run_dap_bundle_prep
+fi

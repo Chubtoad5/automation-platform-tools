@@ -159,10 +159,12 @@ while [[ "$#" -gt 0 ]]; do
             REGISTRY_INFO="${2:-}"
             REG_USER="${3:-}"
             REG_PASS="${4:-}"
-            if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
-                echo "Error: Registry info requires a username and password. Format: registry [registry:port username password]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
+            if [[ $INSTALL_TYPE != "dap-bundle" ]]; then
+              if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
+                  echo "Error: Registry info requires a username and password. Format: registry [registry:port username password]"
+                  echo "Type './$SCRIPT_NAME -h' for help."
+                  exit 1
+              fi
             fi
             shift
             shift
@@ -459,7 +461,7 @@ install_reg_certs () {
   echo "yes reg"
   image_pull_push_check
   cd $WORKING_DIR/dap-utilities/images
-  ./image_pull_push.sh reg-cert -registry $REGISTRY_INFO
+  ./image_pull_push.sh reg-cert $REGISTRY_INFO
   #Needs airgapped?
   cd $base_dir
 }
@@ -579,11 +581,11 @@ create_working_dir () {
     # check for rke2-install directory and supporting directories, then create them
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
     [ -d "$WORKING_DIR/dap-utilities/packages" ] || mkdir -p "$WORKING_DIR/dap-utilities/packages"
-    [ -d "$WORKING_DIR/dap-utilities/helm/haproxy" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/haproxy
-    [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/metallb
-    [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p $WORKING_DIR/dap-utilities/helm/longhorn
+    [ -d "$WORKING_DIR/dap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/haproxy"
+    [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/metallb"
+    [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/longhorn"
+    [ -d "$WORKING_DIR/dap-utilities/images" ] || mkdir -p "$WORKING_DIR/dap-install/dap-utilities/images"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
-    [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/dap-install/dap-utilities/images"
 }
 
 

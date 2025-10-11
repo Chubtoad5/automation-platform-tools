@@ -323,7 +323,8 @@ run_install_join_push () {
     cd $base_dir
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
-    export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+    export KUBECONFIG=/home/$user_name/.kube/config
+    export PATH=$PATH:/var/lib/rancher/rke2/bin
     install_helm
     helm_install_haproxy
     helm_install_metallb

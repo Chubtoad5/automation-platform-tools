@@ -101,7 +101,7 @@ while [[ "$#" -gt 0 ]]; do
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
             # if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" || "$INSTALL_TYPE" != "dap-bundle" ]]; then
+            if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
                 # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
                 echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle]"
                 echo "Type './$SCRIPT_NAME -h' for help."
@@ -323,11 +323,13 @@ run_install_join_push () {
     cd $base_dir
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
-  install_helm
-  helm_install_haproxy
-  helm_install_metallb
-  if [[ $INSTALL_LOCAL_PATH_PROVISIONER=false ]]; then
-    helm_install_longhorn
+    export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+    install_helm
+    helm_install_haproxy
+    helm_install_metallb
+    if [[ $INSTALL_LOCAL_PATH_PROVISIONER=false ]]; then
+      helm_install_longhorn
+    fi
   fi
 }
 
@@ -381,24 +383,34 @@ helm_install_longhorn () {
 
 helm_install_metallb () {
   echo "Installing helm chart..."
-  cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb/metallb-values.yaml
-ipAddressPools:
-  - name: default-ip-pool
-    addresses:
-      - $mgmt_ip/32
-    autoAssign: true
-
-l2Advertisements:
-  - name: l2-advertisement
-    ipAddressPools:
-      - default-ip-pool
-    interfaces:
-      - $mgmt_if
+  cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default-ip-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - $mgmt_ip/32
+  autoAssign: true
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - default-ip-pool
+  interfaces:
+    - $mgmt_if
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-values.yaml
+    helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
+    kubectl apply -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
   else
-    helm install metallb $WORKING_DIR/dap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-values.yaml
+    helm install metallb $WORKING_DIR/dap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace 
+    kubectl apply -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
   fi
 }
 

@@ -377,8 +377,8 @@ helm_install_longhorn () {
   echo "Installing helm chart..."
   cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
 # UI Deployment Replica Count
-ui:
-  replicaCount: 1
+longhornUI:
+  replicas: 1
 # CSI Components Replica Counts
 csi:
   attacherReplicaCount: 1

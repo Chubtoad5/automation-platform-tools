@@ -511,7 +511,7 @@ extract_dap_bundle () {
   else
     echo "Bundle already extracted."
   fi
-  for file in "$WORKING_DIR/bundle/"$DAP_VERSION-*.zip; do
+  for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$DAP_VERSION-*.zip; do
     unzip "$file" -d "$WORKING_DIR/bundle/"
   done
   if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
@@ -611,7 +611,7 @@ download_helm_binaries () {
 download_dap_bundle () {
   if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip ]]; then
     echo "Downloading DAP bundle..."
-    if [[ ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL ]]; then
+    if ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL; then
       echo "Failed to download DAP bundle. Verify URL $DAP_BUNDLE_URL is correct and internet connection is available."
       exit 1
     fi

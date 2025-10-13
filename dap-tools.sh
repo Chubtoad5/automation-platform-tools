@@ -81,6 +81,8 @@ mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
 WORKING_DIR="$base_dir/dap-install"
 REGISTRY_MODE=0
 REGISTRY_INFO=""
+REG_FQDN=""
+REG_PORT=""
 REG_USER=""
 REG_PASS=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
@@ -258,6 +260,29 @@ if [[ "$INSTALL_TYPE" == "dap-bundle" ]]; then
     if [[ "$REGISTRY_MODE" == "0" ]]; then
         echo "Error: 'install dap-bundle' requires registry config. Format: install dap-bundle -registry [registry:port] [username] [password]"
         echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
+# Verify REGISTRY_MODE is an FQDN/IP and port
+if [[ "$REGISTRY_MODE" == "1" ]]; then
+    if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
+        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com:443'."
+        exit 1
+    fi
+    REG_FQDN=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
+    REG_PORT=$(echo "$REGISTRY_INFO" | cut -d':' -f2)
+    if [[ ! ( "$REG_FQDN" =~ $fqdn_pattern || "$REG_FQDN" =~ $ipv4_pattern ) ]]; then
+        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com' or '192.168.1.50'."
+        exit 1
+    fi
+    if [[ "$REG_PORT" =~ ^[0-9]+$ ]]; then
+        if [[ "$REG_PORT" -lt 1 || "$REG_PORT" -gt 65535 ]]; then
+            echo "Error: Registry port must be a number between 1 and 65535."
+            exit 1
+        fi
+    else
+        echo "Error: Registry port must be a number between 1 and 65535."
         exit 1
     fi
 fi
@@ -493,10 +518,12 @@ dap_bundle_prep () {
 install_reg_docker () {
   echo "yes reg"
   image_pull_push_check
-  cd $WORKING_DIR/dap-utilities/images
+  cd $WORKING_DIR/dap-utilities/rke2/rke2-install/rke2-utilities
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
-  ./image_pull_push.sh docker
-  #Needs airgapped?
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    ./image_pull_push.sh docker
+  else 
+    ./image_pull_push.sh docker -f offline-packages.tar.gz
   cd $base_dir
 }
 
@@ -515,7 +542,7 @@ extract_dap_bundle () {
     unzip "$file" -d "$WORKING_DIR/bundle/"
   done
   if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
-    chmod +x $WORKING_DIR/bundle/install-upgraqde.sh
+    chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   else
     echo "Error: install-upgrade.sh not found in '$WORKING_DIR/bundle/'."
     exit 1

@@ -42,6 +42,7 @@ DURATION_DAYS=3650
 # --- Kubernetes Configuration ---#
 DEBUG=1
 RKE2_VERSION=v1.32.5+rke2r1
+CLUSTER_TYPE=single-node
 MAX_PODS=180
 CNI_TYPE=calico
 CLUSTER_CIDR="10.42.0.0/16"
@@ -444,7 +445,9 @@ EOF
 helm_install_longhorn () {
   # Add a check for singlenode vs multinode
   echo "Installing helm chart..."
-  cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
+  local values_yaml=""
+  if [[ $CLUSTER_TYPE == "single-node" ]]; then
+    cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
 # UI Deployment Replica Count
 longhornUI:
   replicas: 1
@@ -461,10 +464,12 @@ defaultSettings:
 persistence:
   defaultClassReplicaCount: 1
 EOF
+    local values_yaml="-f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml"
+  fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION -f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
+    helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
   else
-    helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace -f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
+    helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
   fi
   check_namespace_pods_ready "longhorn-system"
 }
@@ -506,41 +511,39 @@ EOF
 
 dap_bundle_prep () {
   if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
-    echo "Bundle prep"
+    echo "Preparing Dell Automation Platform bundle..."
     dap_host_config
     install_reg_docker
     download_dap_bundle
     extract_dap_bundle
-    prep_dap_installer_cmd
   fi
 }
 
 install_reg_docker () {
-  echo "yes reg"
+  echo "Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
-  cd $WORKING_DIR/dap-utilities/rke2/rke2-install/rke2-utilities
+  cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     ./image_pull_push.sh docker
   else 
-    ./image_pull_push.sh docker -f offline-packages.tar.gz
+    for file in "$WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz"; do
+      ./image_pull_push.sh docker -f $file
+    done
+  fi
   cd $base_dir
-}
-
-prep_dap_installer_cmd () {
-  echo "dap installer cmd"
 }
 
 extract_dap_bundle () {
   if [[ ! -d $WORKING_DIR/bundle ]]; then
     mkdir $WORKING_DIR/bundle
     unzip $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip -d $WORKING_DIR/bundle
+    for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$DAP_VERSION-*.zip; do
+      unzip "$file" -d "$WORKING_DIR/bundle/"
+    done
   else
     echo "Bundle already extracted."
   fi
-  for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$DAP_VERSION-*.zip; do
-    unzip "$file" -d "$WORKING_DIR/bundle/"
-  done
   if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   else
@@ -558,7 +561,7 @@ extract_dap_bundle () {
     exit 1
   fi
   echo "Run the following command to install Dell Automation Platform Portal and Orchestrator:"
-  echo "sudo data/nativeedge/install/install-upgrade.sh EO_HOST=$ORCHESTRATOR_FQDN IMAGE_REG_URL=$REGISTRY_URL/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER REGISTRY_CERT_FILE_PATH=$reg_cert_file_path NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME PORTAL_HOST=$PORTAL_FQDN ORG_NAME=$ORG_NAME ORG_DESC=$ORG_DESC FIRST_NAME=$FIRST_NAME LAST_NAME=$LAST_NAME USERNAME=$USERNAME EMAIL=$EMAIL"
+  echo "sudo data/nativeedge/install/install-upgrade.sh EO_HOST=$ORCHESTRATOR_FQDN IMAGE_REG_URL=$REGISTRY_INFO/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER REGISTRY_CERT_FILE_PATH=$reg_cert_file_path NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME PORTAL_HOST=$PORTAL_FQDN ORG_NAME=$ORG_NAME ORG_DESC=$ORG_DESC FIRST_NAME=$FIRST_NAME LAST_NAME=$LAST_NAME USERNAME=$USERNAME EMAIL=$EMAIL"
 }
 
 dap_host_config () {
@@ -714,10 +717,10 @@ install_packages_check () {
 }
 
 image_pull_push_check () {
-    if [[ ! -f $WORKING_DIR/dap-utilities/images/image_pull_push.sh ]]; then
+    if [[ ! -f $WORKING_DIR/rke2/rke2-install/rke2-utilities/image_pull_push.sh ]]; then
         echo "Downloading image_pull_push.sh..."
-        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/dap-utilities/images/image_pull_push.sh
-        chmod +x $WORKING_DIR/dap-utilities/images/image_pull_push.sh
+        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/rke2/rke2-install/rke2-utilities/image_pull_push.sh
+        chmod +x $WORKING_DIR/rke2/rke2-install/rke2-utilities/image_pull_push.sh
     fi
 }
 

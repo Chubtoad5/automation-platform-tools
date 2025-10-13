@@ -253,6 +253,15 @@ if [[ "$PUSH_MODE" == "1"  ]]; then
     fi
 fi
 
+# Verify 'dap-bundle' params
+if [[ "$INSTALL_TYPE" == "dap-bundle" ]]; then
+    if [[ "$REGISTRY_MODE" == "0" ]]; then
+        echo "Error: 'install dap-bundle' requires registry config. Format: install dap-bundle -registry [registry:port] [username] [password]"
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
 
 # Displays the parsed and validated arguments
 display_args() {
@@ -502,13 +511,13 @@ extract_dap_bundle () {
   else
     echo "Bundle already extracted."
   fi
-  if [[ -f "$WORKING_DIR/bundle/*.zip" ]]; then
-    unzip $WORKING_DIR/bundle/*.zip -d $WORKING_DIR/bundle
+  if [[ -f "$WORKING_DIR/bundle/DellAutomationPlatform_v$DAP_VERSION.zip" ]]; then
+    unzip $WORKING_DIR/bundle/DellAutomationPlatform_v$DAP_VERSION.zip -d $WORKING_DIR/bundle
   fi
-  if [[ -f "$WORKING_DIR/bundle/install-update.sh" ]]; then
-    chmod +x $WORKING_DIR/bundle/install-update.sh
+  if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
+    chmod +x $WORKING_DIR/bundle/install-upgraqde.sh
   else
-    echo "Error: install-update.sh not found in bundle."
+    echo "Error: install-upgrade.sh not found in '$WORKING_DIR/bundle/'."
     exit 1
   fi
   local registry_hostname=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
@@ -537,7 +546,11 @@ dap_host_config () {
   fi
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
-  ./install_packages.sh jq zip unzip
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    ./install_packages.sh offline jq zip unzip
+  else
+    ./install_packages.sh online jq zip unzip
+  fi
   cd $base_dir
 }
 

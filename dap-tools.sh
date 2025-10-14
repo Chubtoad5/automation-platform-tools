@@ -588,15 +588,20 @@ dap_host_config () {
 # -- Offline Prep Definitions -- #
 
 run_offline_prep () {
-    echo "--- Running offline prep workflow ---"
-    download_packages
-    download_helm_binaries
-    generate_images_file
-    download_rke2
+    echo "--- Starting offline prep workflow ---"
+    echo "Downloading host packages..."
+    run_debug download_packages
+    echo "Downloading dependancy helm charts..."
+    run_debug download_helm_binaries
+    run_debug generate_images_file
+    echo "Downloading RKE2 binaries and images..."
+    run_debug download_rke2
     if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
-      download_dap_bundle
+      echo "Downloading Dell Automation Platform bundle..."
+      run_debug download_dap_bundle
     fi
-    create_offline_prep_archive
+    echo "Creating archive for air-gapped host..."
+    run_debug  create_offline_prep_archive
     echo "--- Offline prep workflow complete ---"
 }
 
@@ -837,7 +842,8 @@ runtime_outputs () {
         echo "  - (Optional) Join more nodes if this is a multi-node setup."
         echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
     else
-        echo "Agent install completed, check the status with 'kubectl get nodes' and 'kubectl get pods -A' on the server for details."
+        echo "Next steps:"
+        echo "  - From a server node, run'kubectl get nodes' and 'kubectl get pods -A' to confirm the agent is ready."
     fi
   fi
   if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
@@ -846,9 +852,12 @@ runtime_outputs () {
     echo "  - Run the following command to install Dell Automation Platform Portal and Orchestrator:"
     echo "----"
   cat << EOF 
-sudo $WORKING_DIR/bundle/install-upgrade.sh EO_HOST=$ORCHESTRATOR_FQDN PORTAL_HOST=$PORTAL_FQDN PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN \\
-  IMAGE_REG_URL=$REGISTRY_INFO/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS REGISTRY_CERT_FILE_PATH=$REG_CERT_FILE_PATH \\
-  SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME \\
+sudo $WORKING_DIR/bundle/install-upgrade.sh \\
+  EO_HOST=$ORCHESTRATOR_FQDN PORTAL_HOST=$PORTAL_FQDN PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN \\
+  IMAGE_REG_URL=$REGISTRY_INFO/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS \\
+  REGISTRY_CERT_FILE_PATH=$REG_CERT_FILE_PATH \\
+  SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER \\
+  NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME \\
   ORG_NAME=$ORG_NAME ORG_DESC=$ORG_DESC FIRST_NAME=$FIRST_NAME LAST_NAME=$LAST_NAME USERNAME=$USERNAME EMAIL=$EMAIL
 EOF
   echo "----"
@@ -862,8 +871,7 @@ os_check
 run_debug display_args
 create_working_dir
 if [[ $OFFLINE_PREP_MODE == "1" ]]; then
-  echo "Generating packages and archives for air-gapped deployment..."
-  run_debug run_offline_prep
+  run_offline_prep
   echo "Offline archive 'dap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
 if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle") ]]; then
@@ -873,6 +881,5 @@ if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
   echo "Preparing Dell Automation Platform bundle..."
   echo "This may take several minutes..."
   run_debug dap_bundle_prep
-  echo "Dell Automation Platform bundle prepared!"
 fi
 runtime_outputs

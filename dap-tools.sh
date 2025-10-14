@@ -86,6 +86,7 @@ REG_FQDN=""
 REG_PORT=""
 REG_USER=""
 REG_PASS=""
+REG_CERT_FILE_PATH=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
 RKE2_CMD_ARGS=""
@@ -382,6 +383,7 @@ run_install_join_push () {
     tar xzf rke2-save.tar.gz
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
+    echo "RKE2 installation completed..."
   else
     echo "Running rke2_installer with online mode..."
     rke2_installer_check
@@ -391,16 +393,19 @@ run_install_join_push () {
     cd $WORKING_DIR/rke2
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
+    echo "RKE2 installation completed..."
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
+   echo "Installing dependancy helm charts..."
     export KUBECONFIG=/home/$user_name/.kube/config
     export PATH=$PATH:/var/lib/rancher/rke2/bin
-    install_helm
-    helm_install_haproxy
-    helm_install_metallb
+    run_debug install_helm
+    run_debug helm_install_haproxy
+    run_debug helm_install_metallb
     if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-      helm_install_longhorn
+      run_debug helm_install_longhorn
     fi
+    echo "Finished installing dependancy helm charts..."
   fi
 }
 
@@ -550,18 +555,14 @@ extract_dap_bundle () {
     echo "Error: install-upgrade.sh not found in '$WORKING_DIR/bundle/'."
     exit 1
   fi
-  local registry_hostname=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
-  local reg_cert_file_path=""
-  if [[ -f "/usr/local/share/ca-certificates/$registry_hostname.crt" ]]; then
-    reg_cert_file_path="/usr/local/share/ca-certificates/$registry_hostname.crt"
-  elif [[ -f "/etc/pki/ca-trust/source/anchors/$registry_hostname.crt" ]]; then
-    reg_cert_file_path="/etc/pki/ca-trust/source/anchors/$registry_hostname.crt"
+  if [[ -f "/usr/local/share/ca-certificates/$REG_FQDN.crt" ]]; then
+    REG_CERT_FILE_PATH="/usr/local/share/ca-certificates/$REG_FQDN.crt"
+  elif [[ -f "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" ]]; then
+    REG_CERT_FILE_PATH="/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt"
   else
     echo "Error: registry certificate not found."
     exit 1
   fi
-  echo "Run the following command to install Dell Automation Platform Portal and Orchestrator:"
-  echo "sudo data/nativeedge/install/install-upgrade.sh EO_HOST=$ORCHESTRATOR_FQDN IMAGE_REG_URL=$REGISTRY_INFO/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER REGISTRY_CERT_FILE_PATH=$reg_cert_file_path NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME PORTAL_HOST=$PORTAL_FQDN ORG_NAME=$ORG_NAME ORG_DESC=$ORG_DESC FIRST_NAME=$FIRST_NAME LAST_NAME=$LAST_NAME USERNAME=$USERNAME EMAIL=$EMAIL"
 }
 
 dap_host_config () {
@@ -597,7 +598,6 @@ run_offline_prep () {
     fi
     create_offline_prep_archive
     echo "--- Offline prep workflow complete ---"
-    echo "Copy the archive to an air-gapped host running the same version of $OS_ID"
 }
 
 download_packages () {
@@ -781,7 +781,7 @@ run_debug() {
     fi
     return $status
   else
-    echo "Running '$*'..."
+    # echo "Running '$*'..."
     "$@" > /dev/null 2>&1
     return $?
   fi
@@ -796,17 +796,83 @@ cleanup () {
     fi
 }
 
+runtime_outputs () {
+  if [[ $INSTALL_TYPE == "rke2" ]]; then
+    local join_token=$(cat /var/lib/rancher/rke2/server/node-token)
+    echo "Kubernetes cluster created..."
+    echo "Cluster information:"
+    kubectl get nodes
+    echo "API endpoint: https://$mgmt_ip:6443"
+    if [[ $TLS_SAN_MODE -eq 1 ]]; then
+      echo "TLS-SAN API endpoint: https://$TLS_SAN:6443"
+      echo "To manually join more nodes to this cluster use the following config:"
+      echo "----"
+      echo "server: https://$TLS_SAN:9345"
+      echo "token: $join_token"
+      echo "----"
+    else
+      echo "----"
+      echo "To manually join more nodes to this cluster use the following config:"
+      echo "server: ttps://$mgmt_ip:9345"
+      echo "token: $join_token"
+      echo "----"
+    fi
+    echo "Next steps:"
+    echo "  - Run 'source ~/.bashrc' to enable kubectl"
+    echo "  - (Optional) Join more nodes if this is a multi-node setup."
+    echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
+  fi
+  if [[ $PUSH_MODE -eq 1 ]]; then
+    echo "Push workflow completed..."
+    echo "RKE2 and dependancy images have been pushed to external registry $REG_FQDN, check the registry to confirm images are present."
+    echo "Next steps:"
+    echo "  - Run 'install rke2 -registry [registry:port username password]' to install the cluster"
+  fi
+  if [[ $JOIN_MODE -eq 1 ]]; then
+    if [[ $JOIN_TYPE == "server" ]]; then
+        echo "Server join completed..."
+        kubectl get nodes
+        echo "Next steps:"
+        echo "  - Run 'source ~/.bashrc' to enable kubectl"
+        echo "  - (Optional) Join more nodes if this is a multi-node setup."
+        echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
+    else
+        echo "Agent install completed, check the status with 'kubectl get nodes' and 'kubectl get pods -A' on the server for details."
+    fi
+  fi
+  if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+    echo "Dell Automation Platform install bundle prepared..."
+    echo "Next steps:"
+    echo "  - Run the following command to install Dell Automation Platform Portal and Orchestrator:"
+    echo "----"
+  cat << EOF 
+sudo $WORKING_DIR/bundle/install-upgrade.sh EO_HOST=$ORCHESTRATOR_FQDN PORTAL_HOST=$PORTAL_FQDN PORTAL_COOKIE_DOMAIN=$PORTAL_COOKIE_DOMAIN \\
+  IMAGE_REG_URL=$REGISTRY_INFO/$REGISTRY_PROJECT_NAME IMAGE_REG_USERNAME=$REG_USER IMAGE_REG_PASSWORD=$REG_PASS REGISTRY_CERT_FILE_PATH=$REG_CERT_FILE_PATH \\
+  SKIP_IMAGES_LOADER=$SKIP_IMAGES_LOADER NAMESPACE=$ORCHESTRATOR_NAMESPACE PORTAL_NAMESPACE=$PORTAL_NAMESPACE PORTAL_INGRESS_CLASS_NAME=$PORTAL_INGRESS_CLASS_NAME \\
+  ORG_NAME=$ORG_NAME ORG_DESC=$ORG_DESC FIRST_NAME=$FIRST_NAME LAST_NAME=$LAST_NAME USERNAME=$USERNAME EMAIL=$EMAIL
+EOF
+  echo "----"
+  fi
+
+}
+
 # --- Main Script Execution --- #
 
 os_check
 run_debug display_args
 create_working_dir
 if [[ $OFFLINE_PREP_MODE == "1" ]]; then
+  echo "Generating packages and archives for air-gapped deployment..."
   run_debug run_offline_prep
+  echo "Offline archive 'dap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
 if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle") ]]; then
-  run_debug run_install_join_push
+  run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+  echo "Preparing Dell Automation Platform bundle..."
+  echo "This may take several minutes..."
   run_debug dap_bundle_prep
+  echo "Dell Automation Platform bundle prepared!"
 fi
+runtime_outputs

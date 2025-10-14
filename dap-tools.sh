@@ -818,13 +818,14 @@ runtime_outputs () {
     else
       echo "----"
       echo "To manually join more nodes to this cluster use the following config:"
-      echo "server: ttps://$mgmt_ip:9345"
+      echo "server: https://$mgmt_ip:9345"
       echo "token: $join_token"
       echo "----"
     fi
     echo "Next steps:"
     echo "  - Run 'source ~/.bashrc' to enable kubectl"
-    echo "  - (Optional) Join more nodes if this is a multi-node setup."
+    echo "  - To join another server using this script, run: 'join server [server-fqdn-ip] [join-token-string]'"
+    echo "  - To join another agent using this script, run: 'join agent [server-fqdn-ip] [join-token-string]'"
     echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
   fi
   if [[ $PUSH_MODE -eq 1 ]]; then

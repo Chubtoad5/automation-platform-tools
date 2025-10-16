@@ -26,8 +26,8 @@ HARBOR_PORT=443
 HARBOR_USERNAME=admin
 HARBOR_PASSWORD=Harbor12345
 HARBOR_PROJECT_NAME=dell-automation
-NGINX_HTUSER=edgeuser
-NGINX_HTPASS=NativeEdge123!
+NGINX_HTUSER=admin
+NGINX_HTPASS=changeme
 NGINX_PORT=4443
 
 # --- Self-Signed Certificate Configuration for Harbor and NGINX --- $
@@ -138,10 +138,10 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            # if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
-            if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
+            # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
                 # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
-                echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle]"
+                echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -409,6 +409,48 @@ run_install_join_push () {
   fi
 }
 
+run_install_nginx () {
+  echo "nginx"
+  cd $WORKING_DIR/dap-utilities/nginx
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+      curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
+      chmod +x install_nginx.sh
+      INSTALL_SERVER=true OFFLINE_PREP=false NGINX_PORT=$NGINX_PORT NGINX_COMMON_NAME=$NGINX_COMMON_NAME NGINX_HTUSER=$NGINX_HTUSER NGINX_HTPASS=$NGINX_HTPASS DURATION_DAYS=$DURATION_DAYS STATE=$STATE COUNTRY=$COUNTRY LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DEBUG=$DEBUG ./install_nginx.sh
+  else
+      for file in "$WORKING_DIR/dap-utilities/nginx/nginx_offline_install-*.tar.gz"; do
+        tar xzf $file
+      done
+      INSTALL_SERVER=true OFFLINE_PREP=true NGINX_PORT=$NGINX_PORT NGINX_COMMON_NAME=$NGINX_COMMON_NAME NGINX_HTUSER=$NGINX_HTUSER NGINX_HTPASS=$NGINX_HTPASS DURATION_DAYS=$DURATION_DAYS STATE=$STATE COUNTRY=$COUNTRY LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DEBUG=$DEBUG ./install_nginx.sh
+  fi
+}
+
+# # #
+# HARBOR_VERSION=2.12.2
+# HARBOR_FQDN=registry.edge.lab
+# HARBOR_PORT=443
+# HARBOR_USERNAME=admin
+# HARBOR_PASSWORD=Harbor12345
+# HARBOR_PROJECT_NAME=dell-automation
+# NGINX_HTUSER=admin
+# NGINX_HTPASS=changeme
+# NGINX_PORT=4443
+
+# # 
+# COUNTRY=US
+# STATE=MA
+# LOCATION=HOPKINTON
+# ORGANIZATION=DELL
+# NGINX_COMMON_NAME=artifacts.edge.lab
+# HARBOR_COMMON_NAME=registry.edge.lab
+# DURATION_DAYS=3650
+
+# # #
+# DEBUG=1
+
+run_install_harbor () {
+  echo "harbor"
+}
+
 install_helm () {
   echo "Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
@@ -527,6 +569,7 @@ dap_bundle_prep () {
 install_reg_docker () {
   echo "Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
+  cp $WORKING_DIR/dap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
   cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
@@ -590,7 +633,9 @@ dap_host_config () {
 run_offline_prep () {
     echo "--- Starting offline prep workflow ---"
     echo "Downloading host packages..."
-    run_debug download_packages
+    run_debug download_dap_packages
+    echo "Downloading nginx binaries..."
+    run_debug download_nginx
     echo "Downloading dependancy helm charts..."
     run_debug download_helm_binaries
     run_debug generate_images_file
@@ -605,7 +650,16 @@ run_offline_prep () {
     echo "--- Offline prep workflow complete ---"
 }
 
-download_packages () {
+download_nginx () {
+  cp $WORKING_DIR/dap-utilities/install_packages.sh $WORKING_DIR/dap-utilities/nginx/nginx
+  cd $WORKING_DIR/dap-utilities/nginx
+  curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
+  chmod +x install_nginx.sh
+  INSTALL_SERVER=true OFFLINE_PREP=true ./install_nginx.sh
+  cd $base_dir
+}
+
+download_dap_packages () {
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
   ./install_packages.sh save jq zip unzip
@@ -687,6 +741,8 @@ create_working_dir () {
     # check for rke2-install directory and supporting directories, then create them
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
     [ -d "$WORKING_DIR/dap-utilities/packages" ] || mkdir -p "$WORKING_DIR/dap-utilities/packages"
+    [ -d "$WORKING_DIR/dap-utilities/harbor" ] || mkdir -p "$WORKING_DIR/dap-utilities/harbor"
+    [ -d "$WORKING_DIR/dap-utilities/nginx/nginx" ] || mkdir -p "$WORKING_DIR/dap-utilities/nginx/nginx"
     [ -d "$WORKING_DIR/dap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/haproxy"
     [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/longhorn"
@@ -722,10 +778,10 @@ install_packages_check () {
 }
 
 image_pull_push_check () {
-    if [[ ! -f $WORKING_DIR/rke2/rke2-install/rke2-utilities/image_pull_push.sh ]]; then
+    if [[ ! -f $WORKING_DIR/dap-utilities/images/image_pull_push.sh ]]; then
         echo "Downloading image_pull_push.sh..."
-        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/rke2/rke2-install/rke2-utilities/image_pull_push.sh
-        chmod +x $WORKING_DIR/rke2/rke2-install/rke2-utilities/image_pull_push.sh
+        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/dap-utilities/images/image_pull_push.sh
+        chmod +x $WORKING_DIR/dap-utilities/images/image_pull_push.sh
     fi
 }
 
@@ -875,12 +931,20 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'dap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE == "rke2") ]]; then
   run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
   echo "Preparing Dell Automation Platform bundle..."
   echo "This may take several minutes..."
   run_debug dap_bundle_prep
+fi
+if [[ $INSTALL_TYPE == "nginx" ]]; then
+  echo "Installing nginx artifact server..."
+  run_install_nginx
+fi
+if [[ $INSTALL_TYPE == "harbor" ]]; then
+  echo "Installing Harbor registry..."
+  run_install_harbor
 fi
 runtime_outputs

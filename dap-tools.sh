@@ -651,7 +651,7 @@ run_offline_prep () {
 }
 
 download_nginx () {
-  cp $WORKING_DIR/dap-utilities/install_packages.sh $WORKING_DIR/dap-utilities/nginx/nginx
+  cp $WORKING_DIR/dap-utilities/packages/install_packages.sh $WORKING_DIR/dap-utilities/nginx/nginx
   cd $WORKING_DIR/dap-utilities/nginx
   curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
   chmod +x install_nginx.sh

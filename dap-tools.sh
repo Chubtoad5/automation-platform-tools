@@ -21,7 +21,6 @@ EMAIL=changeme@example.com
 
 # --- Harbor and NGINX Configuration --- #
 HARBOR_VERSION=2.12.2
-HARBOR_FQDN=registry.edge.lab
 HARBOR_PORT=443
 HARBOR_USERNAME=admin
 HARBOR_PASSWORD=Harbor12345
@@ -410,7 +409,7 @@ run_install_join_push () {
 }
 
 run_install_nginx () {
-  echo "nginx"
+  echo "Installing NGINX Artifact Server..."
   cd $WORKING_DIR/dap-utilities/nginx
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
@@ -424,9 +423,22 @@ run_install_nginx () {
   fi
 }
 
+run_install_harbor () {
+  cd $WORKING_DIR/dap-utilities/harbor
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+      chmod +x install_harbor.sh
+      HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$HARBOR_USERNAME HARBOR_PASSWORD=$HARBOR_PASSWORD COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
+  else
+      for file in "$WORKING_DIR/dap-utilities/harbor/harbor-offline-package.tar.gz"; do
+        tar xzf $file
+      done
+            HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$HARBOR_USERNAME HARBOR_PASSWORD=$HARBOR_PASSWORD COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
+  fi
+}
+
 # # #
 # HARBOR_VERSION=2.12.2
-# HARBOR_FQDN=registry.edge.lab
 # HARBOR_PORT=443
 # HARBOR_USERNAME=admin
 # HARBOR_PASSWORD=Harbor12345
@@ -446,10 +458,6 @@ run_install_nginx () {
 
 # # #
 # DEBUG=1
-
-run_install_harbor () {
-  echo "harbor"
-}
 
 install_helm () {
   echo "Installing helm..."
@@ -636,6 +644,8 @@ run_offline_prep () {
     run_debug download_dap_packages
     echo "Downloading nginx binaries..."
     run_debug download_nginx
+    echo "Downloading Harbor binaries..."
+    run_debug download_harbor
     echo "Downloading dependancy helm charts..."
     run_debug download_helm_binaries
     run_debug generate_images_file
@@ -656,6 +666,14 @@ download_nginx () {
   curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
   chmod +x install_nginx.sh
   INSTALL_SERVER=true OFFLINE_PREP=true ./install_nginx.sh
+  cd $base_dir
+}
+
+download_harbor () {
+  cd $WORKING_DIR/dap-utilities/harbor
+  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+  chmod +x install_harbor.sh
+  DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
 }
 

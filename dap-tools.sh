@@ -98,15 +98,21 @@ usage() {
 Usage: $SCRIPT_NAME [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
-  install      : Installs specified component and any dependencies. If a dap-offline.tar.gz file is in the directory, component will be installed in air-gapped mode.
-                  [rke2] Installs rke2 as a server.
-                  [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command based off the defined variables. Must be used with [-registry].
-                  [harbor] Installs the harbor registry.
-                  [nginx] Installs an nginx static file server.
-  offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation, cannot be used with [install] [push] [join].
-  push         : Pushes all kubernetes and utility container images to the specified registry. [-registry] must be specified. Does not push Dell Automation Platform images.
-  join         : Joins the host to an existing cluster as a [server] or [agent]. [server-fqdn] and [join-token-string] must be specified.
-  -tls-san     : Optional, adds specified FQDN to rke2 tls-san configuration for multi-node setup. Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
+  install      : Installs specified component and any dependencies.
+                 For air-gapped install, dap-offline.tar.gz file must be in the same directory as script.
+                  [rke2]       Installs rke2 as a server.
+                  [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command. 
+                               Must be used with [-registry].
+                  [harbor]     Installs the harbor registry.
+                  [nginx]      Installs an nginx static file server.
+  offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
+                 Cannot be used with [install] [push] [join].
+  push         : Pushes all kubernetes and utility container images to the specified registry. 
+                 [-registry] must be specified. Does not push Dell Automation Platform images.
+  join         : Joins the host to an existing cluster as a [server] or [agent]. 
+                 [server-fqdn] and [join-token-string] must be specified.
+  -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup. 
+                 Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
   -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
 
 EOF

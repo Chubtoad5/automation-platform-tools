@@ -267,28 +267,6 @@ run_install_harbor () {
   fi
 }
 
-# # #
-# HARBOR_VERSION=2.12.2
-# HARBOR_PORT=443
-# HARBOR_USERNAME=admin
-# HARBOR_PASSWORD=Harbor12345
-# HARBOR_PROJECT_NAME=dell-automation
-# NGINX_HTUSER=admin
-# NGINX_HTPASS=changeme
-# NGINX_PORT=4443
-
-# # 
-# COUNTRY=US
-# STATE=MA
-# LOCATION=HOPKINTON
-# ORGANIZATION=DELL
-# NGINX_COMMON_NAME=artifacts.edge.lab
-# HARBOR_COMMON_NAME=registry.edge.lab
-# DURATION_DAYS=3650
-
-# # #
-# DEBUG=1
-
 install_helm () {
   echo "Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then

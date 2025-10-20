@@ -956,7 +956,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'dap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "rke2" && $INSTALL_TYPE != "dap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "nginx") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "nginx") ]]; then
   run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "dap-bundle" ]]; then

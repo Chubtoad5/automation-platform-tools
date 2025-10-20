@@ -119,182 +119,6 @@ EOF
     exit 1
 }
 
-# --- Start Argument parsing and validation --- #
-
-# Check for root privileges
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run with root privileges."
-   echo "Type './$SCRIPT_NAME -h' for help."
-   exit 1
-fi
-
-# Check for no arguments, and show usage if none are provided
-if [[ "$#" -eq 0 ]]; then
-    echo "Error: No arguments provided."
-    usage
-fi
-
-# Check for the correct argument syntax
-while [[ "$#" -gt 0 ]]; do
-    case "$1" in
-        -h|--help)
-            usage
-            ;;
-        install)
-            INSTALL_MODE=1
-            INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
-            # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
-                # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
-                echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
-            fi
-            shift
-            shift
-            ;;
-        offline-prep)
-            OFFLINE_PREP_MODE=1
-            shift
-            ;;
-        push)
-            PUSH_MODE=1
-            shift
-            ;;
-        join)
-            JOIN_MODE=1
-            JOIN_TYPE="${2:-}"
-            JOIN_SERVER_FQDN="${3:-}"
-            JOIN_TOKEN="${4:-}"
-            if [[ -z "$JOIN_TYPE" || "$JOIN_TYPE" != "agent" && "$JOIN_TYPE" != "server" ]]; then
-                echo "Error: 'join' command requires a join type. Format: join [server|agent] [server-fqdn] [join-token-string]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
-            fi
-            if [[ -z "$JOIN_SERVER_FQDN" ]]; then
-                echo "Error: 'join' command requires a server fqdn/ip. Format: join [server|agent] [server-fqdn] [join-token-string]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
-            fi
-            if [[ -z "$JOIN_TOKEN" ]]; then
-                echo "Error: 'join' command requires a join token. Format: join [server|agent] [server-fqdn] [join-token-string]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
-            fi
-            shift
-            shift
-            shift
-            shift
-            ;;
-        -tls-san)
-            TLS_SAN_MODE=1
-            TLS_SAN="${2:-}"
-            if [[ -z "$TLS_SAN" ]]; then
-                echo "Error: '-tls-san' command requires a server fqdn/ip. Format: -tls-san [server-fqdn-ip]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
-            fi
-            shift
-            shift
-            ;;
-        -registry)
-            REGISTRY_MODE=1
-            REGISTRY_INFO="${2:-}"
-            REG_USER="${3:-}"
-            REG_PASS="${4:-}"
-            if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
-                echo "Error: Registry info requires a username and password. Format: registry [registry:port username password]"
-                echo "Type './$SCRIPT_NAME -h' for help."
-                exit 1
-            fi
-            shift
-            shift
-            shift
-            shift
-            ;;
-        *)
-            echo "Error: Invalid argument '$1'."
-            usage
-            ;;
-    esac
-done
-
-# Run validation to ensure the correct arguments and modes have been passed.
-
-# Verify AIR_GAPPED_MODE based on dap-offline.tar.gz file presence
-[[ ! -f $base_dir/dap-offline.tar.gz ]] || AIR_GAPPED_MODE=1
-
-# Verify OFFLINE_PREP_MODE is not used with other commands or flags
-if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then
-    if [[ $JOIN_MODE == "1" || $INSTALL_MODE == "1" || $PUSH_MODE == "1" ]]; then
-        echo "Error: 'offline-prep' command cannot be used with 'join, install, or push'."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-    if [[ $TLS_SAN_MODE == "1" || $REGISTRY_MODE == "1" ]]; then
-        echo "Error: 'offline-prep' command cannot be used with '-tls-san or -registry'."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-    if [[ $AIR_GAPPED_MODE == "1" ]]; then
-        echo "Error: Air-gapped mode detected,'offline-prep' requires an internet connection."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-fi
-
-# Verify PUSH_MODE has registry info and not used with JOIN_MODE
-if [[ "$PUSH_MODE" == "1"  ]]; then
-    if [[ "$JOIN_MODE" == "1" ]]; then
-        echo "Error: 'push' command cannot be used with 'join'."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-    if [[ "$REGISTRY_MODE" == "0" ]]; then
-        echo "Error: 'push' command requires registry config. Format: push -registry [registry:port] [username] [password]"
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-    if [[ "$TLS_SAN_MODE" == "1" && "$INSTALL_MODE" == "0" ]]; then
-        echo "Error: 'push' command cannot be used with '-tls-san' unless used with 'install rke2'."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-fi
-
-# Verify 'dap-bundle' params
-if [[ "$INSTALL_TYPE" == "dap-bundle" ]]; then
-    if [[ "$REGISTRY_MODE" == "0" ]]; then
-        echo "Error: 'install dap-bundle' requires registry config. Format: install dap-bundle -registry [registry:port] [username] [password]"
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
-    fi
-fi
-
-# Verify REGISTRY_MODE is an FQDN/IP and port
-if [[ "$REGISTRY_MODE" == "1" ]]; then
-    if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
-        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com:443'."
-        exit 1
-    fi
-    REG_FQDN=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
-    REG_PORT=$(echo "$REGISTRY_INFO" | cut -d':' -f2)
-    if [[ ! ( "$REG_FQDN" =~ $fqdn_pattern || "$REG_FQDN" =~ $ipv4_pattern ) ]]; then
-        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com' or '192.168.1.50'."
-        exit 1
-    fi
-    if [[ "$REG_PORT" =~ ^[0-9]+$ ]]; then
-        if [[ "$REG_PORT" -lt 1 || "$REG_PORT" -gt 65535 ]]; then
-            echo "Error: Registry port must be a number between 1 and 65535."
-            exit 1
-        fi
-    else
-        echo "Error: Registry port must be a number between 1 and 65535."
-        exit 1
-    fi
-fi
-
-
 # Displays the parsed and validated arguments
 display_args() {
     echo "---"
@@ -947,6 +771,183 @@ EOF
 }
 
 # --- Main Script Execution --- #
+
+# --- Start Argument parsing and validation --- #
+
+# Check for root privileges
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run with root privileges."
+   echo "Type './$SCRIPT_NAME -h' for help."
+   exit 1
+fi
+
+# Check for no arguments, and show usage if none are provided
+if [[ "$#" -eq 0 ]]; then
+    echo "Error: No arguments provided."
+    usage
+fi
+
+# Check for the correct argument syntax
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        install)
+            INSTALL_MODE=1
+            INSTALL_TYPE="${2:-}"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "dap=bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
+            # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
+                # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
+                echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            ;;
+        offline-prep)
+            OFFLINE_PREP_MODE=1
+            shift
+            ;;
+        push)
+            PUSH_MODE=1
+            shift
+            ;;
+        join)
+            JOIN_MODE=1
+            JOIN_TYPE="${2:-}"
+            JOIN_SERVER_FQDN="${3:-}"
+            JOIN_TOKEN="${4:-}"
+            if [[ -z "$JOIN_TYPE" || "$JOIN_TYPE" != "agent" && "$JOIN_TYPE" != "server" ]]; then
+                echo "Error: 'join' command requires a join type. Format: join [server|agent] [server-fqdn] [join-token-string]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            if [[ -z "$JOIN_SERVER_FQDN" ]]; then
+                echo "Error: 'join' command requires a server fqdn/ip. Format: join [server|agent] [server-fqdn] [join-token-string]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            if [[ -z "$JOIN_TOKEN" ]]; then
+                echo "Error: 'join' command requires a join token. Format: join [server|agent] [server-fqdn] [join-token-string]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            shift
+            shift
+            ;;
+        -tls-san)
+            TLS_SAN_MODE=1
+            TLS_SAN="${2:-}"
+            if [[ -z "$TLS_SAN" ]]; then
+                echo "Error: '-tls-san' command requires a server fqdn/ip. Format: -tls-san [server-fqdn-ip]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            ;;
+        -registry)
+            REGISTRY_MODE=1
+            REGISTRY_INFO="${2:-}"
+            REG_USER="${3:-}"
+            REG_PASS="${4:-}"
+            if [[ -z "$REG_USER" || -z "$REG_PASS" ]]; then
+                echo "Error: Registry info requires a username and password. Format: registry [registry:port username password]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            shift
+            shift
+            ;;
+        *)
+            echo "Error: Invalid argument '$1'."
+            usage
+            ;;
+    esac
+done
+
+# Run validation to ensure the correct arguments and modes have been passed.
+
+# Verify AIR_GAPPED_MODE based on dap-offline.tar.gz file presence
+[[ ! -f $base_dir/dap-offline.tar.gz ]] || AIR_GAPPED_MODE=1
+
+# Verify OFFLINE_PREP_MODE is not used with other commands or flags
+if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then
+    if [[ $JOIN_MODE == "1" || $INSTALL_MODE == "1" || $PUSH_MODE == "1" ]]; then
+        echo "Error: 'offline-prep' command cannot be used with 'join, install, or push'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ $TLS_SAN_MODE == "1" || $REGISTRY_MODE == "1" ]]; then
+        echo "Error: 'offline-prep' command cannot be used with '-tls-san or -registry'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ $AIR_GAPPED_MODE == "1" ]]; then
+        echo "Error: Air-gapped mode detected,'offline-prep' requires an internet connection."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
+# Verify PUSH_MODE has registry info and not used with JOIN_MODE
+if [[ "$PUSH_MODE" == "1"  ]]; then
+    if [[ "$JOIN_MODE" == "1" ]]; then
+        echo "Error: 'push' command cannot be used with 'join'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ "$REGISTRY_MODE" == "0" ]]; then
+        echo "Error: 'push' command requires registry config. Format: push -registry [registry:port] [username] [password]"
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ "$TLS_SAN_MODE" == "1" && "$INSTALL_MODE" == "0" ]]; then
+        echo "Error: 'push' command cannot be used with '-tls-san' unless used with 'install rke2'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
+# Verify 'dap-bundle' params
+if [[ "$INSTALL_TYPE" == "dap-bundle" ]]; then
+    if [[ "$REGISTRY_MODE" == "0" ]]; then
+        echo "Error: 'install dap-bundle' requires registry config. Format: install dap-bundle -registry [registry:port] [username] [password]"
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
+# Verify REGISTRY_MODE is an FQDN/IP and port
+if [[ "$REGISTRY_MODE" == "1" ]]; then
+    if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
+        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com:443'."
+        exit 1
+    fi
+    REG_FQDN=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
+    REG_PORT=$(echo "$REGISTRY_INFO" | cut -d':' -f2)
+    if [[ ! ( "$REG_FQDN" =~ $fqdn_pattern || "$REG_FQDN" =~ $ipv4_pattern ) ]]; then
+        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com' or '192.168.1.50'."
+        exit 1
+    fi
+    if [[ "$REG_PORT" =~ ^[0-9]+$ ]]; then
+        if [[ "$REG_PORT" -lt 1 || "$REG_PORT" -gt 65535 ]]; then
+            echo "Error: Registry port must be a number between 1 and 65535."
+            exit 1
+        fi
+    else
+        echo "Error: Registry port must be a number between 1 and 65535."
+        exit 1
+    fi
+fi
+
+# --- Main Workflow --- $
 
 os_check
 run_debug display_args

@@ -193,7 +193,7 @@ build_command_syntax() {
             return 1 # Return non-zero to indicate error
             ;;
     esac
-    echo "parsed command args: $RKE2_CMD_ARGS"
+    echo "  parsed command args: $RKE2_CMD_ARGS"
     return 0
 }
 # --- End of Argument Parsing --- #
@@ -201,20 +201,20 @@ build_command_syntax() {
 # -- Install, Join, Push Definitions -- #
 
 run_install_join_push () {
-  build_command_syntax
+  run_debug build_command_syntax
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
     if [[ ! -d $base_dir/dap-install ]]; then
       echo "Error: Air-gapped archive detected, but 'dap-install' directory not found. Extract with 'tar xzf dap-offline.tar.gz' first."
       exit 1
     fi
-    echo "Running rke2_installer in air-gapped mode..."
+    echo "### Running Kubernetes install in air-gapped mode ###"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
-    echo "RKE2 installation completed..."
+    echo "### Kubernetes installation completed ###"
   else
-    echo "Running rke2_installer with online mode..."
+    echo "### Running Kubernetes install with online mode ###"
     rke2_installer_check
     if [[ $PUSH_MODE == "1" ]]; then
       generate_images_file
@@ -222,10 +222,10 @@ run_install_join_push () {
     cd $WORKING_DIR/rke2
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
-    echo "RKE2 installation completed..."
+    echo "### Kubernetes installation completed ###"
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
-   echo "Installing dependancy helm charts..."
+   echo "### Installing dependancy helm charts ###"
     export KUBECONFIG=/home/$user_name/.kube/config
     export PATH=$PATH:/var/lib/rancher/rke2/bin
     run_debug install_helm
@@ -234,12 +234,12 @@ run_install_join_push () {
     if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
       run_debug helm_install_longhorn
     fi
-    echo "Finished installing dependancy helm charts..."
+    echo "### Finished installing dependancy helm charts ###"
   fi
 }
 
 run_install_nginx () {
-  echo "Installing NGINX Artifact Server..."
+  echo "### Installing NGINX Artifact Server ###"
   cd $WORKING_DIR/dap-utilities/nginx
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
@@ -268,14 +268,14 @@ run_install_harbor () {
 }
 
 install_helm () {
-  echo "Installing helm..."
+  echo "  Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     curl -fsSLo $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   fi
     tar -xvf $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
     mv linux-amd64/helm /usr/local/bin/helm
     rm -rf linux-amd64
-    echo "Adding helm charts..."
+    echo "  Adding helm charts..."
     helm repo add metallb https://metallb.github.io/metallb
     helm repo add haproxytech https://haproxytech.github.io/helm-charts
     helm repo add longhorn https://charts.longhorn.io
@@ -283,7 +283,7 @@ install_helm () {
 }
 
 helm_install_haproxy () {
-  echo "Installing haproxy chart..."
+  echo "  Installing haproxy helm chart..."
   cat << EOF > $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
 controller:
   image:
@@ -307,7 +307,7 @@ EOF
 
 helm_install_longhorn () {
   # Add a check for singlenode vs multinode
-  echo "Installing helm chart..."
+  echo "  Installing longhorn helm chart..."
   local values_yaml=""
   if [[ $CLUSTER_TYPE == "single-node" ]]; then
     cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
@@ -338,7 +338,7 @@ EOF
 }
 
 helm_install_metallb () {
-  echo "Installing helm chart..."
+  echo "  Installing metallb helm chart..."
   cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -374,7 +374,7 @@ EOF
 
 dap_bundle_prep () {
   if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
-    echo "Preparing Dell Automation Platform bundle..."
+    echo "### Preparing Dell Automation Platform bundle ###"
     dap_host_config
     install_reg_docker
     download_dap_bundle
@@ -582,7 +582,6 @@ os_check () {
     if [[ -f /etc/os-release ]]; then
         # shellcheck disable=SC1091
         source /etc/os-release
-        echo "OS type is: $ID"
         OS_ID_LIKE="${ID_LIKE:-}"
         OS_ID="${ID:-}"
     else

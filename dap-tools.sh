@@ -621,7 +621,7 @@ rke2_installer_check () {
 
 check_namespace_pods_ready() {
   # Run this function as 'check_namespace_pods_ready $namespace', no argument will default to kube-system
-  local timeout_seconds=120
+  local timeout_seconds=300
   local start_time=$(date +%s)
   local ns=${1:-"kube-system"}
   while true; do

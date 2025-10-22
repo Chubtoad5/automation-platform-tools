@@ -626,7 +626,7 @@ check_namespace_pods_ready() {
   local ns=${1:-"kube-system"}
   while true; do
     local completed_pods=$(kubectl get pods -n $ns --field-selector status.phase=Succeeded -o name)
-    echo "Checking pod status and removing Completed pods in $ns namespace..."
+    echo "  Checking pod status and removing Completed pods in $ns namespace..."
     for pod_name in $completed_pods; do
       kubectl delete -n $ns "$pod_name" --ignore-not-found
     done
@@ -640,11 +640,11 @@ check_namespace_pods_ready() {
     if [ "$current_pods_not_ready" -eq 0 ]; then
       break
     fi
-    echo "Wating on $current_pods_not_ready pods..."
-    echo "Elapsed: ${elapsed_time}s/${timeout_seconds}s"
+    echo "  - Wating on $current_pods_not_ready pods..."
+    echo "  - Elapsed: ${elapsed_time}s/${timeout_seconds}s"
     sleep 10
   done
-  echo "All pods are ready in $ns namespace!"
+  echo "  - All pods are ready in $ns namespace!"
   return 0
 }
 
@@ -676,9 +676,9 @@ run_debug() {
 
 cleanup () {
     if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
-        echo "Installation detected, no cleanup required..."
+        echo "  Installation detected, no cleanup required..."
     else
-        echo "Cleaning up..."
+        echo "  Cleaning up..."
         rm -rf "$WORKING_DIR"
     fi
 }
@@ -686,10 +686,14 @@ cleanup () {
 runtime_outputs () {
   if [[ $INSTALL_TYPE == "rke2" ]]; then
     local join_token=$(cat /var/lib/rancher/rke2/server/node-token)
-    echo "Kubernetes cluster created..."
-    echo "Cluster information:"
+    echo ""
+    echo "### INSTALL FLOW COMPLETED ###"
+    echo "###    PRINTING OUTPUTS    ###"
+    echo ""
+    echo "Kubernetes Cluster information:"
     kubectl get nodes
     echo "API endpoint: https://$mgmt_ip:6443"
+    echo ""
     if [[ $TLS_SAN_MODE -eq 1 ]]; then
       echo "TLS-SAN API endpoint: https://$TLS_SAN:6443"
       echo "To manually join more nodes to this cluster use the following config:"
@@ -710,15 +714,21 @@ runtime_outputs () {
     echo "  - To join another agent using this script, run: 'join agent [server-fqdn-ip] [join-token-string]'"
     echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
   fi
-  if [[ $PUSH_MODE -eq 1 ]]; then
-    echo "Push workflow completed..."
+  if [[ $PUSH_MODE -eq 1 && $INSTALL_MODE -eq 0 ]]; then
+    echo ""
+    echo "### PUSH FLOW COMPLETED ###"
+    echo "###  PRINTING OUTPUTS   ###"
+    echo ""
     echo "RKE2 and dependancy images have been pushed to external registry $REG_FQDN, check the registry to confirm images are present."
     echo "Next steps:"
     echo "  - Run 'install rke2 -registry [registry:port username password]' to install the cluster"
   fi
   if [[ $JOIN_MODE -eq 1 ]]; then
     if [[ $JOIN_TYPE == "server" ]]; then
-        echo "Server join completed..."
+        echo ""
+        echo "### JOIN FLOW COMPLETED ###"
+        echo "###  PRINTING OUTPUTS   ###"
+        echo ""
         kubectl get nodes
         echo "Next steps:"
         echo "  - Run 'source ~/.bashrc' to enable kubectl"
@@ -730,6 +740,10 @@ runtime_outputs () {
     fi
   fi
   if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+    echo ""
+    echo "### BUNDLE PREP FLOW COMPLETED ###"
+    echo "###      PRINTING OUTPUTS      ###"
+    echo ""
     echo "Dell Automation Platform install bundle prepared..."
     echo "Next steps:"
     echo "  - Run the following command to install Dell Automation Platform Portal and Orchestrator:"

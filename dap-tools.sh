@@ -596,10 +596,8 @@ generate_images_file () {
   cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Metallb images
   cd $WORKING_DIR/dap-utilities/helm/metallb
-  cat > metallb-images.txt <<EOF
-quay.io/metallb/controller:v$METALLB_VERSION
-quay.io/metallb/speaker:v$METALLB_VERSION
-EOF
+  curl -OL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
+  grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
 }
@@ -630,6 +628,8 @@ dns_pre_flight_checks () {
     if [ -z "$resolved_dns" ]; then
       failed_lookups+=("$entry")
       echo "  Failed to resolve $entry"
+    else
+      echo "  Resolved $entry to $resolved_dns"
     fi
   done
   if [ "${#failed_lookups[@]}" -gt 0 ]; then

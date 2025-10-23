@@ -92,6 +92,7 @@ REG_CERT_FILE_PATH=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
 RKE2_CMD_ARGS=""
+nfs_package=""
 
 # --- USAGE FUNCTION --- #
 
@@ -455,12 +456,21 @@ dap_host_config () {
   else
     echo "systemd-sysctl.service restarted successfully."
   fi
+  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
+    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+      nfs-package="nfs-common"
+    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
+      nfs-package="nfs-utils"
+    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
+      nfs-package="nfs-client"
+    fi
+  fi
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
-    ./install_packages.sh offline jq zip unzip
+    ./install_packages.sh offline jq zip unzip $nfs_package
   else
-    ./install_packages.sh online jq zip unzip
+    ./install_packages.sh online jq zip unzip $nfs_package
   fi
   cd $base_dir
 }
@@ -507,6 +517,15 @@ download_harbor () {
 }
 
 download_dap_packages () {
+  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
+    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+      nfs-package="nfs-common"
+    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
+      nfs-package="nfs-utils"
+    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
+      nfs-package="nfs-client"
+    fi
+  fi
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
   ./install_packages.sh save jq zip unzip

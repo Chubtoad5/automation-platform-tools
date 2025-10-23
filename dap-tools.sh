@@ -351,10 +351,12 @@ EOF
     helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
     echo "  Installing longhornctl binary..."
     curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
+    chmod +x $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
     mv $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
   else
     helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
     echo "  Installing longhornctl binary..."
+    chmod +x $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
     mv $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
   fi
   check_namespace_pods_ready "longhorn-system"

@@ -230,7 +230,7 @@ run_install_join_push () {
     echo "  Installing dependancy packages..."
     install_packages_check
     cd $WORKING_DIR/dap-utilities/packages
-    ./install_packages.sh offline jq zip unzip $longhorn_packages
+    ./install_packages.sh online jq zip unzip $longhorn_packages
     echo "### Running Kubernetes install with online mode ###"
     rke2_installer_check
     if [[ $PUSH_MODE == "1" ]]; then

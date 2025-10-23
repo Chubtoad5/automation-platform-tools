@@ -457,11 +457,11 @@ dap_host_config () {
   fi
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      nfs-package="nfs-common"
+      nfs_package="nfs-common"
     elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      nfs-package="nfs-utils"
+      nfs_package="nfs-utils"
     elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      nfs-package="nfs-client"
+      nfs_package="nfs-client"
     fi
   fi
   install_packages_check
@@ -478,22 +478,22 @@ dap_host_config () {
 
 run_offline_prep () {
     echo "--- Starting offline prep workflow ---"
-    echo "Downloading host packages..."
+    echo "  Downloading host packages..."
     run_debug download_dap_packages
-    echo "Downloading nginx binaries..."
+    echo "  Downloading nginx binaries..."
     run_debug download_nginx
-    echo "Downloading Harbor binaries..."
+    echo "  Downloading Harbor binaries..."
     run_debug download_harbor
-    echo "Downloading dependancy helm charts..."
+    echo "  Downloading dependancy helm charts..."
     run_debug download_helm_binaries
     run_debug generate_images_file
-    echo "Downloading RKE2 binaries and images..."
+    echo "  Downloading RKE2 binaries and images..."
     run_debug download_rke2
     if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
-      echo "Downloading Dell Automation Platform bundle..."
+      echo "  Downloading Dell Automation Platform bundle..."
       run_debug download_dap_bundle
     fi
-    echo "Creating archive for air-gapped host..."
+    echo "  Creating archive for air-gapped host..."
     run_debug  create_offline_prep_archive
     echo "--- Offline prep workflow complete ---"
 }
@@ -518,16 +518,16 @@ download_harbor () {
 download_dap_packages () {
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      nfs-package="nfs-common"
+      nfs_package="nfs-common"
     elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      nfs-package="nfs-utils"
+      nfs_package="nfs-utils"
     elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      nfs-package="nfs-client"
+      nfs_package="nfs-client"
     fi
   fi
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
-  ./install_packages.sh save jq zip unzip
+  ./install_packages.sh save jq zip unzip $nfs_package
   cd $base_dir
 }
 
@@ -539,18 +539,18 @@ download_rke2 () {
 }
 
 download_helm_binaries () {
-  echo "Downloading helm binary..."
+  echo "  Downloading helm binary..."
   curl -fsSLo $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  echo "Installing helm binary..."
+  echo "  Installing helm binary..."
   tar -xvf $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
   mv linux-amd64/helm /usr/local/bin/helm
   rm -rf linux-amd64
-  echo "Adding helm charts..."
+  echo "  Adding helm charts..."
   helm repo add metallb https://metallb.github.io/metallb
   helm repo add haproxytech https://haproxytech.github.io/helm-charts
   helm repo add longhorn https://charts.longhorn.io
   helm repo update
-  echo "Pulling helm charts..."
+  echo "  Pulling helm charts..."
   # HAPROXY
   cd $WORKING_DIR/dap-utilities/helm/haproxy
   helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
@@ -564,13 +564,13 @@ download_helm_binaries () {
 
 download_dap_bundle () {
   if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip ]]; then
-    echo "Downloading DAP bundle..."
+    echo "  Downloading DAP bundle..."
     if ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL; then
-      echo "Failed to download DAP bundle. Verify URL $DAP_BUNDLE_URL is correct and internet connection is available."
+      echo "Error: Failed to download DAP bundle. Verify URL $DAP_BUNDLE_URL is correct and internet connection is available."
       exit 1
     fi
   else
-    echo "DAP bundle already downloaded."
+    echo "  DAP bundle already downloaded."
   fi
 }
 
@@ -595,9 +595,9 @@ EOF
 
 create_offline_prep_archive () {
     # saves downloaded files into dap-offline.tar.gz
-    echo "Creating offline archive..."
+    echo "  Creating offline archive..."
     tar -czf dap-offline.tar.gz dap-install dap-tools.sh
-    echo "Air-gapped archive 'dap-offline.tar.gz' created."
+    echo "  Air-gapped archive 'dap-offline.tar.gz' created."
 }
 
 # --- Helper Functions --- #
@@ -635,7 +635,7 @@ os_check () {
 
 install_packages_check () {
     if [[ ! -f $WORKING_DIR/dap-utilities/packages/install_packages.sh ]]; then
-        echo "Downloading install_packages.sh..."
+        echo "  Downloading install_packages.sh..."
         curl -sfL https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh  -o $WORKING_DIR/dap-utilities/packages/install_packages.sh
         chmod +x $WORKING_DIR/dap-utilities/packages/install_packages.sh
     fi
@@ -643,7 +643,7 @@ install_packages_check () {
 
 image_pull_push_check () {
     if [[ ! -f $WORKING_DIR/dap-utilities/images/image_pull_push.sh ]]; then
-        echo "Downloading image_pull_push.sh..."
+        echo "  Downloading image_pull_push.sh..."
         curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/dap-utilities/images/image_pull_push.sh
         chmod +x $WORKING_DIR/dap-utilities/images/image_pull_push.sh
     fi
@@ -651,7 +651,7 @@ image_pull_push_check () {
 
 rke2_installer_check () {
     if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
-        echo "Downloading rke2_installer.sh..."
+        echo "  Downloading rke2_installer.sh..."
         curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/main/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
         chmod +x $WORKING_DIR/rke2/rke2_installer.sh
     fi
@@ -740,8 +740,8 @@ runtime_outputs () {
       echo "token: $join_token"
       echo "----"
     else
-      echo "----"
       echo "To manually join more nodes to this cluster use the following config:"
+      echo "----"
       echo "server: https://$mgmt_ip:9345"
       echo "token: $join_token"
       echo "----"
@@ -826,7 +826,7 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "dap=bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "dap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
             # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
                 # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
                 echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"

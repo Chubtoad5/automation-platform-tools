@@ -600,6 +600,9 @@ generate_images_file () {
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
+  echo "--- Printing utility-images.txt"
+  cat $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  echo "---"
 }
 
 create_offline_prep_archive () {

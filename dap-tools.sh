@@ -203,6 +203,7 @@ build_command_syntax() {
 
 run_install_join_push () {
   run_debug build_command_syntax
+  check_rke2_service_running
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
       longhorn_packages="nfs-common open-iscsi cryptsetup"
@@ -610,7 +611,36 @@ create_offline_prep_archive () {
 }
 
 # --- Helper Functions --- #
-
+dns_pre_flight_checks () {
+  # Use this function to check DNS resolution where $1, $2, $3, etc... are the FQDNs to lookup
+  # local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
+  dns_to_check=()
+  failed_lookups=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      *)
+        dns_to_check+=("$1")
+        shift
+        ;;
+    esac
+  done
+  for entry in "${dns_to_check[@]}"; do
+    echo "  Running pre-flight dns check for $entry"
+    resolved_dns=$(host -t A "$entry" 2>/dev/null | awk '/has address|is an alias/ { print $NF }' | head -n 1)
+    if [ -z "$resolved_dns" ]; then
+      failed_lookups+=("$entry")
+      echo "  Failed to resolve $entry"
+    fi
+  done
+  if [ "${#failed_lookups[@]}" -gt 0 ]; then
+    echo "  Error: The following FQDNs could not be resolved:"
+    for failed_entry in "${failed_lookups[@]}"; do
+      echo "  - $failed_entry"
+    done
+    echo "  Fix name resolution before proceeding"
+    exit 1
+  fi
+}
 create_working_dir () {
     # check for rke2-install directory and supporting directories, then create them
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
@@ -663,6 +693,18 @@ rke2_installer_check () {
         echo "  Downloading rke2_installer.sh..."
         curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/main/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
         chmod +x $WORKING_DIR/rke2/rke2_installer.sh
+    fi
+}
+
+check_rke2_service_running () {
+    # Check if rke2 service is running
+    if systemctl is-active --quiet rke2-server.service; then
+        echo "Error: rke2-server service is already runnnig, install cannot proceed."
+        exit 1
+    fi
+    if systemctl is-active --quiet rke2-agent.service; then
+        echo "Error: rke2-agent service is already runnnig, install cannot proceed."
+        exit 1
     fi
 }
 
@@ -998,11 +1040,15 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   echo "Offline archive 'dap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
 if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "nginx") ]]; then
+  [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
+  [[ $REGISTRY_MODE == "0" ]] || dns_pre_flight_checks $REG_FQDN
   run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
   echo "Preparing Dell Automation Platform bundle..."
   echo "This may take several minutes..."
+  local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
+  dns_pre_flight_checks $ORCHESTRATOR_FQDN $PORTAL_FQDN $REG_FQDN $mtls_dns
   run_debug dap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "nginx" ]]; then

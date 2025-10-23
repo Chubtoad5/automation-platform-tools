@@ -51,9 +51,12 @@ INSTALL_LOCAL_PATH_PROVISIONER=false
 LOCAL_PATH_PROVISIONER_VERSION=v0.0.32
 HELM_VERSION=3.12.0
 LONGHORN_VERSION=1.9.2
+LONGHORN_UI_PORT=31000
 METALLB_VERSION=0.15.2
+INSTALL_METALLB=true
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.7
+INSTALL_HAPROXY=true
 
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
 set -o errexit
@@ -89,7 +92,6 @@ REG_CERT_FILE_PATH=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
 RKE2_CMD_ARGS=""
-RKE_FRONTEND_ARGS=""
 
 # --- USAGE FUNCTION --- #
 
@@ -229,11 +231,9 @@ run_install_join_push () {
     export KUBECONFIG=/home/$user_name/.kube/config
     export PATH=$PATH:/var/lib/rancher/rke2/bin
     run_debug install_helm
-    run_debug helm_install_haproxy
-    run_debug helm_install_metallb
-    if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-      run_debug helm_install_longhorn
-    fi
+    [[ $INSTALL_HAPROXY == "false" ]] || run_debug helm_install_haproxy
+    [[ $INSTALL_METALLB == "false" ]] || run_debug helm_install_metallb
+    [[ $INSTALL_LOCAL_PATH_PROVISIONER == "true" ]] || run_debug helm_install_longhorn
     echo "### Finished installing dependancy helm charts ###"
   fi
 }
@@ -335,6 +335,27 @@ EOF
     helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
   fi
   check_namespace_pods_ready "longhorn-system"
+  if [[ -n $LONGHORN_UI_PORT ]]; then
+    cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhornNodePort.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: longhorn-nodeport-svc
+  namespace: longhorn-system
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    nodePort: 31000
+    port: 80
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: longhorn-ui
+  sessionAffinity: None
+EOF
+    kubectl apply -f $WORKING_DIR/dap-utilities/helm/longhorn/longhornNodePort.yaml
+  fi
 }
 
 helm_install_metallb () {

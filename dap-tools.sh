@@ -203,28 +203,42 @@ build_command_syntax() {
 
 run_install_join_push () {
   run_debug build_command_syntax
+  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
+    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+      longhorn_packages="nfs-common open-iscsi cryptsetup"
+    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
+      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
+    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
+      longhorn_packages="nfs-client open-iscsi cryptsetup"
+    fi
+  fi
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
     if [[ ! -d $base_dir/dap-install ]]; then
       echo "Error: Air-gapped archive detected, but 'dap-install' directory not found. Extract with 'tar xzf dap-offline.tar.gz' first."
       exit 1
     fi
+    echo "  Installing dependancy packages..."
+    cd $WORKING_DIR/dap-utilities/packages
+    ./install_packages.sh offline jq zip unzip $longhorn_packages
     echo "### Running Kubernetes install in air-gapped mode ###"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "### Kubernetes installation completed ###"
   else
+    echo "  Installing dependancy packages..."
+    install_packages_check
+    cd $WORKING_DIR/dap-utilities/packages
+    ./install_packages.sh offline jq zip unzip $longhorn_packages
     echo "### Running Kubernetes install with online mode ###"
     rke2_installer_check
     if [[ $PUSH_MODE == "1" ]]; then
       generate_images_file
     fi
     cd $WORKING_DIR/rke2
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
-    echo "### Kubernetes installation completed ###"
-  fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
    echo "### Installing dependancy helm charts ###"
     export KUBECONFIG=/home/$user_name/.kube/config
@@ -333,8 +347,13 @@ EOF
   fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
+    echo "  Installing longhornctl binary..."
+    curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
+    mv $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
   else
     helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
+    echo "  Installing longhornctl binary..."
+    mv $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
   fi
   check_namespace_pods_ready "longhorn-system"
   if [[ -n $LONGHORN_UI_PORT ]]; then
@@ -455,25 +474,8 @@ dap_host_config () {
     echo "Error: systemd-sysctl.service failed to restart."
     exit 1 
   else
-    echo "systemd-sysctl.service restarted successfully."
+    echo "  systemd-sysctl.service restarted successfully."
   fi
-  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      longhorn_packages="nfs-common open-iscsi cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      longhorn_packages="nfs-client open-iscsi cryptsetup"
-    fi
-  fi
-  install_packages_check
-  cd $WORKING_DIR/dap-utilities/packages
-  if [[ $AIR_GAPPED_MODE == "1" ]]; then
-    ./install_packages.sh offline jq zip unzip $longhorn_packages
-  else
-    ./install_packages.sh online jq zip unzip $longhorn_packages
-  fi
-  cd $base_dir
 }
 
 # -- Offline Prep Definitions -- #
@@ -559,6 +561,8 @@ download_helm_binaries () {
   # LONGHORN
   cd $WORKING_DIR/dap-utilities/helm/longhorn
   helm pull longhorn/longhorn --version $LONGHORN_VERSION
+  echo "  Downloading longhornctl binary..."
+  curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl
   # METALLB
   cd $WORKING_DIR/dap-utilities/helm/metallb
   helm pull metallb/metallb --version $METALLB_VERSION
@@ -983,7 +987,7 @@ fi
 # --- Main Workflow --- $
 
 os_check
-run_debug display_args
+display_args
 create_working_dir
 if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep

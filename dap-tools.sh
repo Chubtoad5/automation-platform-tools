@@ -323,6 +323,9 @@ csi:
 # Default Settings for new volumes (via Longhorn API/UI)
 defaultSettings:
   defaultReplicaCount: 1
+  storageReservedPercentageForDefaultDisk: 10
+  storageOverProvisioningPercentage: 100
+  storageMinimalAvailablePercentage: 5
 # Default setting for the Longhorn StorageClass
 persistence:
   defaultClassReplicaCount: 1

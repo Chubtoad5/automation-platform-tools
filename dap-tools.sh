@@ -123,23 +123,22 @@ EOF
 
 # Displays the parsed and validated arguments
 display_args() {
-    echo "---"
-    echo "Arguments parsed successfully, script will run with:"
-    echo "AIR_GAPPED_MODE: $AIR_GAPPED_MODE"
-    echo "INSTALL_MODE: $INSTALL_MODE"
-    echo "INSTALL_TYPE: $INSTALL_TYPE"
-    echo "TLS_SAN_MODE: $TLS_SAN_MODE"
-    echo "TLS_SAN: $TLS_SAN"
-    echo "OFFLINE_PREP_MODE: $OFFLINE_PREP_MODE"
-    echo "JOIN_MODE: $JOIN_MODE"
-    echo "JOIN_TYPE: $JOIN_TYPE"
-    echo "JOIN_SERVER_FQDN: $JOIN_SERVER_FQDN"
-    echo "JOIN_TOKEN: $JOIN_TOKEN"
-    echo "PUSH_MODE: $PUSH_MODE"
-    echo "REGISTRY_MODE: $REGISTRY_MODE"
-    echo "REGISTRY_INFO: $REGISTRY_INFO"
-    echo "REG_USER: $REG_USER"
-    echo "REG_PASS: $REG_PASS"
+    echo "### Automation Tools Started at $(date) ###"
+    echo "  AIR_GAPPED_MODE: $AIR_GAPPED_MODE"
+    echo "  INSTALL_MODE: $INSTALL_MODE"
+    echo "  INSTALL_TYPE: $INSTALL_TYPE"
+    echo "  TLS_SAN_MODE: $TLS_SAN_MODE"
+    echo "  TLS_SAN: $TLS_SAN"
+    echo "  OFFLINE_PREP_MODE: $OFFLINE_PREP_MODE"
+    echo "  JOIN_MODE: $JOIN_MODE"
+    echo "  JOIN_TYPE: $JOIN_TYPE"
+    echo "  JOIN_SERVER_FQDN: $JOIN_SERVER_FQDN"
+    echo "  JOIN_TOKEN: $JOIN_TOKEN"
+    echo "  PUSH_MODE: $PUSH_MODE"
+    echo "  REGISTRY_MODE: $REGISTRY_MODE"
+    echo "  REGISTRY_INFO: $REGISTRY_INFO"
+    echo "  REG_USER: $REG_USER"
+    echo "  REG_PASS: $REG_PASS"
     echo "---"
 }
 
@@ -1007,3 +1006,4 @@ if [[ $INSTALL_TYPE == "harbor" ]]; then
   run_install_harbor
 fi
 runtime_outputs
+echo "### Automation Tools Finished at $(date) ###"

@@ -91,7 +91,7 @@ REG_CERT_FILE_PATH=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
 RKE2_CMD_ARGS=""
-nfs_package=""
+longhorn_packages=""
 
 # --- USAGE FUNCTION --- #
 
@@ -407,7 +407,7 @@ dap_bundle_prep () {
 }
 
 install_reg_docker () {
-  echo "Running checks for Registry Certificate and Docker engine..."
+  echo "  Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
   cp $WORKING_DIR/dap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
   cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
@@ -430,7 +430,7 @@ extract_dap_bundle () {
       unzip "$file" -d "$WORKING_DIR/bundle/"
     done
   else
-    echo "Bundle already extracted."
+    echo "  Bundle already extracted."
   fi
   if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
@@ -449,7 +449,7 @@ extract_dap_bundle () {
 }
 
 dap_host_config () {
-  echo "Configuring host settings for Dell Automation Platform..."
+  echo "  Configuring host settings for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-dap-orchestrator.conf
   systemctl restart systemd-sysctl
   if [ $? -ne 0 ]; then
@@ -460,19 +460,19 @@ dap_host_config () {
   fi
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      nfs_package="nfs-common"
+      longhorn_packages="nfs-common open-iscsi cryptsetup"
     elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      nfs_package="nfs-utils"
+      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
     elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      nfs_package="nfs-client"
+      longhorn_packages="nfs-client open-iscsi cryptsetup"
     fi
   fi
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
-    ./install_packages.sh offline jq zip unzip $nfs_package
+    ./install_packages.sh offline jq zip unzip $longhorn_packages
   else
-    ./install_packages.sh online jq zip unzip $nfs_package
+    ./install_packages.sh online jq zip unzip $longhorn_packages
   fi
   cd $base_dir
 }
@@ -480,7 +480,7 @@ dap_host_config () {
 # -- Offline Prep Definitions -- #
 
 run_offline_prep () {
-    echo "--- Starting offline prep workflow ---"
+    echo "--- Starting offline prep workflow"
     echo "  Downloading host packages..."
     run_debug download_dap_packages
     echo "  Downloading nginx binaries..."
@@ -498,7 +498,7 @@ run_offline_prep () {
     fi
     echo "  Creating archive for air-gapped host..."
     run_debug  create_offline_prep_archive
-    echo "--- Offline prep workflow complete ---"
+    echo "--- Offline prep workflow complete"
 }
 
 download_nginx () {
@@ -521,16 +521,16 @@ download_harbor () {
 download_dap_packages () {
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      nfs_package="nfs-common"
+      longhorn_packages="nfs-common open-iscsi cryptsetup"
     elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      nfs_package="nfs-utils"
+      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
     elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      nfs_package="nfs-client"
+      longhorn_packages="nfs-client open-iscsi cryptsetup"
     fi
   fi
   install_packages_check
   cd $WORKING_DIR/dap-utilities/packages
-  ./install_packages.sh save jq zip unzip $nfs_package
+  ./install_packages.sh save jq zip unzip $longhorn_packages
   cd $base_dir
 }
 
@@ -598,9 +598,8 @@ EOF
 
 create_offline_prep_archive () {
     # saves downloaded files into dap-offline.tar.gz
-    echo "  Creating offline archive..."
+    echo "  Creating offline archive 'dap-offline.tar.gz'"
     tar -czf dap-offline.tar.gz dap-install dap-tools.sh
-    echo "  Air-gapped archive 'dap-offline.tar.gz' created."
 }
 
 # --- Helper Functions --- #
@@ -627,11 +626,11 @@ os_check () {
         OS_ID_LIKE="${ID_LIKE:-}"
         OS_ID="${ID:-}"
     else
-        echo "Unknown or unsupported OS $OS_ID."
+        echo "Error: Unknown or unsupported OS $OS_ID."
         exit 1
     fi
     if [[ ! "$OS_ID" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
-        echo "Unknown or unsupported OS $OS_ID."
+        echo "Error: Unknown or unsupported OS $OS_ID."
         exit 1
     fi
 }
@@ -733,6 +732,7 @@ runtime_outputs () {
     echo ""
     echo "Kubernetes Cluster information:"
     kubectl get nodes
+    echo ""
     echo "API endpoint: https://$mgmt_ip:6443"
     echo ""
     if [[ $TLS_SAN_MODE -eq 1 ]]; then
@@ -760,7 +760,7 @@ runtime_outputs () {
     echo "### PUSH FLOW COMPLETED ###"
     echo "###  PRINTING OUTPUTS   ###"
     echo ""
-    echo "RKE2 and dependancy images have been pushed to external registry $REG_FQDN, check the registry to confirm images are present."
+    echo "RKE2 and dependancy images have been pushed to external registry $REG_FQDN, check the registry to confirm images are present"
     echo "Next steps:"
     echo "  - Run 'install rke2 -registry [registry:port username password]' to install the cluster"
   fi
@@ -771,13 +771,14 @@ runtime_outputs () {
         echo "###  PRINTING OUTPUTS   ###"
         echo ""
         kubectl get nodes
+        echo ""
         echo "Next steps:"
         echo "  - Run 'source ~/.bashrc' to enable kubectl"
-        echo "  - (Optional) Join more nodes if this is a multi-node setup."
+        echo "  - (Optional) Join a third server to meet kubernetes minimum multi-node requirements."
         echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
     else
         echo "Next steps:"
-        echo "  - From a server node, run'kubectl get nodes' and 'kubectl get pods -A' to confirm the agent is ready."
+        echo "  - From a server node, run'kubectl get nodes' and 'kubectl get pods -A' to confirm the agent is ready"
     fi
   fi
   if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
@@ -785,7 +786,7 @@ runtime_outputs () {
     echo "### BUNDLE PREP FLOW COMPLETED ###"
     echo "###      PRINTING OUTPUTS      ###"
     echo ""
-    echo "Dell Automation Platform install bundle prepared..."
+    echo "Dell Automation Platform is ready for installation"
     echo "Next steps:"
     echo "  - Run the following command to install Dell Automation Platform Portal and Orchestrator:"
     echo "----"
@@ -809,7 +810,7 @@ EOF
 
 # Check for root privileges
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run with root privileges."
+   echo "Error: This script must be run with root privileges."
    echo "Type './$SCRIPT_NAME -h' for help."
    exit 1
 fi

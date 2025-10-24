@@ -600,9 +600,6 @@ generate_images_file () {
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
-  echo "--- Printing utility-images.txt"
-  cat $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
-  echo "---"
 }
 
 create_offline_prep_archive () {
@@ -1052,7 +1049,7 @@ if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
   echo "This may take several minutes..."
   local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
   dns_pre_flight_checks $ORCHESTRATOR_FQDN $PORTAL_FQDN $REG_FQDN $mtls_dns
-  run_debug dap_bundle_prep
+  dap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "nginx" ]]; then
   echo "Installing nginx artifact server..."

@@ -28,7 +28,7 @@ NGINX_HTUSER=admin
 NGINX_HTPASS=changeme
 NGINX_PORT=4443
 
-# --- USER DEFINED Self-Signed Certificate Configuration for Harbor and NGINX --- $
+# --- USER DEFINED Self-Signed Certificate Configuration for Harbor and NGINX --- #
 COUNTRY=US
 STATE=MA
 LOCATION=HOPKINTON

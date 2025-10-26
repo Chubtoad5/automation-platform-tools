@@ -5,19 +5,19 @@ This is an unofficial pre-requisite tool designed for use with Dell Automation P
 This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. This script should not be used for a production environment.
 
 ## Main Feature Functionality
-The main purpose of this script is to prepare a single-node kubernetes environment for deploying Automation Platform Portal and Orchestrator
+The main purpose of this script is to prepare a single-node kubernetes environment for deploying Automation Platform Portal and Orchestrator.
 
 - **RKE2** - Installs a single-node rke2 kubernetes instance with all prerequisite host OS packages and configurations required for Automation Platform, including helm, zip, jq, and sysctl parameters.
 - **SUPPORTING SERVICES** - Installs additional kubernetes services used by Automation Platform, including a CNI, Longhorn Storage Provider, MetalLB Loadbalancer, and HAProxy Tech kubernetes ingress.
-- **BUNDLE** - Downloads, extracts, and prepares the Automation Platform bundle, providing the install command based off defined variables
-- **AIR-GAPPED** - Option to prepare an offline/air-gapped bundle, which contains all the necessary binaries for deploying Automation Platform into an isoloated enviroment where no internet access is possible
+- **BUNDLE** - Downloads, extracts, and prepares the Automation Platform bundle, providing the install command based off defined variables.
+- **AIR-GAPPED** - Option to prepare an offline/air-gapped bundle, which contains all the necessary binaries for deploying Automation Platform into an isoloated enviroment where no internet access is possible.
 - **LOCAL REGISTRY** - Supports using a local named registry for kubernetes containers. The script is capable of first pulling the containers from the internet and push in to the defined registry, then installing RKE2 which will pull from the local registry.
 
 ## Alternative Deployment Options
-Instead of installing kubernetes, this tool can be used to install common infrastructure applications that Automation Platform leverages
+Instead of installing kubernetes, this tool can be used to install common infrastructure applications that Automation Platform leverages.
 
-- **REGISTRY** - Install a Harbor OCI registry using self-signed certificates, typically used for pushing the Automation Platform container images during bundle installation
-- **FILE SERVER** - Install an NGIX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images
+- **REGISTRY** - Install a Harbor OCI registry using self-signed certificates, typically used for pushing the Automation Platform container images during bundle installation.
+- **FILE SERVER** - Install an NGIX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images.
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ Bellow is an example DNS A record schema for FQDN > IP:
 **NGINX:**
 `artifacts.mydomain.lab 192.168.50.25`
 **RKE2 kubernetes:**
-NOTE: The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN
+NOTE: The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN.
 - `myk8snode.mydomain.lab 192.168.50.30`
 - `myk8scluster.mydomain.lab 192.168.50.30,192.168.50.31,192.168.50.32,etc...`
 **Automation Platform:**
@@ -79,7 +79,7 @@ NOTE: The `mtls-` prefix is a hard requirement for Automation Platform Orchestra
 ### Local Registry
 When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.
 
-The following project paths must be pre-configured on the local registry when `push` is specified
+The following project paths must be pre-configured on the local registry when `push` is specified:
 - `/e2e-test-images` When INSTALL_DNS_utility=true, official kubernetes.io dns utility
 - ```/frrouting` Part of MetallB project, pulled from quay.io
 - ```/haproxytech` HAProxy Tech kubernetes-ingress, pulled from docker.io
@@ -91,17 +91,17 @@ When installing Dell Automation Platform Portal & Orchestrator, the installation
 
 ## Usage
 
-1. Download `dap-tools.sh` or clone this repository and make the file executable
+1. Download `dap-tools.sh` or clone this repository and make the file executable.
 ```
 git clone https://github.com/Chubtoad5/automation-platform-tools.git
 cd automation-platform-tools
 chmod +x dap-tools.sh
 ```
-2. Optional, edit the default `USER DEFINED` variables to match the environment needs
+2. Optional, edit the default `USER DEFINED` variables to match the environment needs.
 ```
 vi dap-tools.sh
 ```
-3. Run the script as sudo/root supplying the `[command] [args]`
+3. Run the script as sudo/root supplying the `[command] [args]`.
 ```
 sudo ./dap-tools.sh install rke2
 ```

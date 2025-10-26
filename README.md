@@ -26,39 +26,39 @@ This script only supports x86 based linux operating systems. OS pre-checks verif
 
 - Ubuntu Server LTS 22.04 or higher
 - RedHat Enterprise Linux (RHEL) 9.2 or higher
-- SLES 15 SP7 
+- SLES 15 SP7  
 
 ### Host Resources
 
 Automation Platform bundle requires:
 - 16 CPU
 - 32 GB Ram
-- 1 TB SSD
-**NOTE:** CPU and Memory requirements are based off the avaiable resources as seen from the kubernetes cluster (i.e. `kubectl drecribe node <node-name>`).
+- 1 TB SSD  
+**NOTE:** CPU and Memory requirements are based off the avaiable resources as seen from the kubernetes cluster (i.e. `kubectl describe node <node-name>`).
 
-NGINX recommendation:
+NGINX recommendation:  
 - 2-4 CPU
 - 4-8 GB Ram
 - Enough disk for the image/binary size of the Automation Platform application use case (blueprints, vms, etc)
 
-Harbor recommendation:
+Harbor recommendation:  
 - 4 CPU
 - 8 GB Ram
 - 500 GB SSD or larger
 
 ## Network Requirements
-In general, static IP or DHCP reservation and DNS A records are highly recommened for all deployment options.
+In general, static IP or DHCP reservation and DNS A records are highly recommened for all deployment options.  
 
 ### IP Assignment
 - The Kubernetes used for Automation Platform REQUIRES a static IP due to the configuration of MetalLB, which defines a LoadBalancer IP at time of RKE2 installation using the host's primary management interface.
 - NGINX does not require a static IP but it is highly recommended.
-- Harbor does not require a static IP but it is highly recommended.
+- Harbor does not require a static IP but it is highly recommended.  
 
 ### Hostname considerations
-Kubernetes strictly enforces `DNS-1123 subdomain format` which is derived from `RFC 1123`. The standard requires all node names to be lower-case and follow the regex pattern: `[a-z0-9]([-a-z0-9]*[a-z0-9])?`. RKE2 uses the hostname as the node name, therefore make sure the hostname matches this standard before installation of RKE2.
+Kubernetes strictly enforces `DNS-1123 subdomain format` which is derived from `RFC 1123`. The standard requires all node names to be lower-case and follow the regex pattern: `[a-z0-9]([-a-z0-9]*[a-z0-9])?`. RKE2 uses the hostname as the node name, therefore make sure the hostname matches this standard before installation of RKE2.  
 
 ### DNS Assignment
-DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are three required DNS records and one optional record depending on the device onboarding method.
+DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are three required DNS records and one optional record depending on the device onboarding method.  
 
 Bellow is an example DNS A record schema for FQDN:IP mapping:
 
@@ -73,39 +73,39 @@ Bellow is an example DNS A record schema for FQDN:IP mapping:
 | Automation Platform | mtls-orchestrator.mydomain.lab| 192.168.50.35                       |
 | Automation Platform | rv.dell.fdo                   | 192.168.50.35                       |
 
-**IMPORTANT NOTES ON DNS** 
+**IMPORTANT NOTES ON DNS**   
 - The `myk8scluster` entry is only needed if using `tls-san` mode for multi-node k8s, each server node would resolve to the cluster FQDN.
 - The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication.
 - The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding.
 - Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance.
-- Using a DNS zone of `*.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.
+- Using a DNS zone of `*.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.  
 
 ### Local Registry
-When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.
+When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.  
 
-The following project paths must be pre-configured on the local registry when `push` is specified:
+The following project paths must be pre-configured on the local registry when `push` is specified:  
 - `/rancher`-  Rancher RKE2 project, pulled from docker.io
 - `/haproxytech` - HAProxy Tech kubernetes-ingress, pulled from docker.io
 - `/longhornio` - Longhorn storage provider, pulled from docker.io
 - `/metallb` - MetalLB loadbalancer, pulled from quay.io
 - `/frrouting` - Part of MetallB project, pulled from quay.io
-- `/e2e-test-images` - Used when `INSTALL_DNS_utility=true`, official kubernetes.io dns utility
+- `/e2e-test-images` - Used when `INSTALL_DNS_utility=true`, official kubernetes.io dns utility  
 
-When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry a dedicated project pre-created and the USER DEFINED variable `REGISTRY_PROJECT_NAME` is updated.
+When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry a dedicated project pre-created and the USER DEFINED variable `REGISTRY_PROJECT_NAME` is updated.  
 
 ## Usage
 
-1. Download `dap-tools.sh` or clone this repository and make the file executable.
+1. Download `dap-tools.sh` or clone this repository and make the file executable.  
 ```
 git clone https://github.com/Chubtoad5/automation-platform-tools.git
 cd automation-platform-tools
 chmod +x dap-tools.sh
 ```
-2. Optional, edit the default `USER DEFINED` variables to match the environment needs.
+2. Optional, edit the default `USER DEFINED` variables to match the environment needs.  
 ```
 vi dap-tools.sh
 ```
-3. Run the script as sudo/root supplying the `[command] [args]`.
+3. Run the script as sudo/root supplying the `[command] [args]`.  
 ```
 sudo ./dap-tools.sh install rke2
 ```
@@ -213,10 +213,10 @@ sudo ./dap-tools.sh install rke2
 - Longhorn - https://longhorn.io/
 - HAProxy Tech kubernetes-ingress - https://www.haproxy.com/documentation/kubernetes-ingress/
 - Harbor - https://goharbor.io/
-- NGINX - https://nginx.org/
+- NGINX - https://nginx.org/  
 
 ## Dell Technologies references
-- Dell Automation Platform - https://www.dell.com/en-us/lp/dt/automation-platform
+- Dell Automation Platform - https://www.dell.com/en-us/lp/dt/automation-platform  
 
 ## Author notes
-Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!
+Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!  

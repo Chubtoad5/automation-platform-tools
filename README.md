@@ -73,20 +73,23 @@ Bellow is an example DNS A record schema for FQDN:IP mapping:
 | Automation Platform | mtls-orchestrator.mydomain.lab| 192.168.50.35                       |
 | Automation Platform | rv.dell.fdo                   | 192.168.50.35                       |
 
-**NOTE 1:** The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN.
-
-**NOTE 2:** The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication. The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding. Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance. Using a DNS zone of `*.local` is not recommened per RFC 6762 Multicast DNS (mDNS) standards.
+**IMPORTANT NOTES ON DNS** 
+- The `myk8scluster` entry is only needed if using `tls-san` mode for multi-node k8s, each server node would resolve to the cluster FQDN.
+- The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication.
+- The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding.
+- Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance.
+- Using a DNS zone of `*.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.
 
 ### Local Registry
 When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.
 
 The following project paths must be pre-configured on the local registry when `push` is specified:
-- `/e2e-test-images` When INSTALL_DNS_utility=true, official kubernetes.io dns utility
-- ```/frrouting` Part of MetallB project, pulled from quay.io
-- ```/haproxytech` HAProxy Tech kubernetes-ingress, pulled from docker.io
-- `/longhornio` Longhorn storage provider, pulled from docker.io
-- `/metallb` MetalLB loadbalancer, pulled from quay.io
-- `/rancher` Rancher RKE2 project, pulled from docker.io
+- `/rancher`-  Rancher RKE2 project, pulled from docker.io
+- `/haproxytech` - HAProxy Tech kubernetes-ingress, pulled from docker.io
+- `/longhornio` - Longhorn storage provider, pulled from docker.io
+- `/metallb` - MetalLB loadbalancer, pulled from quay.io
+- `/frrouting` - Part of MetallB project, pulled from quay.io
+- `/e2e-test-images` - Used when `INSTALL_DNS_utility=true`, official kubernetes.io dns utility
 
 When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry a dedicated project pre-created and the USER DEFINED variable `REGISTRY_PROJECT_NAME` is updated.
 
@@ -133,7 +136,7 @@ Commands:
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup. 
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
   -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
-  ```
+```
 
 ### Examples
 
@@ -197,19 +200,23 @@ sudo ./dap-tools.sh install dap-bundle -registry myregistry.lab:443 username pas
 ```
 sudo ./dap-tools.sh offline-prep
 ```
+#### Use the offline archive to install RKE2
+```
+tar xzf dap-offline.tar.gz
+sudo ./dap-tools.sh install rke2
+```
 
 ## Open Source references
-- Rancher RKE2 https://docs.rke2.io/
-- Kubernetes DNS Utility https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
-- MetalLB https://metallb.io/
-- Longhorn https://longhorn.io/
-- HAProxy Tech kubernetes-ingress https://www.haproxy.com/documentation/kubernetes-ingress/
-- Harbor https://goharbor.io/
-- NGINX https://nginx.org/
+- Rancher RKE2 - https://docs.rke2.io/
+- Kubernetes DNS Utility - https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+- MetalLB - https://metallb.io/
+- Longhorn - https://longhorn.io/
+- HAProxy Tech kubernetes-ingress - https://www.haproxy.com/documentation/kubernetes-ingress/
+- Harbor - https://goharbor.io/
+- NGINX - https://nginx.org/
 
 ## Dell Technologies references
-- Dell Automation Platform https://www.dell.com/en-us/lp/dt/automation-platform
+- Dell Automation Platform - https://www.dell.com/en-us/lp/dt/automation-platform
 
 ## Author notes
-
 Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!

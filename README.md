@@ -30,10 +30,11 @@ This script only supports x86 based linux operating systems. OS pre-checks verif
 
 ### Host Resources
 
-Automation Platform requires:
+Automation Platform bundle requires:
 - 16 CPU
 - 32 GB Ram
 - 1 TB SSD
+**NOTE:** CPU and Memory requirements are based off the avaiable resources as seen from the kubernetes cluster (i.e. `kubectl drecribe node <node-name>`).
 
 NGINX recommendation:
 - 2-4 CPU
@@ -61,20 +62,20 @@ DNS A records are highly recommened for Harbor and NGINX, and required for Autom
 
 Bellow is an example DNS A record schema for FQDN:IP mapping:
 
-#### Harbor:
-- `registry.mydomain.lab 192.168.50.20`
-#### NGINX:
-- `artifacts.mydomain.lab 192.168.50.25`
-#### RKE2 kubernetes:
-- `myk8snode.mydomain.lab 192.168.50.30`
-- `myk8scluster.mydomain.lab 192.168.50.30,192.168.50.31,192.168.50.32,etc...`
-**NOTE:** The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN.
-#### Automation Platform:
-- `portal.mydomain.lab 192.168.50.35`
-- `orchestrator.mydomain.lab 192.168.50.35`
-- `mtls-orchestrator.mydomain.lab 192.168.50.35`
-- `rv.dell.fdo 192.168.50.35`
-**NOTE:** The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication. The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding. Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance. Using a DNS zone of `*.local` is not recommened per RFC 6762 Multicast DNS (mDNS) standards.
+| Service             | FQDN                          | IP Address                          |
+|:--------------------|:------------------------------|:------------------------------------|
+| Harbor              | registry.mydomain.lab         | 192.168.50.20                       |
+| NGINX               | artifacts.mydomain.lab        | 192.168.50.25                       |
+| RKE2 Kubernetes     | myk8snode.mydomain.lab        | 192.168.50.30                       |
+| RKE2 Kubernetes     | myk8scluster.mydomain.lab     | 192.168.50.30, 192.168.50.31, 192.168.50.32, etc... |
+| Automation Platform | portal.mydomain.lab           | 192.168.50.35                       |
+| Automation Platform | orchestrator.mydomain.lab     | 192.168.50.35                       |
+| Automation Platform | mtls-orchestrator.mydomain.lab| 192.168.50.35                       |
+| Automation Platform | rv.dell.fdo                   | 192.168.50.35                       |
+
+**NOTE 1:** The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN.
+
+**NOTE 2:** The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication. The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding. Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance. Using a DNS zone of `*.local` is not recommened per RFC 6762 Multicast DNS (mDNS) standards.
 
 ### Local Registry
 When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.

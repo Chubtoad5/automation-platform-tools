@@ -96,7 +96,8 @@ The following project paths must be pre-configured on the local registry when `p
 - `/longhornio` - Longhorn storage provider, pulled from docker.io
 - `/metallb` - MetalLB loadbalancer, pulled from quay.io
 - `/frrouting` - Part of MetallB project, pulled from quay.io
-- `/e2e-test-images` - Used when `INSTALL_DNS_utility=true`, official kubernetes.io dns utility  
+- `/e2e-test-images` - Used when `INSTALL_DNS_utility=true`, official kubernetes.io dns utility
+- `/library` - Only used when `INSTALL_LOCAL_PATH_PROVISIONER=true`, which will disable longhorn installation 
 
 When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry a dedicated project pre-created and the USER DEFINED variable `REGISTRY_PROJECT_NAME` is updated.  
 

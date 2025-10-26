@@ -18,6 +18,12 @@ Instead of installing kubernetes, this tool supports installing common infrastru
 
 - **REGISTRY** - Install a Harbor OCI registry using self-signed certificates, typically used for pushing the Automation Platform container images during bundle installation.
 - **FILE SERVER** - Install an NGINX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images.
+- **JOIN** - Join the host to an existing cluster as a server or agent node.  
+**NOTES ON USING JOIN**
+- - By default, `install rke2` installs as a single-node cluster and sets longhorn replica count to `1`. If planning a multi-node deployment, be sure to set `CLUSTER_TYPE=multi-node`.
+- - The `join` command should only be used against an existing RKE2 cluster of the same version. It is recommened to only join a cluster that was created by this script to avoid potential installation configuration issues.
+- - If the cluster was initially created with `-registry`, then `-registry` must be used with `join` to ensure all nodes pull containers from the registry.
+- - If the cluster was created with `-tls-san`, then each additional server joined must also use `-tls-san`.
 
 ## Host Prerequisites
 

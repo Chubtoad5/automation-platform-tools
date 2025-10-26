@@ -14,15 +14,15 @@ The main purpose of this script is to prepare a single-node kubernetes environme
 - **LOCAL REGISTRY** - Supports using a local named registry for kubernetes containers. The script is capable of first pulling the containers from the internet and push in to the defined registry, then installing RKE2 which will pull from the local registry.
 
 ## Alternative Deployment Options
-Instead of installing kubernetes, this tool can be used to install common infrastructure applications that Automation Platform leverages.
+Instead of installing kubernetes, this tool supports installing common infrastructure applications that Automation Platform leverages.
 
 - **REGISTRY** - Install a Harbor OCI registry using self-signed certificates, typically used for pushing the Automation Platform container images during bundle installation.
-- **FILE SERVER** - Install an NGIX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images.
+- **FILE SERVER** - Install an NGINX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images.
 
-## Prerequisites
+## Host Prerequisites
 
 ### Operating System Support
-This script only supports x86 based linux operating systems. OS pre-checks verift the OS_ID is one of: `ubuntu, debian, rhel, centos, rocky, almalinux, fedora, sles, or opensuse-leap`. However, this script is mainly tested with the following three operating systems:
+This script only supports x86 based linux operating systems. OS pre-checks verify the OS_ID is one of: `ubuntu, debian, rhel, centos, rocky, almalinux, fedora, sles, or opensuse-leap`. However, this script is mainly tested with the following three operating systems:
 
 - Ubuntu Server LTS 22.04 or higher
 - RedHat Enterprise Linux (RHEL) 9.2 or higher
@@ -45,36 +45,36 @@ Harbor recommendation:
 - 8 GB Ram
 - 500 GB SSD or larger
 
-### Network Requirements
+## Network Requirements
 In general, static IP or DHCP reservation and DNS A records are highly recommened for all deployment options.
 
-#### IP Assignment
+### IP Assignment
 - The Kubernetes used for Automation Platform REQUIRES a static IP due to the configuration of MetalLB, which defines a LoadBalancer IP at time of RKE2 installation using the host's primary management interface.
 - NGINX does not require a static IP but it is highly recommended.
 - Harbor does not require a static IP but it is highly recommended.
 
-#### Hostname considerations
+### Hostname considerations
 Kubernetes strictly enforces `DNS-1123 subdomain format` which is derived from `RFC 1123`. The standard requires all node names to be lower-case and follow the regex pattern: `[a-z0-9]([-a-z0-9]*[a-z0-9])?`. RKE2 uses the hostname as the node name, therefore make sure the hostname matches this standard before installation of RKE2.
 
-#### DNS Assignment
+### DNS Assignment
 DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are three required DNS records and one optional record depending on the device onboarding method.
 
-Bellow is an example DNS A record schema for FQDN > IP:
+Bellow is an example DNS A record schema for FQDN:IP mapping:
 
-**Harbor:**
-`registry.mydomain.lab 192.168.50.20`
-**NGINX:**
-`artifacts.mydomain.lab 192.168.50.25`
-**RKE2 kubernetes:**
-NOTE: The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN.
+#### Harbor:
+- `registry.mydomain.lab 192.168.50.20`
+#### NGINX:
+- `artifacts.mydomain.lab 192.168.50.25`
+#### RKE2 kubernetes:
 - `myk8snode.mydomain.lab 192.168.50.30`
 - `myk8scluster.mydomain.lab 192.168.50.30,192.168.50.31,192.168.50.32,etc...`
-**Automation Platform:**
-NOTE: The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication. The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding. Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance. Using a DNS zone of `*.local` is not recommened per RFC 6762 Multicast DNS (mDNS) standards.
+**NOTE:** The `myk8scluster` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN.
+#### Automation Platform:
 - `portal.mydomain.lab 192.168.50.35`
 - `orchestrator.mydomain.lab 192.168.50.35`
 - `mtls-orchestrator.mydomain.lab 192.168.50.35`
 - `rv.dell.fdo 192.168.50.35`
+**NOTE:** The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication. The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding. Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance. Using a DNS zone of `*.local` is not recommened per RFC 6762 Multicast DNS (mDNS) standards.
 
 ### Local Registry
 When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.
@@ -134,65 +134,65 @@ Commands:
   -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
   ```
 
-## Examples
+### Examples
 
-### Install RKE2 with default settings
+#### Install RKE2 with default settings
 
 ```
 sudo ./dap-tools.sh install rke2
 ```
 
-### Install RKE2 and configure an additional TLS-SAN (typically for multi-node clusters)
+#### Install RKE2 and configure an additional TLS-SAN (typically for multi-node clusters)
 ```
 sudo ./dap-tools.sh install rke2 -tls-san rke2-cluster.mydomain.lab
 ```
 
-### Install RKE2 and use a local registry
+#### Install RKE2 and use a local registry
 ```
 sudo ./dap-tools.sh install rke2 -registry myregistry.lab:443 username password
 ```
 
-### Push container images to a local registry, then install RKE2 and configure an additional TLS-SAN
+#### Push container images to a local registry, then install RKE2 and configure an additional TLS-SAN
 ```
 sudo ./dap-tools.sh install rke2 push -registry myregistry.lab:443 username password -tls-san rke2-cluster.mydomain.lab
 ```
 
-### Join to an existing RKE2 cluster as a server
+#### Join to an existing RKE2 cluster as a server
 ```
 sudo ./dap-tools.sh join server myk8snode.mydomain.lab <token_string> 
 ```
 
-### Join to an existing RKE2 cluster as a server using a local registry and additional TLS-SAN
+#### Join to an existing RKE2 cluster as a server using a local registry and additional TLS-SAN
 ```
 sudo ./dap-tools.sh join server rke2-cluster.mydomain.com <token_string> -registry registry.mydomain.lab username password -tls-san rke2-cluster.mydomain.lab
 ```
 
-### Join to an existing RKE2 cluster as an agent 
+#### Join to an existing RKE2 cluster as an agent 
 ```
 sudo ./dap-tools.sh join agent myk8snode.mydomain.lab <token_string> 
 ```
 
-### Only push RKE2 and Service containers to a registry
+#### Only push RKE2 and Service containers to a registry
 ```
 sudo ./dap-tools.sh push -registry myregistry.lab:8443 username password
 ```
 
-### Install Harbor regisrtry
+#### Install Harbor regisrtry
 ```
 sudo ./dap-tools.sh install harbor
 ```
 
-### Install NGINX file server
+#### Install NGINX file server
 ```
 sudo ./dap-tools.sh install nginx
 ```
 
-### Install Automation Platform Bundle
+#### Install Automation Platform Bundle
 ```
 sudo ./dap-tools.sh install dap-bundle -registry myregistry.lab:443 username password
 ```
 
-### Prepare an offline archive for air-gapped environment
+#### Prepare an offline archive for air-gapped environment
 ```
 sudo ./dap-tools.sh offline-prep
 ```

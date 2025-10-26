@@ -25,6 +25,10 @@ Instead of installing kubernetes, this tool supports installing common infrastru
  - The `join` command should only be used against an existing RKE2 cluster of the same version. It is recommened to only join a cluster that was created by this script to avoid potential installation configuration issues.
  - If the cluster was initially created with `-registry`, then `-registry` must be used with `join` to ensure all nodes pull containers from the registry.
  - If the cluster was created with `-tls-san`, then each additional server joined must also use `-tls-san`.
+  
+**NOTES ON USING HARBOR AND NGINX**
+ - The `harbor` and `nginx` deployment options may be used on the same host as long as the NGINX and Harbor are hosted on a different tcp port. update the USER DEFINED variables before installation.
+ - When using `rke2` deployment, it is not recommeneded to install on the same host that is running `harbor` or `nginx` services.
 
 ## Host Prerequisites
 

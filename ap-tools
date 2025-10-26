@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # --- USER DEFINED Dell Automation Platform Configuration --- #
-DAP_VERSION=1.0.0.0
-DAP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
-DOWNLOAD_DAP_BUNDLE=false
+AP_VERSION=1.0.0.0
+AP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
+DOWNLOAD_AP_BUNDLE=false
 SKIP_IMAGES_LOADER=false
 REGISTRY_PROJECT_NAME=dell-automation
 ORCHESTRATOR_NAMESPACE=dell-orchestrator
@@ -80,7 +80,7 @@ JOIN_SERVER_FQDN=""
 base_dir=$(pwd)
 mgmt_ip=$(hostname -I | awk '{print $1}')
 mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
-WORKING_DIR="$base_dir/dap-install"
+WORKING_DIR="$base_dir/ap-install"
 REGISTRY_MODE=0
 REGISTRY_INFO=""
 REG_FQDN=""
@@ -97,13 +97,13 @@ longhorn_packages=""
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|ap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
-                 For air-gapped install, dap-offline.tar.gz file must be in the same directory as script.
+                 For air-gapped install, ap-offline.tar.gz file must be in the same directory as script.
                   [rke2]       Installs rke2 as a server.
-                  [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command. 
+                  [ap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command. 
                                Must be used with [-registry].
                   [harbor]     Installs the harbor registry.
                   [nginx]      Installs an nginx static file server.
@@ -115,7 +115,7 @@ Commands:
                  [server-fqdn] and [join-token-string] must be specified.
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup. 
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
-  -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
+  -registry    : Used with [install rke2], [install ap-bundle], and [push] to provide a valid registry and credentials.
 
 EOF
     exit 1
@@ -214,12 +214,12 @@ run_install_join_push () {
     fi
   fi
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
-    if [[ ! -d $base_dir/dap-install ]]; then
-      echo "Error: Air-gapped archive detected, but 'dap-install' directory not found. Extract with 'tar xzf dap-offline.tar.gz' first."
+    if [[ ! -d $base_dir/ap-install ]]; then
+      echo "Error: Air-gapped archive detected, but 'ap-install' directory not found. Extract with 'tar xzf ap-offline.tar.gz' first."
       exit 1
     fi
     echo "  Installing dependancy packages..."
-    cd $WORKING_DIR/dap-utilities/packages
+    cd $WORKING_DIR/ap-utilities/packages
     ./install_packages.sh offline jq zip unzip $longhorn_packages
     echo "### Running Kubernetes install in air-gapped mode ###"
     cd $WORKING_DIR/rke2
@@ -230,7 +230,7 @@ run_install_join_push () {
   else
     echo "  Installing dependancy packages..."
     install_packages_check
-    cd $WORKING_DIR/dap-utilities/packages
+    cd $WORKING_DIR/ap-utilities/packages
     ./install_packages.sh online jq zip unzip $longhorn_packages
     echo "### Running Kubernetes install with online mode ###"
     rke2_installer_check
@@ -256,13 +256,13 @@ run_install_join_push () {
 
 run_install_nginx () {
   echo "### Installing NGINX Artifact Server ###"
-  cd $WORKING_DIR/dap-utilities/nginx
+  cd $WORKING_DIR/ap-utilities/nginx
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
       chmod +x install_nginx.sh
       INSTALL_SERVER=true OFFLINE_PREP=false NGINX_PORT=$NGINX_PORT NGINX_COMMON_NAME=$NGINX_COMMON_NAME NGINX_HTUSER=$NGINX_HTUSER NGINX_HTPASS=$NGINX_HTPASS DURATION_DAYS=$DURATION_DAYS STATE=$STATE COUNTRY=$COUNTRY LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DEBUG=$DEBUG ./install_nginx.sh
   else
-      for file in "$WORKING_DIR/dap-utilities/nginx/nginx_offline_install-*.tar.gz"; do
+      for file in "$WORKING_DIR/ap-utilities/nginx/nginx_offline_install-*.tar.gz"; do
         tar xzf $file
       done
       INSTALL_SERVER=true OFFLINE_PREP=true NGINX_PORT=$NGINX_PORT NGINX_COMMON_NAME=$NGINX_COMMON_NAME NGINX_HTUSER=$NGINX_HTUSER NGINX_HTPASS=$NGINX_HTPASS DURATION_DAYS=$DURATION_DAYS STATE=$STATE COUNTRY=$COUNTRY LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DEBUG=$DEBUG ./install_nginx.sh
@@ -270,13 +270,13 @@ run_install_nginx () {
 }
 
 run_install_harbor () {
-  cd $WORKING_DIR/dap-utilities/harbor
+  cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
       chmod +x install_harbor.sh
       HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$HARBOR_USERNAME HARBOR_PASSWORD=$HARBOR_PASSWORD COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
   else
-      for file in "$WORKING_DIR/dap-utilities/harbor/harbor-offline-package.tar.gz"; do
+      for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
         tar xzf $file
       done
             HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$HARBOR_USERNAME HARBOR_PASSWORD=$HARBOR_PASSWORD COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
@@ -286,9 +286,9 @@ run_install_harbor () {
 install_helm () {
   echo "  Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -fsSLo $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
+    curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   fi
-    tar -xvf $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
+    tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
     mv linux-amd64/helm /usr/local/bin/helm
     rm -rf linux-amd64
     echo "  Adding helm charts..."
@@ -300,7 +300,7 @@ install_helm () {
 
 helm_install_haproxy () {
   echo "  Installing haproxy helm chart..."
-  cat << EOF > $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
+  cat << EOF > $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
 controller:
   image:
     pullPolicy: IfNotPresent
@@ -314,9 +314,9 @@ controller:
      enabled: false
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
+    helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   else
-    helm install haproxy-ingress $WORKING_DIR/dap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/dap-utilities/helm/haproxy/haproxy-values.yaml
+    helm install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   fi
   check_namespace_pods_ready "haproxy-controller"
 }
@@ -326,7 +326,7 @@ helm_install_longhorn () {
   echo "  Installing longhorn helm chart..."
   local values_yaml=""
   if [[ $CLUSTER_TYPE == "single-node" ]]; then
-    cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml
+    cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml
 # UI Deployment Replica Count
 longhornUI:
   replicas: 1
@@ -346,23 +346,23 @@ defaultSettings:
 persistence:
   defaultClassReplicaCount: 1
 EOF
-    local values_yaml="-f $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-values.yaml"
+    local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
   fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
     echo "  Installing longhornctl binary..."
-    curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
-    chmod +x $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
+    chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
+    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
   else
-    helm install longhorn $WORKING_DIR/dap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
+    helm install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
     echo "  Installing longhornctl binary..."
-    chmod +x $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/dap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
+    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
   fi
   check_namespace_pods_ready "longhorn-system"
   if [[ -n $LONGHORN_UI_PORT ]]; then
-    cat << EOF > $WORKING_DIR/dap-utilities/helm/longhorn/longhornNodePort.yaml
+    cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhornNodePort.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -380,13 +380,13 @@ spec:
     app: longhorn-ui
   sessionAffinity: None
 EOF
-    kubectl apply -f $WORKING_DIR/dap-utilities/helm/longhorn/longhornNodePort.yaml
+    kubectl apply -f $WORKING_DIR/ap-utilities/helm/longhorn/longhornNodePort.yaml
   fi
 }
 
 helm_install_metallb () {
   echo "  Installing metallb helm chart..."
-  cat << EOF > $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
+  cat << EOF > $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -411,16 +411,16 @@ EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
   else
-    helm install metallb $WORKING_DIR/dap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace 
+    helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace 
   fi
   check_namespace_pods_ready "metallb-system"
-  kubectl apply -f $WORKING_DIR/dap-utilities/helm/metallb/metallb-config.yaml
+  kubectl apply -f $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
 }
 
 # --- DAP Bundle prep defenitions --- #
 
 dap_bundle_prep () {
-  if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+  if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
     echo "### Preparing Dell Automation Platform bundle ###"
     dap_host_config
     install_reg_docker
@@ -432,7 +432,7 @@ dap_bundle_prep () {
 install_reg_docker () {
   echo "  Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
-  cp $WORKING_DIR/dap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
+  cp $WORKING_DIR/ap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
   cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
@@ -448,8 +448,8 @@ install_reg_docker () {
 extract_dap_bundle () {
   if [[ ! -d $WORKING_DIR/bundle ]]; then
     mkdir $WORKING_DIR/bundle
-    unzip $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip -d $WORKING_DIR/bundle
-    for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$DAP_VERSION-*.zip; do
+    unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
+    for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$AP_VERSION-*.zip; do
       unzip "$file" -d "$WORKING_DIR/bundle/"
     done
   else
@@ -473,7 +473,7 @@ extract_dap_bundle () {
 
 dap_host_config () {
   echo "  Configuring host settings for Dell Automation Platform..."
-  echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-dap-orchestrator.conf
+  echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
   systemctl restart systemd-sysctl
   if [ $? -ne 0 ]; then
     echo "Error: systemd-sysctl.service failed to restart."
@@ -498,7 +498,7 @@ run_offline_prep () {
     run_debug generate_images_file
     echo "  Downloading RKE2 binaries and images..."
     run_debug download_rke2
-    if [[ $DOWNLOAD_DAP_BUNDLE == "true" ]]; then
+    if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle..."
       run_debug download_dap_bundle
     fi
@@ -508,8 +508,8 @@ run_offline_prep () {
 }
 
 download_nginx () {
-  cp $WORKING_DIR/dap-utilities/packages/install_packages.sh $WORKING_DIR/dap-utilities/nginx/nginx
-  cd $WORKING_DIR/dap-utilities/nginx
+  cp $WORKING_DIR/ap-utilities/packages/install_packages.sh $WORKING_DIR/ap-utilities/nginx/nginx
+  cd $WORKING_DIR/ap-utilities/nginx
   curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
   chmod +x install_nginx.sh
   INSTALL_SERVER=true OFFLINE_PREP=true ./install_nginx.sh
@@ -517,7 +517,7 @@ download_nginx () {
 }
 
 download_harbor () {
-  cd $WORKING_DIR/dap-utilities/harbor
+  cd $WORKING_DIR/ap-utilities/harbor
   curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
   chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
@@ -535,7 +535,7 @@ download_dap_packages () {
     fi
   fi
   install_packages_check
-  cd $WORKING_DIR/dap-utilities/packages
+  cd $WORKING_DIR/ap-utilities/packages
   ./install_packages.sh save jq zip unzip $longhorn_packages
   cd $base_dir
 }
@@ -549,9 +549,9 @@ download_rke2 () {
 
 download_helm_binaries () {
   echo "  Downloading helm binary..."
-  curl -fsSLo $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
+  curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   echo "  Installing helm binary..."
-  tar -xvf $WORKING_DIR/dap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
+  tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
   mv linux-amd64/helm /usr/local/bin/helm
   rm -rf linux-amd64
   echo "  Adding helm charts..."
@@ -561,23 +561,23 @@ download_helm_binaries () {
   helm repo update
   echo "  Pulling helm charts..."
   # HAPROXY
-  cd $WORKING_DIR/dap-utilities/helm/haproxy
+  cd $WORKING_DIR/ap-utilities/helm/haproxy
   helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   # LONGHORN
-  cd $WORKING_DIR/dap-utilities/helm/longhorn
+  cd $WORKING_DIR/ap-utilities/helm/longhorn
   helm pull longhorn/longhorn --version $LONGHORN_VERSION
   echo "  Downloading longhornctl binary..."
   curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl
   # METALLB
-  cd $WORKING_DIR/dap-utilities/helm/metallb
+  cd $WORKING_DIR/ap-utilities/helm/metallb
   helm pull metallb/metallb --version $METALLB_VERSION
 }
 
 download_dap_bundle () {
-  if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip ]]; then
+  if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip ]]; then
     echo "  Downloading DAP bundle..."
-    if ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$DAP_VERSION.zip $DAP_BUNDLE_URL; then
-      echo "Error: Failed to download DAP bundle. Verify URL $DAP_BUNDLE_URL is correct and internet connection is available."
+    if ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip $AP_BUNDLE_URL; then
+      echo "Error: Failed to download DAP bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
       exit 1
     fi
   else
@@ -587,15 +587,15 @@ download_dap_bundle () {
 
 generate_images_file () {
   # Haproxy images
-  cd $WORKING_DIR/dap-utilities/helm/haproxy
+  cd $WORKING_DIR/ap-utilities/helm/haproxy
   echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
   cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Longhorn images
-  cd $WORKING_DIR/dap-utilities/helm/longhorn
+  cd $WORKING_DIR/ap-utilities/helm/longhorn
   curl -OL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
   cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Metallb images
-  cd $WORKING_DIR/dap-utilities/helm/metallb
+  cd $WORKING_DIR/ap-utilities/helm/metallb
   curl -OL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
@@ -603,9 +603,9 @@ generate_images_file () {
 }
 
 create_offline_prep_archive () {
-    # saves downloaded files into dap-offline.tar.gz
-    echo "  Creating offline archive 'dap-offline.tar.gz'"
-    tar -czf dap-offline.tar.gz dap-install dap-tools.sh
+    # saves downloaded files into ap-offline.tar.gz
+    echo "  Creating offline archive 'ap-offline.tar.gz'"
+    tar -czf ap-offline.tar.gz ap-install ap-tools
 }
 
 # --- Helper Functions --- #
@@ -644,13 +644,13 @@ dns_pre_flight_checks () {
 create_working_dir () {
     # check for rke2-install directory and supporting directories, then create them
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
-    [ -d "$WORKING_DIR/dap-utilities/packages" ] || mkdir -p "$WORKING_DIR/dap-utilities/packages"
-    [ -d "$WORKING_DIR/dap-utilities/harbor" ] || mkdir -p "$WORKING_DIR/dap-utilities/harbor"
-    [ -d "$WORKING_DIR/dap-utilities/nginx/nginx" ] || mkdir -p "$WORKING_DIR/dap-utilities/nginx/nginx"
-    [ -d "$WORKING_DIR/dap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/haproxy"
-    [ -d "$WORKING_DIR/dap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/metallb"
-    [ -d "$WORKING_DIR/dap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/dap-utilities/helm/longhorn"
-    [ -d "$WORKING_DIR/dap-utilities/images" ] || mkdir -p "$WORKING_DIR/dap-utilities/images"
+    [ -d "$WORKING_DIR/ap-utilities/packages" ] || mkdir -p "$WORKING_DIR/ap-utilities/packages"
+    [ -d "$WORKING_DIR/ap-utilities/harbor" ] || mkdir -p "$WORKING_DIR/ap-utilities/harbor"
+    [ -d "$WORKING_DIR/ap-utilities/nginx/nginx" ] || mkdir -p "$WORKING_DIR/ap-utilities/nginx/nginx"
+    [ -d "$WORKING_DIR/ap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/haproxy"
+    [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
+    [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
+    [ -d "$WORKING_DIR/ap-utilities/images" ] || mkdir -p "$WORKING_DIR/ap-utilities/images"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
 
@@ -673,18 +673,18 @@ os_check () {
 }
 
 install_packages_check () {
-    if [[ ! -f $WORKING_DIR/dap-utilities/packages/install_packages.sh ]]; then
+    if [[ ! -f $WORKING_DIR/ap-utilities/packages/install_packages.sh ]]; then
         echo "  Downloading install_packages.sh..."
-        curl -sfL https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh  -o $WORKING_DIR/dap-utilities/packages/install_packages.sh
-        chmod +x $WORKING_DIR/dap-utilities/packages/install_packages.sh
+        curl -sfL https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh  -o $WORKING_DIR/ap-utilities/packages/install_packages.sh
+        chmod +x $WORKING_DIR/ap-utilities/packages/install_packages.sh
     fi
 }
 
 image_pull_push_check () {
-    if [[ ! -f $WORKING_DIR/dap-utilities/images/image_pull_push.sh ]]; then
+    if [[ ! -f $WORKING_DIR/ap-utilities/images/image_pull_push.sh ]]; then
         echo "  Downloading image_pull_push.sh..."
-        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/dap-utilities/images/image_pull_push.sh
-        chmod +x $WORKING_DIR/dap-utilities/images/image_pull_push.sh
+        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/ap-utilities/images/image_pull_push.sh
+        chmod +x $WORKING_DIR/ap-utilities/images/image_pull_push.sh
     fi
 }
 
@@ -802,7 +802,7 @@ runtime_outputs () {
     echo "  - Run 'source ~/.bashrc' to enable kubectl"
     echo "  - To join another server using this script, run: 'join server [server-fqdn-ip] [join-token-string]'"
     echo "  - To join another agent using this script, run: 'join agent [server-fqdn-ip] [join-token-string]'"
-    echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
+    echo "  - Run 'install ap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
   fi
   if [[ $PUSH_MODE -eq 1 && $INSTALL_MODE -eq 0 ]]; then
     echo ""
@@ -824,13 +824,13 @@ runtime_outputs () {
         echo "Next steps:"
         echo "  - Run 'source ~/.bashrc' to enable kubectl"
         echo "  - (Optional) Join a third server to meet kubernetes minimum multi-node requirements."
-        echo "  - Run 'install dap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
+        echo "  - Run 'install ap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
     else
         echo "Next steps:"
         echo "  - From a server node, run'kubectl get nodes' and 'kubectl get pods -A' to confirm the agent is ready"
     fi
   fi
-  if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+  if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
     echo ""
     echo "### BUNDLE PREP FLOW COMPLETED ###"
     echo "###      PRINTING OUTPUTS      ###"
@@ -879,10 +879,10 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "dap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
-            # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "dap-bundle") ]]; then
-                # echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
-                echo "Error: 'install' command requires an install type. Format: install [rke2|dap-bundle|harbor|nginx]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "nginx" ]]; then
+            # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "ap-bundle") ]]; then
+                # echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|nginx]"
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|nginx]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -957,8 +957,8 @@ done
 
 # Run validation to ensure the correct arguments and modes have been passed.
 
-# Verify AIR_GAPPED_MODE based on dap-offline.tar.gz file presence
-[[ ! -f $base_dir/dap-offline.tar.gz ]] || AIR_GAPPED_MODE=1
+# Verify AIR_GAPPED_MODE based on ap-offline.tar.gz file presence
+[[ ! -f $base_dir/ap-offline.tar.gz ]] || AIR_GAPPED_MODE=1
 
 # Verify OFFLINE_PREP_MODE is not used with other commands or flags
 if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then
@@ -998,10 +998,10 @@ if [[ "$PUSH_MODE" == "1"  ]]; then
     fi
 fi
 
-# Verify 'dap-bundle' params
-if [[ "$INSTALL_TYPE" == "dap-bundle" ]]; then
+# Verify 'ap-bundle' params
+if [[ "$INSTALL_TYPE" == "ap-bundle" ]]; then
     if [[ "$REGISTRY_MODE" == "0" ]]; then
-        echo "Error: 'install dap-bundle' requires registry config. Format: install dap-bundle -registry [registry:port] [username] [password]"
+        echo "Error: 'install ap-bundle' requires registry config. Format: install ap-bundle -registry [registry:port] [username] [password]"
         echo "Type './$SCRIPT_NAME -h' for help."
         exit 1
     fi
@@ -1037,14 +1037,14 @@ display_args
 create_working_dir
 if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
-  echo "Offline archive 'dap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
+  echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "dap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "nginx") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "nginx") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   [[ $REGISTRY_MODE == "0" ]] || dns_pre_flight_checks $REG_FQDN
   run_install_join_push
 fi
-if [[ $INSTALL_TYPE == "dap-bundle" ]]; then
+if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   echo "Preparing Dell Automation Platform bundle..."
   echo "This may take several minutes..."
   local mtls_dns="mtls-$ORCHESTRATOR_FQDN"

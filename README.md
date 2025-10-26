@@ -95,35 +95,35 @@ When installing Dell Automation Platform Portal & Orchestrator, the installation
 
 ## Usage
 
-1. Download `dap-tools.sh` or clone this repository and make the file executable.  
+1. Download the `ap-tools` script or clone this repository and make the file executable.  
 ```
 git clone https://github.com/Chubtoad5/automation-platform-tools.git
 cd automation-platform-tools
-chmod +x dap-tools.sh
+chmod +x ap-tools
 ```
 2. Optional, edit the default `USER DEFINED` variables to match the environment needs.  
 ```
-vi dap-tools.sh
+vi ap-tools
 ```
 3. Run the script as sudo/root supplying the `[command] [args]`.  
 ```
-sudo ./dap-tools.sh install rke2
+sudo ./ap-tools install rke2
 ```
 
 ### One-liner for RKE2 install using default variables
 ```
-git clone https://github.com/Chubtoad5/automation-platform-tools.git && cd automation-platform-tools && chmod +x dap-tools.sh && sudo ./dap-tools.sh install rke2
+git clone https://github.com/Chubtoad5/automation-platform-tools.git && cd automation-platform-tools && chmod +x ap-tools && sudo ./ap-tools install rke2
 ```
 
 ### Syntax
 ```
-Usage: ./dap-tools.sh [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: ./ap-tools [install rke2|ap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
-                 For air-gapped install, dap-offline.tar.gz file must be in the same directory as script.
+                 For air-gapped install, ap-offline.tar.gz file must be in the same directory as script.
                   [rke2]       Installs rke2 as a server.
-                  [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command. 
+                  [ap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command. 
                                Must be used with [-registry].
                   [harbor]     Installs the harbor registry.
                   [nginx]      Installs an nginx static file server.
@@ -135,7 +135,7 @@ Commands:
                  [server-fqdn] and [join-token-string] must be specified.
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup. 
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
-  -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
+  -registry    : Used with [install rke2], [install ap-bundle], and [push] to provide a valid registry and credentials.
 ```
 
 ### Examples
@@ -143,67 +143,67 @@ Commands:
 #### Install RKE2 with default settings
 
 ```
-sudo ./dap-tools.sh install rke2
+sudo ./ap-tools install rke2
 ```
 
 #### Install RKE2 and configure an additional TLS-SAN (typically for multi-node clusters)
 ```
-sudo ./dap-tools.sh install rke2 -tls-san rke2-cluster.mydomain.lab
+sudo ./ap-tools install rke2 -tls-san rke2-cluster.mydomain.lab
 ```
 
 #### Install RKE2 and use a local registry
 ```
-sudo ./dap-tools.sh install rke2 -registry myregistry.lab:443 username password
+sudo ./ap-tools install rke2 -registry myregistry.lab:443 username password
 ```
 
 #### Push container images to a local registry, then install RKE2 and configure an additional TLS-SAN
 ```
-sudo ./dap-tools.sh install rke2 push -registry myregistry.lab:443 username password -tls-san rke2-cluster.mydomain.lab
+sudo ./ap-tools install rke2 push -registry myregistry.lab:443 username password -tls-san rke2-cluster.mydomain.lab
 ```
 
 #### Join to an existing RKE2 cluster as a server
 ```
-sudo ./dap-tools.sh join server myk8snode.mydomain.lab <token_string> 
+sudo ./ap-tools join server myk8snode.mydomain.lab <token_string> 
 ```
 
 #### Join to an existing RKE2 cluster as a server using a local registry and additional TLS-SAN
 ```
-sudo ./dap-tools.sh join server rke2-cluster.mydomain.com <token_string> -registry registry.mydomain.lab username password -tls-san rke2-cluster.mydomain.lab
+sudo ./ap-tools join server rke2-cluster.mydomain.com <token_string> -registry registry.mydomain.lab username password -tls-san rke2-cluster.mydomain.lab
 ```
 
 #### Join to an existing RKE2 cluster as an agent 
 ```
-sudo ./dap-tools.sh join agent myk8snode.mydomain.lab <token_string> 
+sudo ./ap-tools join agent myk8snode.mydomain.lab <token_string> 
 ```
 
 #### Only push RKE2 and Service containers to a registry
 ```
-sudo ./dap-tools.sh push -registry myregistry.lab:8443 username password
+sudo ./ap-tools push -registry myregistry.lab:8443 username password
 ```
 
 #### Install Harbor regisrtry
 ```
-sudo ./dap-tools.sh install harbor
+sudo ./ap-tools install harbor
 ```
 
 #### Install NGINX file server
 ```
-sudo ./dap-tools.sh install nginx
+sudo ./ap-tools install nginx
 ```
 
 #### Install Automation Platform Bundle
 ```
-sudo ./dap-tools.sh install dap-bundle -registry myregistry.lab:443 username password
+sudo ./ap-tools install ap-bundle -registry myregistry.lab:443 username password
 ```
 
 #### Prepare an offline archive for air-gapped environment
 ```
-sudo ./dap-tools.sh offline-prep
+sudo ./ap-tools offline-prep
 ```
 #### Use the offline archive to install RKE2
 ```
-tar xzf dap-offline.tar.gz
-sudo ./dap-tools.sh install rke2
+tar xzf ap-offline.tar.gz
+sudo ./ap-tools install rke2
 ```
 
 ## Open Source references

@@ -1,2 +1,210 @@
-# automation-platform-tools
-Pre-requisite helper script for Dell Automation Platform on-premise bundle installation
+# Automation Platform Tools
+This is an unofficial pre-requisite tool designed for use with Dell Automation Platform on-premise bundle installation. 
+
+## Preface
+This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements found on the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. This script should not be used for a production environment.
+
+## Main Feature Functionality
+The main purpose of this script is to prepare a single-node kubernetes environment for deploying Automation Platform Portal and Orchestrator
+
+- RKE2 - Installs a single-node rke2 kubernetes instance with all prerequisite host OS packages and configurations required for Automation Platform, including helm, zip, jq, and sysctl parameters.
+- SUPPORTING SERVICES - Installs additional kubernetes services used by Automation Platform, including a CNI, Longhorn Storage Provider, MetalLB Loadbalancer, and HAProxy Tech kubernetes ingress.
+- BUNDLE - Downloads, extracts, and prepares the Automation Platform bundle, providing the install command based off defined variables
+- AIR-GAPPED - Prepares an offline or air-gapped bundle, which contains all the necessary binaries for deploying Automation Platform into an isoloated enviroment where no internet access is possible
+- LOCAL REGISTRY - Supports using a local named registry for kubernetes containers. The script is capable of first pulling the containers from the internet and push in to the defined registry, then installing RKE2 which will pull from the local registry.
+
+## Alternative Deployment Options
+Instead of installing kubernetes, this tool can be used to install common infrastructure applications that Automation Platform leverages
+
+- REGISTRY - Install a Harbor OCI registry using self-signed certificates, typically used for pushing the Automation Platform container images during bundle installation
+- FILE SERVER - Install an NGIX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images
+
+## Prerequisites
+
+### Operating System Support
+This script only supports x86 based linux operating systems. OS pre-checks verift the OS_ID is one of: ubuntu, debian, rhel, centos, rocky, almalinux, fedora, sles, or opensuse-leap. However, this script is only tested vigorously with the following three operating systems:
+
+- Ubuntu Server LTS 22.04 or higher
+- RedHat Enterprise Linux (RHEL) 9.2 or higher
+- SLES 15 SP7 
+
+### Host Resources
+
+Automation Platform requires:
+- 16 CPU
+- 32 GB Ram
+- 1 TB SSD
+
+NGINX recommends:
+- 2-4 CPU
+- 4-8 GB Ram
+- Enough disk for the image/binary size of the Automation Platform application use case (blueprints, vms, etc)
+
+Harbor requirments:
+- 4 CPU
+- 8 GB Ram
+- 500 GB SSD or larger
+
+### Network Requirements
+In general, static IP or DHCP reservation and DNS A records are highly recommened for all install options
+
+#### IP Assignment
+- the Kubernetes used for Automation Platform REQUIRES a static IP due to the configuration of MetalLB, which defines a LoadBalancer IP at time of RKE2 installation using the hosts primary management interface
+- NGINX does not require a static IP but it is highly recommended
+- Harbor does not require a static IP but it is highly recommended
+
+#### Hostname considerations
+Kubernetes strictly enforces ```DNS-1123 subdomain format``` which is derived from ```RFC 1123```. The standard requires all node names to be lower-case and follow the regex pattern: ```[a-z0-9]([-a-z0-9]*[a-z0-9])?```. RKE2 uses the hostname of the host as the node name, therefore make sure the hostname matches this standard before installation of RKE2
+
+#### DNS Assignment
+DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are three required DNS records and one optional record depending on the device onboarding method.
+
+Bellow is an example DNS A record schema for FQDN > IP:
+
+**Harbor:**
+```
+registry.mydomain.lab 192.168.50.20
+```
+**NGINX:**
+```
+artifacts.mydomain.lab 192.168.50.25
+```
+**RKE2 kubernetes:**
+NOTE: The ```myk8scluster``` entry is only needed if using tls-san mode for multi-node k8s, each server node would resolve to the cluster FQDN
+```
+myk8snode.mydomain.lab 192.168.50.30
+myk8scluster.mydomain.lab 192.168.50.30,192.168.50.31,192.168.50.32,etc...
+```
+**Automation Platform:**
+NOTE: The ```mtls-``` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication. The ```rv.dell.fdo``` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding. Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance. Using a DNS zone of ```*.local``` is not recommened per RFC 6762 Multicast DNS (mDNS) standards.
+```
+portal.mydomain.lab 192.168.50.35
+orchestrator.mydomain.lab 192.168.50.35
+mtls-orchestrator.mydomain.lab 192.168.50.35
+rv.dell.fdo 192.168.50.35
+```
+
+### Local Registry
+When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the ```push``` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.
+
+The following project paths must be pre-configured on the local registry when ```push``` is specified
+```/e2e-test-images``` When INSTALL_DNS_utility=true, official kubernetes.io dns utility
+```/frrouting``` Part of MetallB project, pulled from quay.io
+```/haproxytech``` HAProxy Tech kubernetes-ingress, pulled from docker.io
+```/longhornio``` Longhorn storage provider, pulled from docker.io
+```/metallb``` MetalLB loadbalancer, pulled from quay.io
+```/rancher``` Rancher RKE2 project, pulled from docker.io
+
+When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry a dedicated project pre-created and the USER DEFINED variable ```REGISTRY_PROJECT_NAME``` is updated.
+
+## Usage
+
+1. Download ```dap-tools.sh``` or clone this repository and make the file executable
+```
+git clone https://github.com/Chubtoad5/automation-platform-tools.git
+cd automation-platform-tools
+chmod +x dap-tools.sh
+```
+2. Optional, edit the default ```USER DEFINED``` variables to match the environment needs
+```
+vi dap-tools.sh
+```
+3. Run the script as sudo/root supplying the ```[command] [args]```
+```
+sudo ./dap-tools.sh install rke2
+```
+
+### One-liner for RKE2 install using default variables
+```
+git clone https://github.com/Chubtoad5/automation-platform-tools.git && cd automation-platform-tools && chmod +x dap-tools.sh && sudo ./dap-tools.sh install rke2
+```
+
+### Syntax
+```
+Usage: ./dap-tools.sh [install rke2|dap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+
+Commands:
+  install      : Installs specified component and any dependencies.
+                 For air-gapped install, dap-offline.tar.gz file must be in the same directory as script.
+                  [rke2]       Installs rke2 as a server.
+                  [dap-bundle] Extracts the Dell Automation Platform install bundle and outputs the install command. 
+                               Must be used with [-registry].
+                  [harbor]     Installs the harbor registry.
+                  [nginx]      Installs an nginx static file server.
+  offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
+                 Cannot be used with [install] [push] [join].
+  push         : Pushes all kubernetes and utility container images to the specified registry. 
+                 [-registry] must be specified. Does not push Dell Automation Platform images.
+  join         : Joins the host to an existing cluster as a [server] or [agent]. 
+                 [server-fqdn] and [join-token-string] must be specified.
+  -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup. 
+                 Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
+  -registry    : Used with [install rke2], [install dap-bundle], and [push] to provide a valid registry and credentials.
+  ```
+
+## Examples
+
+### Install RKE2 with default settings
+
+```
+sudo ./dap-tools.sh install rke2
+```
+
+### Install RKE2 and configure an additional TLS-SAN (typically for multi-node clusters)
+```
+sudo ./dap-tools.sh install rke2 -tls-san rke2-cluster.mydomain.lab
+```
+
+### Install RKE2 and use a local registry
+```
+sudo ./dap-tools.sh install rke2 -registry myregistry.lab:443 username password
+```
+
+### Push container images to a local registry, then install RKE2 and configure an additional TLS-SAN
+```
+sudo ./dap-tools.sh install rke2 push -registry myregistry.lab:443 username password -tls-san rke2-cluster.mydomain.lab
+```
+
+### Join to an existing RKE2 cluster as a server
+```
+sudo ./dap-tools.sh join server myk8snode.mydomain.lab <token_string> 
+```
+
+### Join to an existing RKE2 cluster as a server using a local registry and additional TLS-SAN
+```
+sudo ./dap-tools.sh join server rke2-cluster.mydomain.com <token_string> -registry registry.mydomain.lab username password -tls-san rke2-cluster.mydomain.lab
+```
+
+### Join to an existing RKE2 cluster as an agent 
+```
+sudo ./dap-tools.sh join agent myk8snode.mydomain.lab <token_string> 
+```
+
+### Only push RKE2 and Service containers to a registry
+```
+sudo ./dap-tools.sh push -registry myregistry.lab:8443 username password
+```
+
+### Install Harbor regisrtry
+```
+sudo ./dap-tools.sh install harbor
+```
+
+### Install NGINX file server
+```
+sudo ./dap-tools.sh install nginx
+```
+
+### Install Automation Platform Bundle
+```
+sudo ./dap-tools.sh install dap-bundle -registry myregistry.lab:443 username password
+```
+
+### Prepare an offline archive for air-gapped environment
+```
+sudo ./dap-tools.sh offline-prep
+```
+
+## Author notes and credits
+
+Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!

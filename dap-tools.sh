@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# --- Dell Automation Platform Configuration --- #
+# --- USER DEFINED Dell Automation Platform Configuration --- #
 DAP_VERSION=1.0.0.0
 DAP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
 DOWNLOAD_DAP_BUNDLE=false
@@ -19,7 +19,7 @@ LAST_NAME=changeme
 USERNAME=administrator
 EMAIL=changeme@example.com
 
-# --- Harbor and NGINX Configuration --- #
+# --- USER DEFINED Harbor and NGINX Configuration --- #
 HARBOR_VERSION=2.12.2
 HARBOR_PORT=443
 HARBOR_USERNAME=admin
@@ -28,7 +28,7 @@ NGINX_HTUSER=admin
 NGINX_HTPASS=changeme
 NGINX_PORT=4443
 
-# --- Self-Signed Certificate Configuration for Harbor and NGINX --- $
+# --- USER DEFINED Self-Signed Certificate Configuration for Harbor and NGINX --- $
 COUNTRY=US
 STATE=MA
 LOCATION=HOPKINTON
@@ -37,7 +37,7 @@ NGINX_COMMON_NAME=artifacts.edge.lab
 HARBOR_COMMON_NAME=registry.edge.lab
 DURATION_DAYS=3650
 
-# --- Kubernetes Configuration ---#
+# --- USER DEFINED Kubernetes Configuration ---#
 DEBUG=1
 RKE2_VERSION=v1.32.5+rke2r1
 CLUSTER_TYPE=single-node

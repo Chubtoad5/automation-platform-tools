@@ -2,7 +2,14 @@
 This is an unofficial pre-requisite tool designed for use with Dell Automation Platform on-premise bundle installation. 
 
 ## Preface
-This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. This script should not be used for a production environment.
+This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. This script should not be used for a production environment.  
+
+The ap-tools script uses helper scripts to perform certian actions. When running ap-tools, helper scripts are pulled from the following Chubtoad5 repositories:  
+- install-packages
+- images-pull-push
+- rke2-installer
+- harbor-registry-installer
+- nginx-static-files
 
 ## Main Feature Functionality
 The main purpose of this script is to prepare a single-node kubernetes environment for deploying Automation Platform Portal and Orchestrator.

@@ -123,7 +123,7 @@ EOF
 
 # Displays the parsed and validated arguments
 display_args() {
-    echo "### Automation Tools Started at $(date) ###"
+    echo "### Automation Tools Started on $(date) ###"
     echo "  AIR_GAPPED_MODE: $AIR_GAPPED_MODE"
     echo "  INSTALL_MODE: $INSTALL_MODE"
     echo "  INSTALL_TYPE: $INSTALL_TYPE"
@@ -221,18 +221,18 @@ run_install_join_push () {
     echo "  Installing dependancy packages..."
     cd $WORKING_DIR/ap-utilities/packages
     ./install_packages.sh offline jq zip unzip $longhorn_packages
-    echo "### Running Kubernetes install in air-gapped mode ###"
+    echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
-    echo "### Kubernetes installation completed ###"
+    echo "  Kubernetes installation completed"
   else
     echo "  Installing dependancy packages..."
     install_packages_check
     cd $WORKING_DIR/ap-utilities/packages
     ./install_packages.sh online jq zip unzip $longhorn_packages
-    echo "### Running Kubernetes install with online mode ###"
+    echo "  Running Kubernetes install with online mode"
     rke2_installer_check
     if [[ $PUSH_MODE == "1" ]]; then
       generate_images_file
@@ -240,22 +240,30 @@ run_install_join_push () {
     cd $WORKING_DIR/rke2
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
-    echo "### Kubernetes installation completed ###"
+    echo "  Kubernetes installation completed"
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
-   echo "### Installing dependancy helm charts ###"
+   echo "  Installing dependancy helm charts"
     export KUBECONFIG=/home/$user_name/.kube/config
     export PATH=$PATH:/var/lib/rancher/rke2/bin
     run_debug install_helm
-    [[ $INSTALL_HAPROXY == "false" ]] || run_debug helm_install_haproxy
-    [[ $INSTALL_METALLB == "false" ]] || run_debug helm_install_metallb
-    [[ $INSTALL_LOCAL_PATH_PROVISIONER == "true" ]] || run_debug helm_install_longhorn
-    echo "### Finished installing dependancy helm charts ###"
+    if [[ $INSTALL_HAPROXY == "true" ]]; then
+      echo "  Installing haproxy helm chart..."
+      run_debug helm_install_haproxy
+    fi
+    if [[ $INSTALL_METALLB == "true" ]]; then
+      echo "  Installing metallb helm chart..."
+      run_debug helm_install_metallb
+    fi
+    if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
+      echo "  Installing longhorn helm chart..."
+      run_debug helm_install_longhorn
+    fi
+    echo "  Finished installing dependancy helm charts"
   fi
 }
 
 run_install_nginx () {
-  echo "### Installing NGINX Artifact Server ###"
   cd $WORKING_DIR/ap-utilities/nginx
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       curl -OL https://github.com/Chubtoad5/nginx-static-files/raw/refs/heads/main/install_nginx.sh
@@ -299,7 +307,6 @@ install_helm () {
 }
 
 helm_install_haproxy () {
-  echo "  Installing haproxy helm chart..."
   cat << EOF > $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
 controller:
   image:
@@ -322,8 +329,6 @@ EOF
 }
 
 helm_install_longhorn () {
-  # Add a check for singlenode vs multinode
-  echo "  Installing longhorn helm chart..."
   local values_yaml=""
   if [[ $CLUSTER_TYPE == "single-node" ]]; then
     cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml
@@ -385,7 +390,6 @@ EOF
 }
 
 helm_install_metallb () {
-  echo "  Installing metallb helm chart..."
   cat << EOF > $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -488,8 +492,13 @@ ap_host_config () {
 run_offline_prep () {
     echo "--- Starting offline preparation workflow"
     echo "  Downloading host packages..."
+<<<<<<< HEAD
     run_debug download_ap_packages
     echo "  Downloading nginx binaries..."
+=======
+    run_debug download_dap_packages
+    echo "  Downloading NGINX binaries..."
+>>>>>>> 7179d30 (updates to output when in debug=0)
     run_debug download_nginx
     echo "  Downloading Harbor binaries..."
     run_debug download_harbor
@@ -1047,19 +1056,19 @@ if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INST
   run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
-  echo "Preparing Dell Automation Platform bundle..."
-  echo "This may take several minutes..."
+  echo "  Preparing Dell Automation Platform bundle..."
+  echo "  This may take several minutes..."
   local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
   dns_pre_flight_checks $ORCHESTRATOR_FQDN $PORTAL_FQDN $REG_FQDN $mtls_dns
   ap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "nginx" ]]; then
-  echo "Installing nginx artifact server..."
+  echo "  Installing NGINX artifact server..."
   run_install_nginx
 fi
 if [[ $INSTALL_TYPE == "harbor" ]]; then
-  echo "Installing Harbor registry..."
+  echo "  Installing Harbor registry..."
   run_install_harbor
 fi
 runtime_outputs
-echo "### Automation Tools Finished at $(date) ###"
+echo "### Automation Tools Finished on $(date) ###"

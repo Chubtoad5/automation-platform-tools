@@ -417,15 +417,15 @@ EOF
   kubectl apply -f $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
 }
 
-# --- DAP Bundle prep defenitions --- #
+# --- Automation Platform Bundle prep defenitions --- #
 
-dap_bundle_prep () {
+ap_bundle_prep () {
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
     echo "### Preparing Dell Automation Platform bundle ###"
-    dap_host_config
+    ap_host_config
     install_reg_docker
-    download_dap_bundle
-    extract_dap_bundle
+    download_ap_bundle
+    extract_ap_bundle
   fi
 }
 
@@ -445,7 +445,7 @@ install_reg_docker () {
   cd $base_dir
 }
 
-extract_dap_bundle () {
+extract_ap_bundle () {
   if [[ ! -d $WORKING_DIR/bundle ]]; then
     mkdir $WORKING_DIR/bundle
     unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
@@ -471,7 +471,7 @@ extract_dap_bundle () {
   fi
 }
 
-dap_host_config () {
+ap_host_config () {
   echo "  Configuring host settings for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
   systemctl restart systemd-sysctl
@@ -486,9 +486,9 @@ dap_host_config () {
 # -- Offline Prep Definitions -- #
 
 run_offline_prep () {
-    echo "--- Starting offline prep workflow"
+    echo "--- Starting offline preparation workflow"
     echo "  Downloading host packages..."
-    run_debug download_dap_packages
+    run_debug download_ap_packages
     echo "  Downloading nginx binaries..."
     run_debug download_nginx
     echo "  Downloading Harbor binaries..."
@@ -497,10 +497,10 @@ run_offline_prep () {
     run_debug download_helm_binaries
     run_debug generate_images_file
     echo "  Downloading RKE2 binaries and images..."
-    run_debug download_rke2
+    download_rke2
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle..."
-      run_debug download_dap_bundle
+      run_debug download_ap_bundle
     fi
     echo "  Creating archive for air-gapped host..."
     run_debug  create_offline_prep_archive
@@ -524,7 +524,7 @@ download_harbor () {
   cd $base_dir
 }
 
-download_dap_packages () {
+download_ap_packages () {
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
       longhorn_packages="nfs-common open-iscsi cryptsetup"
@@ -573,15 +573,15 @@ download_helm_binaries () {
   helm pull metallb/metallb --version $METALLB_VERSION
 }
 
-download_dap_bundle () {
+download_ap_bundle () {
   if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip ]]; then
-    echo "  Downloading DAP bundle..."
+    echo "  Downloading on-premise installation bundle..."
     if ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip $AP_BUNDLE_URL; then
-      echo "Error: Failed to download DAP bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
+      echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
       exit 1
     fi
   else
-    echo "  DAP bundle already downloaded."
+    echo "  Automation Platform bundle already downloaded."
   fi
 }
 
@@ -1049,7 +1049,7 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   echo "This may take several minutes..."
   local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
   dns_pre_flight_checks $ORCHESTRATOR_FQDN $PORTAL_FQDN $REG_FQDN $mtls_dns
-  dap_bundle_prep
+  ap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "nginx" ]]; then
   echo "Installing nginx artifact server..."

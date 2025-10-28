@@ -461,8 +461,10 @@ extract_ap_bundle () {
     fi
     download_ap_bundle
     mkdir $WORKING_DIR/bundle
-    unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
-    rm -rf $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip
+    if [[ -f $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip ]]; then
+      unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
+      rm -rf $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip
+    fi
     for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$AP_VERSION-*.zip; do
       unzip "$file" -d "$WORKING_DIR/bundle/"
       rm -rf $file

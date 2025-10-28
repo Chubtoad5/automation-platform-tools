@@ -298,6 +298,7 @@ install_helm () {
   fi
     tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
     mv linux-amd64/helm /usr/local/bin/helm
+    hash -r
     rm -rf linux-amd64
     echo "  Adding helm charts..."
     helm repo add metallb https://metallb.github.io/metallb

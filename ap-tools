@@ -640,18 +640,21 @@ ap_preflight_checks () {
   CURRENT_MEM_GB=$(echo "scale=2; $CURRENT_MEM_KIB / 1024 / 1024" | bc)
   CURRENT_STORAGE_GB=$(echo "scale=2; $CURRENT_STORAGE_B / 1024 / 1024 / 1024" | bc)
   EXIT_CODE=0
-  if [ "$CURRENT_CPU" -lt "$REQUIRED_CPU" ]; then
+  if (( $(echo "$CURRENT_CPU < $REQUIRED_CPU" | bc -l) )); then
     echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"
     EXIT_CODE=1
   fi
-  if [ "$CURRENT_MEM_GB" -lt "$REQUIRED_MEM_GB" ]; then
+
+  if (( $(echo "$CURRENT_MEM_GB < $REQUIRED_MEM_GB" | bc -l) )); then
     echo "Error: Not enough memory resources available. Required: $REQUIRED_MEM_GB, Available: $CURRENT_MEM_GB"
     EXIT_CODE=1
   fi
-  if [ "$CURRENT_STORAGE_GB" -lt "$REQUIRED_STORAGE_GB" ]; then
+
+  if (( $(echo "$CURRENT_STORAGE_GB < $REQUIRED_STORAGE_GB" | bc -l) )); then
     echo "Error: Not enough storage resources available. Required: $REQUIRED_STORAGE_GB, Available: $CURRENT_STORAGE_GB"
     EXIT_CODE=1
   fi
+
   if [ $EXIT_CODE -eq 0 ]; then
     echo "🎉 Cluster resource check PASSED."
     echo "  CPU: $CURRENT_CPU"

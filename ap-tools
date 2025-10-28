@@ -428,10 +428,8 @@ EOF
 
 ap_bundle_prep () {
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
-    echo "### Preparing Dell Automation Platform bundle ###"
     ap_host_config
     install_reg_docker
-    download_ap_bundle
     extract_ap_bundle
   fi
 }
@@ -453,21 +451,23 @@ install_reg_docker () {
 }
 
 extract_ap_bundle () {
-  if [[ ! -d $WORKING_DIR/bundle ]]; then
+  if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
+    echo "  Bundle already extracted."
+    chmod +x $WORKING_DIR/bundle/install-upgrade.sh
+  else
+    if [[ -d $WORKING_DIR/bundle ]]; then
+      echo "  Cleaning up existing files..."
+      rm -rf $WORKING_DIR/bundle
+    fi
+    download_ap_bundle
     mkdir $WORKING_DIR/bundle
     unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
     rm -rf $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip
     for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$AP_VERSION-*.zip; do
       unzip "$file" -d "$WORKING_DIR/bundle/"
+      rm -rf $file
     done
-  else
-    echo "  Bundle already extracted."
-  fi
-  if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
-  else
-    echo "Error: install-upgrade.sh not found in '$WORKING_DIR/bundle/'."
-    exit 1
   fi
   if [[ -f "/usr/local/share/ca-certificates/$REG_FQDN.crt" ]]; then
     REG_CERT_FILE_PATH="/usr/local/share/ca-certificates/$REG_FQDN.crt"
@@ -633,12 +633,12 @@ ap_preflight_checks () {
   fi
   CURRENT_CPU=$(echo "$ALLOCATABLE_JSON" | jq -r '.cpu')
   CURRENT_MEM_KIB=$(echo "$ALLOCATABLE_JSON" | jq -r '.memory')
-  CURRENT_STORAGE_KIB=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage')
+  CURRENT_STORAGE_B=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage')
   if [ -z "$CURRENT_CPU" ] || [ "$CURRENT_CPU" = "null" ]; then CURRENT_CPU=0; fi
   if [ -z "$CURRENT_MEM_KIB" ] || [ "$CURRENT_MEM_KIB" = "null" ]; then CURRENT_MEM_KIB=0; fi
-  if [ -z "$CURRENT_STORAGE_KIB" ] || [ "$CURRENT_STORAGE_KIB" = "null" ]; then CURRENT_STORAGE_KIB=0; fi
+  if [ -z "$CURRENT_STORAGE_B" ] || [ "$CURRENT_STORAGE_B" = "null" ]; then CURRENT_STORAGE_B=0; fi
   CURRENT_MEM_GB=$(echo "scale=2; $CURRENT_MEM_KIB / 1024 / 1024" | bc)
-  CURRENT_STORAGE_GB=$(echo "scale=2; $CURRENT_STORAGE_KIB / 1024 / 1024" | bc)
+  CURRENT_STORAGE_GB=$(echo "scale=2; $CURRENT_STORAGE_B / 1024 / 1024 / 1024" | bc)
   EXIT_CODE=0
   if [ "$CURRENT_CPU" -lt "$REQUIRED_CPU" ]; then
     echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"
@@ -654,6 +654,9 @@ ap_preflight_checks () {
   fi
   if [ $EXIT_CODE -eq 0 ]; then
     echo "🎉 Cluster resource check PASSED."
+    echo "  CPU: $CURRENT_CPU"
+    echo "  Memory: $CURRENT_MEM_GB GB"
+    echo "  Storage: $CURRENT_STORAGE_GB GB"
   else
     echo "🛑 Cluster resource check FAILED. Exiting."
     exit 1

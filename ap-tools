@@ -18,6 +18,9 @@ FIRST_NAME=changeme
 LAST_NAME=changeme
 USERNAME=administrator
 EMAIL=changeme@example.com
+REQUIRED_CPU=16
+REQUIRED_MEM_GB=32
+REQUIRED_STORAGE_GB=400
 
 # --- USER DEFINED Harbor and NGINX Configuration --- #
 HARBOR_VERSION=2.12.2
@@ -453,6 +456,7 @@ extract_ap_bundle () {
   if [[ ! -d $WORKING_DIR/bundle ]]; then
     mkdir $WORKING_DIR/bundle
     unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
+    rm -rf $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip
     for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$AP_VERSION-*.zip; do
       unzip "$file" -d "$WORKING_DIR/bundle/"
     done
@@ -615,6 +619,53 @@ create_offline_prep_archive () {
 }
 
 # --- Helper Functions --- #
+
+ap_preflight_checks () {
+  # Check k8s for the required resources and NTP sync
+  echo "  Running pre-flight resource checks..."
+  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c '{
+    cpu: ([.items[]?.status.allocatable.cpu | sub("m"; "")] | add),
+    memory: ([.items[]?.status.allocatable.memory | sub("Ki$"; "") | sub("Mi$"; "") | sub("Gi$"; "") | sub("Ti$"; "")] | add),
+    storage: ([.items[]?.status.allocatable."ephemeral-storage" | sub("Ki$"; "") | sub("Mi$"; "") | sub("Gi$"; "") | sub("Ti$"; "")] | add)}' || true)
+  if [ -z "$ALLOCATABLE_JSON" ] || [ "$ALLOCATABLE_JSON" = "null" ]; then
+    echo "Error: Could not retrieve or parse allocatable resource data. Check kubectl connectivity and 'jq' installation."
+    exit 1
+  fi
+  CURRENT_CPU=$(echo "$ALLOCATABLE_JSON" | jq -r '.cpu')
+  CURRENT_MEM_KIB=$(echo "$ALLOCATABLE_JSON" | jq -r '.memory')
+  CURRENT_STORAGE_KIB=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage')
+  if [ -z "$CURRENT_CPU" ] || [ "$CURRENT_CPU" = "null" ]; then CURRENT_CPU=0; fi
+  if [ -z "$CURRENT_MEM_KIB" ] || [ "$CURRENT_MEM_KIB" = "null" ]; then CURRENT_MEM_KIB=0; fi
+  if [ -z "$CURRENT_STORAGE_KIB" ] || [ "$CURRENT_STORAGE_KIB" = "null" ]; then CURRENT_STORAGE_KIB=0; fi
+  CURRENT_MEM_GB=$(echo "scale=2; $CURRENT_MEM_KIB / 1024 / 1024" | bc)
+  CURRENT_STORAGE_GB=$(echo "scale=2; $CURRENT_STORAGE_KIB / 1024 / 1024" | bc)
+  EXIT_CODE=0
+  if [ "$CURRENT_CPU" -lt "$REQUIRED_CPU" ]; then
+    echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"
+    EXIT_CODE=1
+  fi
+  if [ "$CURRENT_MEM_GB" -lt "$REQUIRED_MEM_GB" ]; then
+    echo "Error: Not enough memory resources available. Required: $REQUIRED_MEM_GB, Available: $CURRENT_MEM_GB"
+    EXIT_CODE=1
+  fi
+  if [ "$CURRENT_STORAGE_GB" -lt "$REQUIRED_STORAGE_GB" ]; then
+    echo "Error: Not enough storage resources available. Required: $REQUIRED_STORAGE_GB, Available: $CURRENT_STORAGE_GB"
+    EXIT_CODE=1
+  fi
+  if [ $EXIT_CODE -eq 0 ]; then
+    echo "🎉 Cluster resource check PASSED."
+  else
+    echo "🛑 Cluster resource check FAILED. Exiting."
+    exit 1
+  fi
+  # Check NTP status
+  ntp_status=$(timedatectl status | awk '/System clock synchronized/ {print $NF}') || true
+  ntp_message="NTP is synchronized!"
+  if [ "$ntp_status" != "yes" ]; then
+    echo "WARNING: NTP is not synchronized! This may cause Kubernetes pod connectivity issues, use the 'timedatectl' command to check the status."
+    ntp_message="WARNING: NTP is not synchronized or timedatectl command failed! This may cause Kubernetes pod connectivity issues, use the 'timedatectl' command to check the status."
+  fi
+}
 dns_pre_flight_checks () {
   # Use this function to check DNS resolution where $1, $2, $3, etc... are the FQDNs to lookup
   # local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
@@ -630,7 +681,7 @@ dns_pre_flight_checks () {
   done
   for entry in "${dns_to_check[@]}"; do
     echo "  Running pre-flight dns check for $entry"
-    resolved_dns=$(host -t A "$entry" 2>/dev/null | awk '/has address|is an alias/ { print $NF }' | head -n 1)
+    resolved_dns=$(host -t A "$entry" 2>/dev/null | awk '/has address|is an alias/ { print $NF }' | head -n 1) || true
     if [ -z "$resolved_dns" ]; then
       failed_lookups+=("$entry")
       echo "  Failed to resolve $entry"
@@ -842,6 +893,7 @@ runtime_outputs () {
     echo "###      PRINTING OUTPUTS      ###"
     echo ""
     echo "Dell Automation Platform is ready for installation"
+    echo "$ntp_message"
     echo "Next steps:"
     echo "  - Run the following command to install Dell Automation Platform Portal and Orchestrator:"
     echo "----"
@@ -1053,8 +1105,9 @@ fi
 if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   echo "  Preparing Dell Automation Platform bundle..."
   echo "  This may take several minutes..."
-  local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
-  dns_pre_flight_checks $ORCHESTRATOR_FQDN $PORTAL_FQDN $REG_FQDN $mtls_dns
+  mtls_dns="mtls-$ORCHESTRATOR_FQDN"
+  dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $REG_FQDN
+  ap_preflight_checks
   ap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "nginx" ]]; then

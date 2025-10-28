@@ -85,24 +85,25 @@ Bellow is an example DNS A record schema for FQDN:IP mapping:
 | Harbor              | registry.mydomain.lab         | 192.168.50.20                       |
 | NGINX               | artifacts.mydomain.lab        | 192.168.50.25                       |
 | RKE2 Kubernetes     | myk8snode.mydomain.lab        | 192.168.50.30                       |
-| RKE2 Kubernetes     | myk8scluster.mydomain.lab     | 192.168.50.30, 192.168.50.31, 192.168.50.32, etc... |
-| Automation Platform | portal.mydomain.lab           | 192.168.50.35                       |
-| Automation Platform | orchestrator.mydomain.lab     | 192.168.50.35                       |
-| Automation Platform | mtls-orchestrator.mydomain.lab| 192.168.50.35                       |
-| Automation Platform | rv.dell.fdo                   | 192.168.50.35                       |
+| RKE2 TLS SAN        | myk8scluster.mydomain.lab     | 192.168.50.30, 192.168.50.31, 192.168.50.32, etc... |
+| Automation Platform | portal.mydomain.lab           | 192.168.50.30                       |
+| Automation Platform | orchestrator.mydomain.lab     | 192.168.50.30                       |
+| Automation Platform | mtls-orchestrator.mydomain.lab| 192.168.50.30                       |
+| Automation Platform | rv.dell.fdo                   | 192.168.50.30                       |
 
 **IMPORTANT NOTES ON DNS**   
 - The `myk8scluster` entry is only needed if using `tls-san` mode for multi-node k8s, each server node would resolve to the cluster FQDN.
 - The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication.
 - The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding.
 - Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance.
-- Using a DNS zone of `*.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.  
+- Using a DNS zone of `*.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.
+- Dell Automation Platform does support wildcard DNS domains. For example, `*.myap.mydomain.com` where the (A) record `*` would resolve back to the host where Automation Platform is being installed. If using a wildcard domain, ensure all required Automation Platform FQDN resolve back to the correct IP address.  
 
 ### Local Registry
-When using a local registry, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.  
+When using a local registry to pull containers, all required containers must exist on the registry, or the registry must act as a mirror/passthrough. When using the `push` functionality, the script assumes the proper project path exists on the defined registry. The script leverages Docker engine and cli to pull/push containers. If Docker is not installed, the script will automatically attempt to install it.  
 
 The following project paths must be pre-configured on the local registry when `push` is specified:  
-- `/rancher`-  Rancher RKE2 project, pulled from docker.io
+- `/rancher`-  Rancher's RKE2 project, pulled from docker.io
 - `/haproxytech` - HAProxy Tech kubernetes-ingress, pulled from docker.io
 - `/longhornio` - Longhorn storage provider, pulled from docker.io
 - `/metallb` - MetalLB loadbalancer, pulled from quay.io
@@ -110,7 +111,7 @@ The following project paths must be pre-configured on the local registry when `p
 - `/e2e-test-images` - Used when `INSTALL_DNS_utility=true`, official kubernetes.io dns utility
 - `/library` - Only used when `INSTALL_LOCAL_PATH_PROVISIONER=true`, which will disable longhorn installation 
 
-When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry a dedicated project pre-created and the USER DEFINED variable `REGISTRY_PROJECT_NAME` is updated.  
+When installing Dell Automation Platform Portal & Orchestrator, the installation bundle pushes all container images from the bundle to the local registry. Before installing, ensure the local registry has a dedicated project pre-created and the USER DEFINED variable `REGISTRY_PROJECT_NAME` is updated.  
 
 ## Usage
 

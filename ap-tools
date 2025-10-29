@@ -459,12 +459,14 @@ extract_ap_bundle () {
     download_ap_bundle
     if [[ -f $WORKING_DIR/$bundle_file ]]; then
       unzip $WORKING_DIR/$bundle_file -d $WORKING_DIR/bundle
-      rm -rf $WORKING_DIR/$bundle_file
+      rm -f $WORKING_DIR/$bundle_file
     fi
-    if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
+    if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
       for file in "$WORKING_DIR/bundle/"*.zip; do
-        unzip "$file" -d "$WORKING_DIR/bundle/"
-        rm -rf $file
+        if [[ -f "$file" ]]; then
+          unzip "$file" -d "$WORKING_DIR/bundle/"
+          rm -f $file
+        fi
       done
     fi
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh

@@ -16,7 +16,7 @@ The main purpose of this script is to prepare a single-node kubernetes environme
 
 - **RKE2** - Installs a single-node rke2 kubernetes instance with all prerequisite host OS packages and configurations required for Automation Platform, including helm, zip, jq, and sysctl parameters.
 - **SUPPORTING SERVICES** - Installs additional kubernetes services used by Automation Platform, including a CNI, Longhorn Storage Provider, MetalLB Loadbalancer, and HAProxy Tech kubernetes ingress.
-- **BUNDLE** - Downloads, extracts, and prepares the Automation Platform bundle, providing the install command based off defined variables.
+- **BUNDLE** - Downloads, extracts, and prepares the Automation Platform bundle, providing the install command based off defined variables. If you are manually downloading the bundle, pre-create the `ap-install` directory in the same location as the `ap-tools` script, move the bundle zip in into `ap-install` then update `the AP_BUNDLE_URL` variable with the name of the zip file.  
 - **AIR-GAPPED** - Option to prepare an offline/air-gapped bundle, which contains all the necessary binaries for deploying Automation Platform into an isoloated enviroment where no internet access is possible.
 - **LOCAL REGISTRY** - Supports using a local named registry for kubernetes containers. The script is capable of first pulling the containers from the internet and push in to the defined registry, then installing RKE2 which will pull from the local registry.
 

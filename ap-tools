@@ -520,7 +520,7 @@ run_offline_prep () {
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle."
       echo "  Approximate download size is 20G. This may take several minutes..."
-      run_debug download_ap_bundle
+      download_ap_bundle
     fi
     echo "  Creating archive..."
     run_debug  create_offline_prep_archive
@@ -601,11 +601,13 @@ download_ap_bundle () {
     if [[ "$url_check" == "dl.dell.com" ]]; then
       if ! wget --no-check-certificate --user-agent="$user_agent_string" -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
         echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
+        echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
         exit 1
       fi
     else
       if ! wget --no-check-certificate -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
         echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
+        echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
         exit 1
       fi
     fi
@@ -656,8 +658,8 @@ ap_preflight_checks () {
   if [ -z "$CURRENT_CPU" ] || [ "$CURRENT_CPU" = "null" ]; then CURRENT_CPU=0; fi
   if [ -z "$CURRENT_MEM_KIB" ] || [ "$CURRENT_MEM_KIB" = "null" ]; then CURRENT_MEM_KIB=0; fi
   if [ -z "$CURRENT_STORAGE_B" ] || [ "$CURRENT_STORAGE_B" = "null" ]; then CURRENT_STORAGE_B=0; fi
-  CURRENT_MEM_GB=$(echo "$CURRENT_MEM_KIB / 1024 / 1024" | bc -l)
-  CURRENT_STORAGE_GB=$(echo "$CURRENT_STORAGE_B / 1024 / 1024 /1024" | bc -l)
+  CURRENT_MEM_GB=$(echo "$CURRENT_MEM_KIB / 1024 / 1024" | bc)
+  CURRENT_STORAGE_GB=$(echo "$CURRENT_STORAGE_B / 1024 / 1024 /1024" | bc)
   EXIT_CODE=0
   if (( $(echo "$CURRENT_CPU < $REQUIRED_CPU" | bc -l) )); then
     echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"

@@ -95,6 +95,7 @@ fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
 RKE2_CMD_ARGS=""
 longhorn_packages=""
+bundle_file=$(basename $AP_BUNDLE_URL)
 
 # --- USAGE FUNCTION --- #
 
@@ -455,20 +456,17 @@ extract_ap_bundle () {
     echo "  Bundle already extracted."
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   else
-    if [[ -d $WORKING_DIR/bundle ]]; then
-      echo "  Cleaning up existing files..."
-      rm -rf $WORKING_DIR/bundle
-    fi
     download_ap_bundle
-    mkdir $WORKING_DIR/bundle
-    if [[ -f $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip ]]; then
-      unzip $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip -d $WORKING_DIR/bundle
-      rm -rf $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip
+    if [[ -f $WORKING_DIR/$bundle_file ]]; then
+      unzip $WORKING_DIR/$bundle_file -d $WORKING_DIR/bundle
+      rm -rf $WORKING_DIR/$bundle_file
     fi
-    for file in "$WORKING_DIR/bundle/"DellAutomationPlatform_v$AP_VERSION-*.zip; do
-      unzip "$file" -d "$WORKING_DIR/bundle/"
-      rm -rf $file
-    done
+    if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
+      for file in "$WORKING_DIR/bundle/"*.zip; do
+        unzip "$file" -d "$WORKING_DIR/bundle/"
+        rm -rf $file
+      done
+    fi
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   fi
   if [[ -f "/usr/local/share/ca-certificates/$REG_FQDN.crt" ]]; then
@@ -586,11 +584,20 @@ download_helm_binaries () {
 }
 
 download_ap_bundle () {
-  if [[ ! -f $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip ]]; then
+  user_agent_string="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+  url_check=$(echo $AP_BUNDLE_URL | cut -d "/" -f3)
+  if [[ ! -f $WORKING_DIR/$bundle_file ]]; then
     echo "  Downloading on-premise installation bundle..."
-    if ! wget --no-check-certificate --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3" -O $WORKING_DIR/DellAutomationPlatform_v$AP_VERSION.zip $AP_BUNDLE_URL; then
-      echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
-      exit 1
+    if [[ "$url_check" == "dl.dell.com" ]]; then
+      if ! wget --no-check-certificate --user-agent="$user_agent_string" -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
+        echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
+        exit 1
+      fi
+    else
+      if ! wget --no-check-certificate -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
+        echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
+        exit 1
+      fi
     fi
   else
     echo "  Automation Platform bundle already downloaded."
@@ -716,6 +723,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
     [ -d "$WORKING_DIR/ap-utilities/images" ] || mkdir -p "$WORKING_DIR/ap-utilities/images"
+    [ -d "$WORKING_DIR/bundle" ] || mkdir -p "$WORKING_DIR/bundle"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
 

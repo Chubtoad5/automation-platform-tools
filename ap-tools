@@ -18,9 +18,6 @@ FIRST_NAME=changeme
 LAST_NAME=changeme
 USERNAME=administrator
 EMAIL=changeme@example.com
-REQUIRED_CPU=16
-REQUIRED_MEM_GB=32
-REQUIRED_STORAGE_GB=400
 
 # --- USER DEFINED Harbor and NGINX Configuration --- #
 HARBOR_VERSION=2.12.2
@@ -96,6 +93,9 @@ ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]
 RKE2_CMD_ARGS=""
 longhorn_packages=""
 bundle_file=$(basename $AP_BUNDLE_URL)
+REQUIRED_CPU=16
+REQUIRED_MEM_GB=22
+REQUIRED_STORAGE_GB=500
 
 # --- USAGE FUNCTION --- #
 
@@ -355,8 +355,16 @@ defaultSettings:
 persistence:
   defaultClassReplicaCount: 1
 EOF
-    local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
+  else
+    cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml
+defaultSettings:
+  defaultReplicaCount: 1
+  storageReservedPercentageForDefaultDisk: 10
+  storageOverProvisioningPercentage: 100
+  storageMinimalAvailablePercentage: 5
+EOF
   fi
+  local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     /usr/local/bin/helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
     echo "  Installing longhornctl binary..."
@@ -648,10 +656,8 @@ ap_preflight_checks () {
   if [ -z "$CURRENT_CPU" ] || [ "$CURRENT_CPU" = "null" ]; then CURRENT_CPU=0; fi
   if [ -z "$CURRENT_MEM_KIB" ] || [ "$CURRENT_MEM_KIB" = "null" ]; then CURRENT_MEM_KIB=0; fi
   if [ -z "$CURRENT_STORAGE_B" ] || [ "$CURRENT_STORAGE_B" = "null" ]; then CURRENT_STORAGE_B=0; fi
-  #CURRENT_MEM_GB=$(echo "scale=2; $CURRENT_MEM_KIB / 1024 / 1024" | bc)
-  CURRENT_MEM_GB=$(echo "$CURRENT_MEM_KIB / 1024 / 1024" | awk '{print int($1 + 0.999)}')
-  #CURRENT_STORAGE_GB=$(echo "scale=2; $CURRENT_STORAGE_B / 1024 / 1024 / 1024" | bc)
-  CURRENT_STORAGE_GB=$(echo "$CURRENT_STORAGE_B / 1024 / 1024 /1024" | awk '{print int($1 + 0.999)}')
+  CURRENT_MEM_GB=$(echo "$CURRENT_MEM_KIB / 1024 / 1024" | bc -l)
+  CURRENT_STORAGE_GB=$(echo "$CURRENT_STORAGE_B / 1024 / 1024 /1024" | bc -l)
   EXIT_CODE=0
   if (( $(echo "$CURRENT_CPU < $REQUIRED_CPU" | bc -l) )); then
     echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"

@@ -50,18 +50,19 @@ This script only supports x86 based linux operating systems. OS pre-checks verif
 
 Automation Platform bundle requires:
 - 16 CPU
-- 32 GB Ram
+- 32 GB Memory (Recommend 34 GB)
 - 1 TB SSD  
-**NOTE:** CPU and Memory requirements are based off the avaiable resources as seen from the kubernetes cluster (i.e. `kubectl describe node <node-name>`).
+**NOTE:** CPU and Memory requirements are based off the avaiable resources as seen from the kubernetes cluster (i.e. `kubectl describe node <node-name>`).  
+          RKE2 and services require around 2GB Memory, therefore 34 GB memory or higher is recommended.
 
 NGINX recommendation:  
 - 2-4 CPU
-- 4-8 GB Ram
+- 4-8 GB Memory
 - Enough disk for the image/binary size of the Automation Platform application use case (blueprints, vms, etc)
 
 Harbor recommendation:  
 - 4 CPU
-- 8 GB Ram
+- 8 GB Memory
 - 500 GB SSD or larger
 
 ## Network Requirements

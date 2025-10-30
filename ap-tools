@@ -94,7 +94,7 @@ RKE2_CMD_ARGS=""
 longhorn_packages=""
 bundle_file=$(basename $AP_BUNDLE_URL)
 REQUIRED_CPU=16
-REQUIRED_MEM_GB=22
+REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
 
 # --- USAGE FUNCTION --- #

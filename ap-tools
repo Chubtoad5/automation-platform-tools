@@ -483,6 +483,8 @@ extract_ap_bundle () {
     REG_CERT_FILE_PATH="/usr/local/share/ca-certificates/$REG_FQDN.crt"
   elif [[ -f "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" ]]; then
     REG_CERT_FILE_PATH="/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt"
+  elif [[ -f "/etc/pki/trust/anchors/$REG_FQDN.crt" ]]; then
+    REG_CERT_FILE_PATH="/etc/pki/trust/anchors/$REG_FQDN.crt"
   else
     echo "Error: registry certificate not found."
     exit 1

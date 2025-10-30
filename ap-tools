@@ -224,7 +224,7 @@ run_install_join_push () {
     fi
     echo "  Installing dependancy packages..."
     cd $WORKING_DIR/ap-utilities/packages
-    ./install_packages.sh offline jq zip unzip $longhorn_packages
+    ./install_packages.sh offline jq zip unzip hostname bc openssl $longhorn_packages
     echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
@@ -235,7 +235,7 @@ run_install_join_push () {
     echo "  Installing dependancy packages..."
     install_packages_check
     cd $WORKING_DIR/ap-utilities/packages
-    ./install_packages.sh online jq zip unzip $longhorn_packages
+    ./install_packages.sh online jq zip unzip hostname bc openssl $longhorn_packages
     echo "  Running Kubernetes install with online mode"
     rke2_installer_check
     if [[ $PUSH_MODE == "1" ]]; then
@@ -506,7 +506,7 @@ ap_host_config () {
 run_offline_prep () {
     echo "--- Starting offline preparation workflow"
     echo "  Downloading host packages..."
-    run_debug download_dap_packages
+    run_debug download_ap_packages
     echo "  Downloading NGINX binaries..."
     run_debug download_nginx
     echo "  Downloading Harbor binaries..."
@@ -556,7 +556,7 @@ download_ap_packages () {
   fi
   install_packages_check
   cd $WORKING_DIR/ap-utilities/packages
-  ./install_packages.sh save jq zip unzip $longhorn_packages
+  ./install_packages.sh save jq zip unzip hostname bc openssl $longhorn_packages
   cd $base_dir
 }
 

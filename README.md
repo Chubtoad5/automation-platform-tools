@@ -77,7 +77,7 @@ In general, static IP or DHCP reservation and DNS A records are highly recommene
 Kubernetes strictly enforces `DNS-1123 subdomain format` which is derived from `RFC 1123`. The standard requires all node names to be lower-case and follow the regex pattern: `[a-z0-9]([-a-z0-9]*[a-z0-9])?`. RKE2 uses the hostname as the node name, therefore make sure the hostname matches this standard before installation of RKE2.  
 
 ### DNS Assignment
-DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are three required DNS records and one optional record depending on the device onboarding method.  
+DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are four required DNS records and one optional record depending on the device onboarding method.  
 
 Bellow is an example DNS A record schema for FQDN:IP mapping:
 
@@ -90,6 +90,7 @@ Bellow is an example DNS A record schema for FQDN:IP mapping:
 | Automation Platform | portal.mydomain.lab           | 192.168.50.30                       |
 | Automation Platform | orchestrator.mydomain.lab     | 192.168.50.30                       |
 | Automation Platform | mtls-orchestrator.mydomain.lab| 192.168.50.30                       |
+| Automation Platform | mtls-recovery-orchestrator.mydomain.lab| 192.168.50.30                       |
 | Automation Platform | rv.dell.fdo                   | 192.168.50.30                       |
 
 **IMPORTANT NOTES ON DNS**   

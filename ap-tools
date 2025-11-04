@@ -268,6 +268,14 @@ run_install_join_push () {
       run_debug helm_install_longhorn
     fi
     echo "  Finished installing dependancy helm charts"
+    if [[ $AIR_GAPPED_MODE == "0" ]]; then
+      echo "  Downloading k9s..."
+      mkdir -p $WORKING_DIR/ap-utilities/k9s || true
+      curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
+    fi
+    echo "  Installing k9s..."
+    tar -xzf $WORKING_DIR/ap-utilities/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
+    cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/local/bin/k9s || true
   fi
 }
 
@@ -571,6 +579,9 @@ download_ap_packages () {
   cd $base_dir
   echo "  Downloading support log collector tool..."
   curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
+  echo "  Downloading k9s..."
+  mkdir -p $WORKING_DIR/ap-utilities/k9s || true
+  curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
 }
 
 download_rke2 () {

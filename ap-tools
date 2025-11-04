@@ -96,6 +96,7 @@ bundle_file=$(basename $AP_BUNDLE_URL)
 REQUIRED_CPU=16
 REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
+kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000Sb4oIAC/logs_pkb_en_US_1.zip"
 
 # --- USAGE FUNCTION --- #
 
@@ -493,6 +494,10 @@ extract_ap_bundle () {
 }
 
 ap_host_config () {
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    echo "  Downloading support log collector tool..."
+    curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
+  fi
   echo "  Configuring host settings for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
   systemctl restart systemd-sysctl
@@ -561,6 +566,8 @@ download_ap_packages () {
   cd $WORKING_DIR/ap-utilities/packages
   ./install_packages.sh save jq zip unzip hostname bc openssl $longhorn_packages
   cd $base_dir
+  echo "  Downloading support log collector tool..."
+  curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
 }
 
 download_rke2 () {

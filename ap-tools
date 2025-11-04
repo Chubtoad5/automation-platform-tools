@@ -274,7 +274,7 @@ run_install_join_push () {
       curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
     fi
     echo "  Installing k9s..."
-    tar -xzf $WORKING_DIR/ap-utilities/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
+    tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
     cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/local/bin/k9s || true
   fi
 }

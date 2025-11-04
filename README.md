@@ -228,6 +228,12 @@ tar xzf ap-offline.tar.gz
 sudo ./ap-tools install rke2
 ```
 
+### Additional tools
+This tool also includes extra binaries for troubleshooting the environment
+- `k9s` is a cli-based tool for managing kubernetes clusters. run `k9s` to launch.
+- `dnsutils` is a dns troubleshooting tool managed by kubernetes.io. by default the `dnsutils` pod will be installed in the default namespace
+- `logs.sh` is a log collection script published by Dell Technologies for Dell Automation Platform under KB Article 000216838. It is downloaded during `install ap-bundle`. Extract the zip file in the `ap-install/ap-utilities` directory for more information.
+
 ## Open Source references
 - Rancher RKE2 - https://docs.rke2.io/
 - Kubernetes DNS Utility - https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
@@ -236,6 +242,7 @@ sudo ./ap-tools install rke2
 - HAProxy Tech kubernetes-ingress - https://www.haproxy.com/documentation/kubernetes-ingress/
 - Harbor - https://goharbor.io/
 - NGINX - https://nginx.org/  
+- K9S - https://k9scli.io/
 
 ## Dell Technologies references
 - Dell Automation Platform - https://www.dell.com/en-us/lp/dt/automation-platform  

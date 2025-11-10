@@ -480,14 +480,16 @@ extract_ap_bundle () {
     echo "  Bundle already extracted."
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   else
-    download_ap_bundle
+    echo "  Checking for Automation Platform Bundle and downloading if needed. This may take severak minutes..."
+    run_debug download_ap_bundle
     if [[ -f $WORKING_DIR/$bundle_file ]]; then
-      unzip $WORKING_DIR/$bundle_file -d $WORKING_DIR/bundle
+      echo "  Extracting Automation Platform Bundle, this may take severak minutes..."
+      unzip $WORKING_DIR/$bundle_file -d $WORKING_DIR/bundle &> /dev/null
     fi
     if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
       for file in "$WORKING_DIR/bundle/"*.zip; do
         if [[ -f "$file" ]]; then
-          unzip "$file" -d "$WORKING_DIR/bundle/"
+          unzip "$file" -d "$WORKING_DIR/bundle/" &> /dev/null
           rm -f $file
         fi
       done
@@ -541,7 +543,7 @@ run_offline_prep () {
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle."
       echo "  Approximate download size is 20G. This may take several minutes..."
-      download_ap_bundle
+      run_debugdownload_ap_bundle
     fi
     echo "  Creating archive..."
     run_debug  create_offline_prep_archive

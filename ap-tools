@@ -910,7 +910,6 @@ runtime_outputs () {
       echo "----"
     fi
     echo "Next steps:"
-    echo "  - Run 'source ~/.bashrc' to enable kubectl"
     echo "  - To join another server using this script, run: 'join server [server-fqdn-ip] [join-token-string]'"
     echo "  - To join another agent using this script, run: 'join agent [server-fqdn-ip] [join-token-string]'"
     echo "  - Run 'install ap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
@@ -933,7 +932,6 @@ runtime_outputs () {
         kubectl get nodes
         echo ""
         echo "Next steps:"
-        echo "  - Run 'source ~/.bashrc' to enable kubectl"
         echo "  - (Optional) Join a third server to meet kubernetes minimum multi-node requirements."
         echo "  - Run 'install ap-bundle -registry [registry:port username password]' to prepare for Dell Automation Platform install"
     else
@@ -973,7 +971,6 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
 EOF
   echo "----"
   fi
-
 }
 
 # --- Main Script Execution --- #

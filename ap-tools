@@ -947,7 +947,7 @@ runtime_outputs () {
     echo "Dell Automation Platform is ready for installation"
     echo "$ntp_message"
     echo "Next steps:"
-    echo "  - Run the following command to install Dell Automation Platform Portal and Orchestrator:"
+    echo "  - Run the following command block to install Dell Automation Platform Portal and Orchestrator:"
     echo "----"
   cat << EOF 
 sudo $WORKING_DIR/bundle/install-upgrade.sh \\

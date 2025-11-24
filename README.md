@@ -95,10 +95,10 @@ Bellow is an example DNS A record schema for FQDN:IP mapping:
 
 **IMPORTANT NOTES ON DNS**   
 - The `myk8scluster` entry is only needed if using `tls-san` mode for multi-node k8s, each server node would resolve to the cluster FQDN.
-- The `mtls-` prefix is a hard requirement for Automation Platform Orchestrator used for device mTLS authentication.
+- The `mtls-` and `mtls-recovery-` prefixes are a hard requirement for Automation Platform Orchestrator used for device mTLS authentication.
 - The `rv.dell.fdo` record is only required if Global Rendezvous is not being used (i.e. air-gapped environment) for FDO onboarding.
 - Using a DNS zone called ```local.edge``` is not recommened per Dell Technologies guidance.
-- Using a DNS zone of `*.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.
+- Using a DNS zone of `.local` is not recommened per `RFC 6762 Multicast DNS (mDNS)` standards.
 - Dell Automation Platform does support wildcard DNS domains. For example, `*.myap.mydomain.com` where the (A) record `*` would resolve back to the host where Automation Platform is being installed. If using a wildcard domain, ensure all required Automation Platform FQDN resolve back to the correct IP address.  
 
 ### Local Registry
@@ -226,6 +226,13 @@ sudo ./ap-tools offline-prep
 ```
 tar xzf ap-offline.tar.gz
 sudo ./ap-tools install rke2
+```
+
+### Multi-homed hosts for Kubernetes
+By default, the rke2 installation will use the first non-loopback NIC from `hostname -I` for the node-ip and API advertisement-address. If the node-ip & advertisement-address must use a different IP on the host, use the MGMT_IP variable to set it by modifying the variable in the file, or export it.
+
+```
+sudo MGMT_IP=192.168.1.100 ./ap-tools install rke2
 ```
 
 ### Additional tools

@@ -545,6 +545,7 @@ run_offline_prep () {
     run_debug download_harbor
     echo "  Downloading dependancy helm charts..."
     run_debug download_helm_binaries
+    run_debug image_pull_push_check
     run_debug generate_images_file
     echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy."
     echo "  This may take several minutes..."
@@ -552,7 +553,7 @@ run_offline_prep () {
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle."
       echo "  Approximate download size is 20G. This may take several minutes..."
-      run_debugdownload_ap_bundle
+      run_debug download_ap_bundle
     fi
     echo "  Creating archive..."
     run_debug  create_offline_prep_archive

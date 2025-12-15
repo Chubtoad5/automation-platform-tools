@@ -479,6 +479,8 @@ install_reg_docker () {
       ./image_pull_push.sh docker -f $file
     done
   fi
+  echo "  restarting docker service..."
+  systemctl restart docker
   echo "  restarting rke2-server.service..."
   systemctl restart rke2-server.service
   cd $base_dir

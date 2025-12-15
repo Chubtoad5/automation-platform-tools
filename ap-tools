@@ -491,10 +491,10 @@ extract_ap_bundle () {
     echo "  Bundle already extracted."
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   else
-    echo "  Checking for Automation Platform Bundle and downloading if needed. This may take severak minutes..."
+    echo "  Checking for Automation Platform Bundle and downloading if needed. This may take several minutes..."
     run_debug download_ap_bundle
     if [[ -f $WORKING_DIR/$bundle_file ]]; then
-      echo "  Extracting Automation Platform Bundle, this may take severak minutes..."
+      echo "  Extracting Automation Platform Bundle, this may take several minutes..."
       unzip $WORKING_DIR/$bundle_file -d $WORKING_DIR/bundle &> /dev/null
     fi
     if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then

@@ -24,7 +24,7 @@ The main purpose of this script is to prepare a single-node kubernetes environme
 Instead of installing kubernetes, this tool supports installing common infrastructure applications that Automation Platform leverages.
 
 - **REGISTRY** - Install a Harbor OCI registry using self-signed certificates, typically used for pushing the Automation Platform container images during bundle installation.
-- **FILE SERVER** - Install an NGINX static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images.
+- **FILE SERVER** - Install an MinIO static file server, typically used for providing a simple file/object repository for storing blueprint binaries and images.
 - **JOIN** - Join the host to an existing cluster as a server or agent node.  
   
 **NOTES ON USING JOIN**
@@ -33,8 +33,8 @@ Instead of installing kubernetes, this tool supports installing common infrastru
  - If the cluster was initially created with `-registry`, then `-registry` must be used with `join` to ensure all nodes pull containers from the registry.
  - If the cluster was created with `-tls-san`, then each additional server joined must also use `-tls-san`.
   
-**NOTES ON USING HARBOR AND NGINX**
- - The `harbor` and `nginx` deployment options may be used on the same host as long as the NGINX and Harbor are hosted on a different tcp port. update the USER DEFINED variables before installation.
+**NOTES ON USING HARBOR AND MinIO**
+ - The `harbor` and `nginx` deployment options may be used on the same host as long as the MinIO and Harbor are hosted on a different tcp port. update the USER DEFINED variables before installation.
  - When using `rke2` deployment, it is not recommeneded to install on the same host that is running `harbor` or `nginx` services.
 
 ## Host Prerequisites
@@ -55,7 +55,7 @@ Automation Platform bundle requires:
 **NOTE:** CPU and Memory requirements are based off the avaiable resources as seen from the kubernetes cluster (i.e. `kubectl describe node <node-name>`).  
           RKE2 and services require around 2GB Memory, therefore 34 GB memory or higher is recommended.
 
-NGINX recommendation:  
+MinIO recommendation:  
 - 2-4 CPU
 - 4-8 GB Memory
 - Enough disk for the image/binary size of the Automation Platform application use case (blueprints, vms, etc)
@@ -70,21 +70,21 @@ In general, static IP or DHCP reservation and DNS A records are highly recommene
 
 ### IP Assignment
 - The Kubernetes used for Automation Platform REQUIRES a static IP due to the configuration of MetalLB, which defines a LoadBalancer IP at time of RKE2 installation using the host's primary management interface.
-- NGINX does not require a static IP but it is highly recommended.
+- MinIO does not require a static IP but it is highly recommended.
 - Harbor does not require a static IP but it is highly recommended.  
 
 ### Hostname considerations
 Kubernetes strictly enforces `DNS-1123 subdomain format` which is derived from `RFC 1123`. The standard requires all node names to be lower-case and follow the regex pattern: `[a-z0-9]([-a-z0-9]*[a-z0-9])?`. RKE2 uses the hostname as the node name, therefore make sure the hostname matches this standard before installation of RKE2.  
 
 ### DNS Assignment
-DNS A records are highly recommened for Harbor and NGINX, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are four required DNS records and one optional record depending on the device onboarding method.  
+DNS A records are highly recommened for Harbor and MinIO, and required for Automation Platform. As of `Automation Platform version 1.0.0.0` there are four required DNS records and one optional record depending on the device onboarding method.  
 
 Bellow is an example DNS A record schema for FQDN:IP mapping:
 
 | Service             | FQDN                          | IP Address                          |
 |:--------------------|:------------------------------|:------------------------------------|
 | Harbor              | registry.mydomain.lab         | 192.168.50.20                       |
-| NGINX               | artifacts.mydomain.lab        | 192.168.50.25                       |
+| MinIO               | artifacts.mydomain.lab        | 192.168.50.25                       |
 | RKE2 Kubernetes     | myk8snode.mydomain.lab        | 192.168.50.30                       |
 | RKE2 TLS SAN        | myk8scluster.mydomain.lab     | 192.168.50.30, 192.168.50.31, 192.168.50.32, etc... |
 | Automation Platform | portal.mydomain.lab           | 192.168.50.30                       |
@@ -216,7 +216,7 @@ sudo ./ap-tools push -registry myregistry.lab:8443 username password
 sudo ./ap-tools install harbor
 ```
 
-#### Install NGINX file server
+#### Install MinIO file server
 ```
 sudo ./ap-tools install nginx
 ```
@@ -256,7 +256,7 @@ This tool also includes extra binaries for troubleshooting the environment
 - Longhorn - https://longhorn.io/
 - HAProxy Tech kubernetes-ingress - https://www.haproxy.com/documentation/kubernetes-ingress/
 - Harbor - https://goharbor.io/
-- NGINX - https://nginx.org/  
+- MinIO - https://nginx.org/  
 - K9S - https://k9scli.io/
 
 ## Dell Technologies references

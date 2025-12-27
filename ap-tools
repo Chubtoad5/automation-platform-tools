@@ -35,7 +35,7 @@ MINIO_CONSOLE_PORT=9001
 MINIO_VERSION=latest
 MINIO_CLIENT_VERSION=latest
 MINIO_DEFAULT_BUCKET=default-bucket
-BULK_DOWNLOAD_URLS="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"}
+BULK_DOWNLOAD_URLS="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 
 # --- USER DEFINED Self-Signed Certificate Configuration for Harbor and MinIO --- #
 COUNTRY=US

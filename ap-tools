@@ -1,53 +1,60 @@
 #!/bin/bash
 
+# --- USER DEFINED CONFIGURATION VARIABLES --- #
 
-# --- Debugging mode 1=enabled 0=disabled --- #
-DEBUG=1
+# Global Variables
+DEBUG=1                                                # Debug mode 1=enabled 0=disabled
+MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
+BASE_DOMAIN="edge.lab"                                 # Base domain for environment
+HOST_FQDN="$(hostname).$BASE_DOMAIN"                   # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+SWFS_HARBOR_USER="admin"                               # Username for Harbor and SeaweedFS basic auth
+SWFS_HARBOR_PASS="changeme"                            # Password for Harbor and SeaweedFS basic auth
 
-# --- USER DEFINED Dell Automation Platform Configuration --- #
-AP_VERSION=1.0.0.0
-AP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.0.0.0.zip
+# Dell Automation Platform Variables
+AP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.2.0.0.zip
 DOWNLOAD_AP_BUNDLE=false
 SKIP_IMAGES_LOADER=false
 REGISTRY_PROJECT_NAME=dell-automation
 ORCHESTRATOR_NAMESPACE=dell-orchestrator
-PORTAL_NAMESPACE=dell-portal 
-PORTAL_COOKIE_DOMAIN=edge.lab
-ORCHESTRATOR_FQDN=orchestrator.edgehost.edge.lab
-PORTAL_FQDN=portal.edgehost.edge.lab
+PORTAL_NAMESPACE=dell-portal
+PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"
+ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"
+PORTAL_FQDN="portal.$HOST_FQDN"
 PORTAL_INGRESS_CLASS_NAME=haproxy
-ORG_NAME=changeme 
-ORG_DESC=changeme 
-FIRST_NAME=changeme 
+ORG_NAME=changeme
+ORG_DESC=changeme
+FIRST_NAME=changeme
 LAST_NAME=changeme
 USERNAME=administrator
 EMAIL=changeme@example.com
 
-# --- USER DEFINED Harbor and MINIO Configuration --- #
+# Harbor Configuration
 HARBOR_VERSION=2.12.2
-HARBOR_PORT=443
-HARBOR_USERNAME=admin
-HARBOR_PASSWORD=Harbor12345
-MINIO_ROOT_USER=admin
-MINIO_ROOT_PASSWORD=changeme
-MINIO_S3_PORT=9000
-MINIO_CONSOLE_PORT=9001
-MINIO_VERSION=latest
-MINIO_CLIENT_VERSION=latest
-MINIO_DEFAULT_BUCKET=default-bucket
-BULK_DOWNLOAD_URLS="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
-
-# --- USER DEFINED Self-Signed Certificate Configuration for Harbor and MinIO --- #
+HARBOR_PORT=8443
 COUNTRY=US
 STATE=MA
-LOCATION=HOPKINTON
-ORGANIZATION=DELL
-HARBOR_COMMON_NAME=registry.edge.lab
-MINIO_FQDN=minio.edge.lab
-MINIO_WILDCARD_DOMAIN=*.edge.lab
+LOCATION=EDGE
+ORGANIZATION=LAB
+HARBOR_COMMON_NAME="registry.$HOST_FQDN"
 DURATION_DAYS=3650
 
-# --- USER DEFINED Kubernetes Configuration ---#
+# SeaweedFS Configuration
+SWFS_IMAGE="chrislusf/seaweedfs:latest"
+CADDY_IMAGE="caddy:latest"
+SWFS_ADMIN_FQDN="admin.$HOST_FQDN"      # FQDN for SeaweedFS Admin UI and Caddy landing page
+SWFS_MASTER_FQDN="master.$HOST_FQDN"    # FQDN for SeaweedFS Master UI/API
+SWFS_FILER_FQDN="artifacts.$HOST_FQDN"  # FQDN for SeaweedFS Filer UI/API
+SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
+SWFS_WEBDAV_FQDN="share.$HOST_FQDN"     # FQDN for SeaweedFS WebDav endpoint
+ENABLE_WEBDAV="true"                    # Expose WebDAV endpoint open file share (uses http and no authentication)
+SWFS_ADMIN_PORT=443
+SWFS_MASTER_PORT=9333
+SWFS_FILER_PORT=8888
+SWFS_S3_PORT=8333
+SWFS_WEBDAV_PORT=7333
+ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+
+# RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
 CLUSTER_TYPE=single-node
 MAX_PODS=250
@@ -65,7 +72,6 @@ INSTALL_METALLB=true
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.12
 INSTALL_HAPROXY=true
-MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}
 
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
 set -o errexit
@@ -88,7 +94,6 @@ JOIN_TYPE=""
 JOIN_TOKEN=""
 JOIN_SERVER_FQDN=""
 base_dir=$(pwd)
-mgmt_ip=$(hostname -I | awk '{print $1}')
 mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
 WORKING_DIR="$base_dir/ap-install"
 REGISTRY_MODE=0
@@ -112,7 +117,7 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000Sb4oIAC/logs
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|minio] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -121,7 +126,7 @@ Commands:
     [ap-bundle]  Extracts the Dell Automation Platform install bundle and outputs the install command.
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
-    [minio]      Installs a single-node minio server and default bucket.
+    [swfs]       Installs a single-node sfws server for artifact storage.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Cannot be used with [install] [push] [join].
@@ -294,22 +299,18 @@ run_install_join_push () {
   fi
 }
 
-run_install_minio () {
-  cd $WORKING_DIR/ap-utilities/minio
+run_install_swfs () {
+  cd $WORKING_DIR/ap-utilities/swfs
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -kL https://github.com/Chubtoad5/minio-installer/raw/refs/heads/main/minio-installer -o $WORKING_DIR/ap-utilities/minio/minio-installer &>/dev/null || true
-    chmod +x minio-installer
+    curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install_seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install_seaweedfs &>/dev/null || true
+    chmod +x install_seaweedfs
   else
-    for file in "$WORKING_DIR/ap-utilities/minio/minio-save.tar.gz"; do
+    for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
       tar xzf $file
     done
   fi
-  BULK_DOWNLOAD_URLS=$BULK_DOWNLOAD_URLS MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD MINIO_S3_PORT=$MINIO_S3_PORT MINIO_CONSOLE_PORT=$MINIO_CONSOLE_PORT MINIO_VERSION=$MINIO_VERSION MINIO_CLIENT_VERSION=$MINIO_CLIENT_VERSION MINIO_DEFAULT_BUCKET=$MINIO_DEFAULT_BUCKET COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION MINIO_FQDN=$MINIO_FQDN MINIO_WILDCARD_DOMAIN=$MINIO_WILDCARD_DOMAIN DURATION_DAYS=$DURATION_DAYS DEBUG=$DEBUG ./minio-installer install
+  $SWFS_IMAGE=$SWFS_IMAGE $CADDY_IMAGE=$CADDY_IMAGE $SWFS_USER=$SWFS_HARBOR_USER $SWFS_PASSWORD=$SWFS_HARBOR_PASS $HOST_FQDN=$HOST_FQDN $SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN $SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN $SWFS_FILER_FQDN=$SWFS_FILER_FQDN $SWFS_S3_FQDN=$SWFS_S3_FQDN $SWFS_WEBDAV_FQDN=$SWFS_WEBDAV_FQDN $MGMT_IP=$MGMT_IP $SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT $SWFS_MASTER_PORT=$SWFS_MASTER_PORT $SWFS_FILER_PORT=$SWFS_FILER_PORT $SWFS_S3_PORT=$SWFS_S3_PORT $SWFS_WEBDAV_PORT=$SWFS_WEBDAV_PORT $ENABLE_WEBDAV=$ENABLE_WEBDAV $ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD $DEBUG=$DEBUG ./install_seaweedfs install
   cd $base_dir
-}
-
-minio_upload() {
-  echo "minio upload"
 }
 
 run_install_harbor () {
@@ -317,19 +318,19 @@ run_install_harbor () {
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
       chmod +x install_harbor.sh
-      HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$HARBOR_USERNAME HARBOR_PASSWORD=$HARBOR_PASSWORD COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
+      HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
   else
       for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
         tar xzf $file
       done
-      HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$HARBOR_USERNAME HARBOR_PASSWORD=$HARBOR_PASSWORD COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
+      HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
   fi
   create_harbor_projects
 }
 
 create_harbor_projects() {
     echo "  Creating Harbor projects..."
-    PROJECTS=("$REGISTRY_PROJECT_NAME" "minio" "e2e-test-images" "library" "frrouting" "haproxytech" "longhornio" "metallb" "rancher")
+    PROJECTS=("$REGISTRY_PROJECT_NAME" "chrislusf" "e2e-test-images" "library" "frrouting" "haproxytech" "longhornio" "metallb" "rancher")
     # Ensure PROJECTS is not empty
     if [[ -z "${PROJECTS[*]}" ]]; then
         echo "No projects defined in the list. Skipping..."
@@ -490,7 +491,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - $mgmt_ip/32
+    - $MGMT_IP/32
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta1
@@ -598,8 +599,8 @@ run_offline_prep () {
     echo "--- Starting offline preparation workflow"
     echo "  Downloading host packages..."
     run_debug download_ap_packages
-    echo "  Downloading MinIO binaries..."
-    run_debug download_minio
+    echo "  Downloading SeaweedFS binaries..."
+    run_debug download_swfs
     echo "  Downloading Harbor binaries..."
     run_debug download_harbor
     echo "  Downloading dependancy helm charts..."
@@ -619,11 +620,11 @@ run_offline_prep () {
     echo "--- Offline prep workflow complete"
 }
 
-download_minio () {
-  curl -kL https://github.com/Chubtoad5/minio-installer/raw/refs/heads/main/minio-installer -o $WORKING_DIR/ap-utilities/minio/minio-installer
-  chmod +x $WORKING_DIR/ap-utilities/minio/minio-installer
-  cd $WORKING_DIR/ap-utilities/minio
-  ./minio-installer save
+download_swfs () {
+  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  chmod +x $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  cd $WORKING_DIR/ap-utilities/swfs
+  ./install-seaweedfs save
   cd $base_dir
 }
 
@@ -826,7 +827,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR" ] || mkdir -p "$WORKING_DIR"
     [ -d "$WORKING_DIR/ap-utilities/packages" ] || mkdir -p "$WORKING_DIR/ap-utilities/packages"
     [ -d "$WORKING_DIR/ap-utilities/harbor" ] || mkdir -p "$WORKING_DIR/ap-utilities/harbor"
-    [ -d "$WORKING_DIR/ap-utilities/minio" ] || mkdir -p "$WORKING_DIR/ap-utilities/minio"
+    [ -d "$WORKING_DIR/ap-utilities/swfs" ] || mkdir -p "$WORKING_DIR/ap-utilities/swfs"
     [ -d "$WORKING_DIR/ap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/haproxy"
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
@@ -963,7 +964,7 @@ runtime_outputs () {
     echo "Kubernetes Cluster information:"
     kubectl get nodes
     echo ""
-    echo "API endpoint: https://$mgmt_ip:6443"
+    echo "API endpoint: https://$MGMT_IP:6443"
     echo ""
     if [[ $TLS_SAN_MODE -eq 1 ]]; then
       echo "TLS-SAN API endpoint: https://$TLS_SAN:6443"
@@ -975,7 +976,7 @@ runtime_outputs () {
     else
       echo "To manually join more nodes to this cluster use the following config:"
       echo "----"
-      echo "server: https://$mgmt_ip:9345"
+      echo "server: https://$MGMT_IP:9345"
       echo "token: $join_token"
       echo "----"
     fi
@@ -1069,10 +1070,8 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "minio" ]]; then
-            # if [[ -z "$INSTALL_TYPE" || ("$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "ap-bundle") ]]; then
-                # echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|minio]"
-                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|minio]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" ]]; then
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -1229,7 +1228,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "minio") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   [[ $REGISTRY_MODE == "0" ]] || dns_pre_flight_checks $REG_FQDN
   run_install_join_push
@@ -1242,9 +1241,9 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   ap_preflight_checks
   ap_bundle_prep
 fi
-if [[ $INSTALL_TYPE == "minio" ]]; then
-  echo "  Installing MinIO artifact server..."
-  run_install_minio
+if [[ $INSTALL_TYPE == "swfs" ]]; then
+  echo "  Installing SeaweedFS artifact server..."
+  run_install_swfs
 fi
 if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."

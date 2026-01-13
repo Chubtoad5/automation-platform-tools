@@ -302,8 +302,8 @@ run_install_join_push () {
 run_install_swfs () {
   cd $WORKING_DIR/ap-utilities/swfs
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install_seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install_seaweedfs &>/dev/null || true
-    chmod +x install_seaweedfs
+    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install-seaweedfs &>/dev/null || true
+    chmod +x install-seaweedfs
   else
     for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
       tar xzf $file

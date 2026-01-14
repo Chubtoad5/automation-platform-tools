@@ -29,7 +29,7 @@ USERNAME=administrator
 EMAIL=changeme@example.com
 
 # Harbor Configuration
-HARBOR_VERSION=2.12.2
+HARBOR_VERSION=2.14.1
 HARBOR_PORT=8443
 COUNTRY=US
 STATE=MA
@@ -48,7 +48,7 @@ SWFS_FILER_FQDN="artifacts.$HOST_FQDN"  # FQDN for SeaweedFS Filer UI/API
 SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
 SWFS_WEBDAV_FQDN="share.$HOST_FQDN"     # FQDN for SeaweedFS WebDav endpoint
 ENABLE_WEBDAV="true"                    # Expose WebDAV endpoint open file share (uses http and no authentication)
-SWFS_ADMIN_PORT=443
+SWFS_ADMIN_PORT=9443
 SWFS_MASTER_PORT=9333
 SWFS_FILER_PORT=8888
 SWFS_S3_PORT=8333
@@ -327,52 +327,6 @@ run_install_harbor () {
   PROJECTS=$PROJECTS HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
   cd $base_dir
 }
-
-create_harbor_projects() {
-    echo "  Creating Harbor projects..."
-    PROJECTS=("$REGISTRY_PROJECT_NAME" "chrislusf" "e2e-test-images" "library" "frrouting" "haproxytech" "longhornio" "metallb" "rancher")
-    # Ensure PROJECTS is not empty
-    if [[ -z "${PROJECTS[*]}" ]]; then
-        echo "No projects defined in the list. Skipping..."
-        return 0
-    fi
-
-    for REGISTRY_PROJECT_NAME in "${PROJECTS[@]}"; do
-        echo "-------------------------------------------"
-        echo "Processing project: $REGISTRY_PROJECT_NAME"
-
-        # 1. Check if the project already exists
-        local check_cmd="curl -s -u \"$SWFS_HARBOR_USER:$SWFS_HARBOR_PASS\" -k \"https://$REGISTRY_FQDN:$REGISTRY_PORT/api/v2.0/projects?name=$REGISTRY_PROJECT_NAME\""
-        local exists=$(eval "$check_cmd" | grep -o '"name":"'$REGISTRY_PROJECT_NAME'"' | awk -F':' '{print $2}' | tr -d '"')
-
-        if [[ "$exists" == "$REGISTRY_PROJECT_NAME" ]]; then
-            echo "Project '$REGISTRY_PROJECT_NAME' already exists. Skipping creation."
-        else
-            # 2. If project does not exist, create it
-            echo "Project '$REGISTRY_PROJECT_NAME' does not exist, creating..."
-            
-            local create_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-                -H "Content-Type: application/json" \
-                -u "$SWFS_HARBOR_USER:$SWFS_HARBOR_PASS" \
-                -k -d "{ \"project_name\": \"$REGISTRY_PROJECT_NAME\", \"public\": false }" \
-                "https://$REGISTRY_FQDN:$REGISTRY_PORT/api/v2.0/projects")
-
-            # 3. Verify project creation was successful
-            local verified=$(eval "$check_cmd" | grep -o '"name":"'$REGISTRY_PROJECT_NAME'"' | awk -F':' '{print $2}' | tr -d '"')
-
-            if [[ "$verified" == "$REGISTRY_PROJECT_NAME" ]]; then
-                echo "Project '$REGISTRY_PROJECT_NAME' verified successfully (HTTP $create_status)."
-            else
-                echo "Error: Project '$REGISTRY_PROJECT_NAME' creation failed (HTTP $create_status)."
-                echo "Please add it manually and try again."
-                exit 1
-            fi
-        fi
-    done
-    echo "-------------------------------------------"
-    echo "All projects processed successfully."
-}
-
 
 install_helm () {
   echo "  Installing helm..."

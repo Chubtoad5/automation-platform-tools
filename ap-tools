@@ -37,6 +37,7 @@ LOCATION=EDGE
 ORGANIZATION=LAB
 HARBOR_COMMON_NAME="registry.$HOST_FQDN"
 DURATION_DAYS=3650
+PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher"
 
 # SeaweedFS Configuration
 SWFS_IMAGE="chrislusf/seaweedfs:latest"
@@ -323,8 +324,7 @@ run_install_harbor () {
         tar xzf $file
       done
   fi
-  HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
-  create_harbor_projects
+  PROJECTS=$PROJECTS HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
   cd $base_dir
 }
 
@@ -342,7 +342,7 @@ create_harbor_projects() {
         echo "Processing project: $REGISTRY_PROJECT_NAME"
 
         # 1. Check if the project already exists
-        local check_cmd="curl -s -u \"$REGISTRY_USERNAME:$REGISTRY_PASSWORD\" -k \"https://$REGISTRY_FQDN:$REGISTRY_PORT/api/v2.0/projects?name=$REGISTRY_PROJECT_NAME\""
+        local check_cmd="curl -s -u \"$SWFS_HARBOR_USER:$SWFS_HARBOR_PASS\" -k \"https://$REGISTRY_FQDN:$REGISTRY_PORT/api/v2.0/projects?name=$REGISTRY_PROJECT_NAME\""
         local exists=$(eval "$check_cmd" | grep -o '"name":"'$REGISTRY_PROJECT_NAME'"' | awk -F':' '{print $2}' | tr -d '"')
 
         if [[ "$exists" == "$REGISTRY_PROJECT_NAME" ]]; then
@@ -353,7 +353,7 @@ create_harbor_projects() {
             
             local create_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
                 -H "Content-Type: application/json" \
-                -u "$REGISTRY_USERNAME:$REGISTRY_PASSWORD" \
+                -u "$SWFS_HARBOR_USER:$SWFS_HARBOR_PASS" \
                 -k -d "{ \"project_name\": \"$REGISTRY_PROJECT_NAME\", \"public\": false }" \
                 "https://$REGISTRY_FQDN:$REGISTRY_PORT/api/v2.0/projects")
 

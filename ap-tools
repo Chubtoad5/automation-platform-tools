@@ -1196,7 +1196,12 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   echo "  Preparing Dell Automation Platform bundle..."
   echo "  This may take several minutes..."
   mtls_dns="mtls-$ORCHESTRATOR_FQDN"
-  dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $REG_FQDN
+  mtls_recovery_dns="mtls-recovery-$ORCHESTRATOR_FQDN"
+  if [[ $ORCHESTRATOR_FQDN == $MGMT_IP ]]; then
+    echo "  IP Based Install detected, skipping DNS checks..."
+  else
+    dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $mtls_recovery_dns $REG_FQDN
+  fi
   ap_preflight_checks
   ap_bundle_prep
 fi

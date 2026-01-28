@@ -357,6 +357,7 @@ controller:
     pullPolicy: IfNotPresent
   service:
     type: LoadBalancer
+    externalTrafficPolicy: Local
   config:
     ssl-passthrough: "true"
   hostNetwork: true

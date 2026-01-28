@@ -297,7 +297,7 @@ run_install_join_push () {
     fi
     echo "  Installing k9s..."
     tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
-    cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/local/bin/k9s || true
+    cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/bin/k9s || true
   fi
 }
 
@@ -339,14 +339,14 @@ install_helm () {
     curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   fi
   tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  mv linux-amd64/helm /usr/local/bin/helm
+  mv linux-amd64/helm /usr/bin/helm
   rm -rf linux-amd64
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     echo "  Adding helm charts..."
-    /usr/local/bin/helm repo add metallb https://metallb.github.io/metallb
-    /usr/local/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
-    /usr/local/bin/helm repo add longhorn https://charts.longhorn.io
-    /usr/local/bin/helm repo update
+    /usr/bin/helm repo add metallb https://metallb.github.io/metallb
+    /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
+    /usr/bin/helm repo add longhorn https://charts.longhorn.io
+    /usr/bin/helm repo update
   fi
 }
 
@@ -365,9 +365,9 @@ controller:
      enabled: false
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/local/bin/helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
+    /usr/bin/helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   else
-    /usr/local/bin/helm install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
+    /usr/bin/helm install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   fi
   check_namespace_pods_ready "haproxy-controller"
 }
@@ -406,16 +406,16 @@ EOF
   fi
   local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/local/bin/helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
+    /usr/bin/helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
     echo "  Installing longhornctl binary..."
     curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
     chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
   else
-    /usr/local/bin/helm install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
+    /usr/bin/helm install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
     echo "  Installing longhornctl binary..."
     chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
   fi
   check_namespace_pods_ready "longhorn-system"
   if [[ -n $LONGHORN_UI_PORT ]]; then
@@ -465,9 +465,9 @@ spec:
     - $mgmt_if
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/local/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
+    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
   else
-    /usr/local/bin/helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
+    /usr/bin/helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
   fi
   check_namespace_pods_ready "metallb-system"
   kubectl apply -f $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
@@ -628,25 +628,25 @@ download_helm_binaries () {
   curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   echo "  Installing helm binary..."
   tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  mv linux-amd64/helm /usr/local/bin/helm
+  mv linux-amd64/helm /usr/bin/helm
   rm -rf linux-amd64
   echo "  Adding helm charts..."
-  /usr/local/bin/helm repo add metallb https://metallb.github.io/metallb
-  /usr/local/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
-  /usr/local/bin/helm repo add longhorn https://charts.longhorn.io
-  /usr/local/bin/helm repo update
+  /usr/bin/helm repo add metallb https://metallb.github.io/metallb
+  /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
+  /usr/bin/helm repo add longhorn https://charts.longhorn.io
+  /usr/bin/helm repo update
   echo "  Pulling helm charts..."
   # HAPROXY
   cd $WORKING_DIR/ap-utilities/helm/haproxy
-  /usr/local/bin/helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
+  /usr/bin/helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   # LONGHORN
   cd $WORKING_DIR/ap-utilities/helm/longhorn
-  /usr/local/bin/helm pull longhorn/longhorn --version $LONGHORN_VERSION
+  /usr/bin/helm pull longhorn/longhorn --version $LONGHORN_VERSION
   echo "  Downloading longhornctl binary..."
   curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl
   # METALLB
   cd $WORKING_DIR/ap-utilities/helm/metallb
-  /usr/local/bin/helm pull metallb/metallb --version $METALLB_VERSION
+  /usr/bin/helm pull metallb/metallb --version $METALLB_VERSION
 }
 
 download_ap_bundle () {

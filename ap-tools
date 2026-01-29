@@ -381,9 +381,13 @@ EOF
 helm_install_longhorn () {
   if [[ "$PVC_DATA" == "default" ]]; then
     local pvc_data_path="~"
+  else
+    local pvc_data_path="$PVC_DATA"
   fi
   if [[ "$KUBELET_DATA" == "default" ]]; then
     local kubelet_data_path="~"
+  else
+    local kubelet_data_path="$KUBELET_DATA"
   fi
   local values_yaml=""
   if [[ $CLUSTER_TYPE == "single-node" ]]; then

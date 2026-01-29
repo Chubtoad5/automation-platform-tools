@@ -64,7 +64,7 @@ CNI_TYPE=calico
 CLUSTER_CIDR="10.42.0.0/16"
 SERVICE_CIDR="10.43.0.0/16"
 INSTALL_DNS_UTILITY=true
-INSTALL_LOCAL_PATH_PROVISIONER=false
+INSTALL_LOCAL_PATH_PROVISIONER=false    # If true, Longhorn is not installed
 LOCAL_PATH_PROVISIONER_VERSION=v0.0.32
 HELM_VERSION=3.12.0
 LONGHORN_VERSION=1.9.2
@@ -73,7 +73,12 @@ METALLB_VERSION=0.15.2
 INSTALL_METALLB=true
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.12
-INSTALL_HAPROXY=true
+INSTALL_HAPROXY=true                      # If true, IP based install will fail
+RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
+KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path
+PVC_DATA=${PVC_DATA:-"default"}           # Path where storage class PVCs are stored, update with valid local path
+
+RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA
 
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
 set -o errexit
@@ -254,7 +259,7 @@ run_install_join_push () {
     echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
   else
@@ -268,7 +273,7 @@ run_install_join_push () {
       generate_images_file
     fi
     cd $WORKING_DIR/rke2
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
   fi
@@ -357,6 +362,7 @@ controller:
     pullPolicy: IfNotPresent
   service:
     type: LoadBalancer
+    externalTrafficPolicy: Local
   config:
     ssl-passthrough: "true"
   hostNetwork: true
@@ -373,32 +379,42 @@ EOF
 }
 
 helm_install_longhorn () {
+  if [[ "$PVC_DATA" == "default" ]]; then
+    local pvc_data_path="~"
+  else
+    local pvc_data_path="$PVC_DATA"
+  fi
+  if [[ "$KUBELET_DATA" == "default" ]]; then
+    local kubelet_data_path="~"
+  else
+    local kubelet_data_path="$KUBELET_DATA"
+  fi
   local values_yaml=""
   if [[ $CLUSTER_TYPE == "single-node" ]]; then
     cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml
-# UI Deployment Replica Count
 longhornUI:
   replicas: 1
-# CSI Components Replica Counts
 csi:
+  kubeletRootDir: $kubelet_data_path
   attacherReplicaCount: 1
   provisionerReplicaCount: 1
   resizerReplicaCount: 1
   snapshotterReplicaCount: 1
-# Default Settings for new volumes (via Longhorn API/UI)
 defaultSettings:
+  defaultDataPath: $pvc_data_path
   defaultReplicaCount: 1
   storageReservedPercentageForDefaultDisk: 10
   storageOverProvisioningPercentage: 100
   storageMinimalAvailablePercentage: 5
-# Default setting for the Longhorn StorageClass
 persistence:
   defaultClassReplicaCount: 1
 EOF
   else
     cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml
+csi:
+  kubeletRootDir: $kubelet_data_path
 defaultSettings:
-  defaultReplicaCount: 1
+  defaultDataPath: $pvc_data_path
   storageReservedPercentageForDefaultDisk: 10
   storageOverProvisioningPercentage: 100
   storageMinimalAvailablePercentage: 5
@@ -1189,7 +1205,11 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
 fi
 if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
-  [[ $REGISTRY_MODE == "0" ]] || dns_pre_flight_checks $REG_FQDN
+  if [[ $REGISTRY_MODE == "1" ]]; then
+    if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
+      dns_pre_flight_checks $REG_FQDN
+    fi
+  fi
   run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "ap-bundle" ]]; then

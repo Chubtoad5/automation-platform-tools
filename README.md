@@ -143,7 +143,7 @@ git clone https://github.com/Chubtoad5/automation-platform-tools.git && cd autom
 
 ### Syntax
 ```
-Usage: ./ap-tools [install rke2|ap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: ./ap-tools [install rke2|ap-bundle|harbor|swfs] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -152,7 +152,7 @@ Commands:
     [ap-bundle]  Extracts the Dell Automation Platform install bundle and outputs the install command.
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
-    [nginx]      Installs an nginx static file server.
+    [swfs]       Installs a single-node SeaweedFS server for artifact storage.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Cannot be used with [install] [push] [join].

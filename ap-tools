@@ -131,7 +131,7 @@ Commands:
     [ap-bundle]  Extracts the Dell Automation Platform install bundle and outputs the install command.
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
-    [swfs]       Installs a single-node sfws server for artifact storage.
+    [swfs]       Installs a single-node SeaweedFS server for artifact storage.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Cannot be used with [install] [push] [join].

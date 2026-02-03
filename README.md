@@ -2,7 +2,7 @@
 This is an unofficial pre-requisite tool designed for use with Dell Automation Platform on-premise bundle installation. 
 
 ## Preface
-This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. This script should not be used for a production environment.  
+This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. While the leveraged tools are tailored to common best practices, it may not be suitable for an enterprise environment. Reference the opensource vendors and documentation for production guidance based off your environment found at the bottom of this readme.  
 
 The ap-tools script uses helper scripts to perform certian actions. When running ap-tools, helper scripts are pulled from the following Chubtoad5 repositories:  
 - install-packages

@@ -11,22 +11,22 @@ SWFS_HARBOR_USER="admin"                               # Username for Harbor and
 SWFS_HARBOR_PASS="changeme"                            # Password for Harbor and SeaweedFS basic auth
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.2.0.0.zip
-DOWNLOAD_AP_BUNDLE=false
-SKIP_IMAGES_LOADER=false
-REGISTRY_PROJECT_NAME=dell-automation
-ORCHESTRATOR_NAMESPACE=dell-orchestrator
-PORTAL_NAMESPACE=dell-portal
-PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"
-ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"
-PORTAL_FQDN="portal.$HOST_FQDN"
-PORTAL_INGRESS_CLASS_NAME=haproxy
-ORG_NAME=changeme
-ORG_DESC=changeme
-FIRST_NAME=changeme
-LAST_NAME=changeme
-USERNAME=administrator
-EMAIL=changeme@example.com
+AP_BUNDLE_URL=https://dl.dell.com/FOLDER14176884M/1/DellAutomationPlatform_v1.2.0.0.zip
+DOWNLOAD_AP_BUNDLE=false                               # Download install bundle during offline-prep or install rke2
+SKIP_IMAGES_LOADER=false                               # skip pushing images to local registry in install-upgrade.sh command
+REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
+ORCHESTRATOR_NAMESPACE=dell-orchestrator               # Namespace to use for Dell Automation Platform orchestrator
+PORTAL_NAMESPACE=dell-portal                           # Namespace to use for Dell Automation Platform portal
+PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"                    # Base domain, i.e. 'acme.com' or IP address for IP based install
+ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"            # FQDN for orchestrator, or <IP> address for IP based install
+PORTAL_FQDN="portal.$HOST_FQDN"                        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
+PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
+ORG_NAME=changeme                                      # Organization name for Dell Automation Platform                   
+ORG_DESC=changeme                                      # Organization description for Dell Automation Platform
+FIRST_NAME=changeme                                    # Admin user first name
+LAST_NAME=changeme                                     # Admin user last name                     
+USERNAME=administrator                                 # Admin user name
+EMAIL=changeme@example.com                             # Admin user email
 
 # Harbor Configuration
 HARBOR_VERSION=2.14.1
@@ -71,7 +71,7 @@ METALLB_VERSION=0.15.2
 INSTALL_METALLB=true
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.12
-INSTALL_HAPROXY=true                      # If true, IP based install will fail
+INSTALL_HAPROXY=true                      # Must be disabled if performing IP based install
 RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path
 PVC_DATA=${PVC_DATA:-"default"}           # Path where storage class PVCs are stored, update with valid local path
@@ -984,16 +984,16 @@ runtime_outputs () {
     fi
   fi
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
-    echo ""
-    echo "### BUNDLE PREP FLOW COMPLETED ###"
-    echo "###      PRINTING OUTPUTS      ###"
-    echo ""
-    echo "Dell Automation Platform is ready for installation"
-    echo "$ntp_message"
-    echo "Next steps:"
-    echo "  - Run the following command block to install Dell Automation Platform Portal and Orchestrator:"
-    echo "----"
-  cat << EOF 
+    cat << EOF > $WORKING_DIR/ap-install-upgrade-cmd.txt
+
+### BUNDLE PREP FLOW COMPLETED ###
+###      PRINTING OUTPUTS      ###
+
+Dell Automation Platform is ready for installation
+$ntp_message
+Next steps:
+  - Run the following command block to install Dell Automation Platform Portal and Orchestrator:
+----
 sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   EO_HOST=$ORCHESTRATOR_FQDN \\
   PORTAL_HOST=$PORTAL_FQDN \\
@@ -1012,8 +1012,9 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   LAST_NAME=$LAST_NAME \\
   USERNAME=$USERNAME \\
   EMAIL=$EMAIL
+----
 EOF
-  echo "----"
+    cat $WORKING_DIR/ap-install-upgrade-cmd.txt
   fi
 }
 

@@ -265,6 +265,7 @@ This tool also includes extra binaries for troubleshooting the environment
 
 ## Dell Technologies references
 - Dell Automation Platform - https://www.dell.com/en-us/lp/dt/automation-platform  
+- Knowledge Article for log collection - https://www.dell.com/support/kbdoc/en-us/000216838/how-to-retrieve-logs-bundle-for-troubleshooting-nativeedge-solution
 
 ## Author notes
 Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!  

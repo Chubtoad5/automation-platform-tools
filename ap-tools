@@ -116,7 +116,7 @@ bundle_file=$(basename $AP_BUNDLE_URL)
 REQUIRED_CPU=16
 REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
-kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000Sb4oIAC/logs_pkb_en_US_1.zip"
+kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
 
 # --- USAGE FUNCTION --- #
 
@@ -984,7 +984,7 @@ runtime_outputs () {
     fi
   fi
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
-    cat << EOF > $WORKING_DIR/ap-install-upgrade-cmd.txt
+    cat << EOF > $base_dir/ap-install-upgrade-cmd.txt
 
 ### BUNDLE PREP FLOW COMPLETED ###
 ###      PRINTING OUTPUTS      ###
@@ -1014,7 +1014,7 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   EMAIL=$EMAIL
 ----
 EOF
-    cat $WORKING_DIR/ap-install-upgrade-cmd.txt
+    cat $base_dir/ap-install-upgrade-cmd.txt
   fi
 }
 

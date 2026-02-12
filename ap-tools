@@ -76,8 +76,6 @@ RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path
 PVC_DATA=${PVC_DATA:-"default"}           # Path where storage class PVCs are stored, update with valid local path
 
-RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA
-
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
 set -o errexit
 set -o nounset

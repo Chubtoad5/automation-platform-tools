@@ -367,7 +367,6 @@ run_install_velero () {
     cd $WORKING_DIR/ap-utilities/velero
     echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
     echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
-    echo "velero/velero-restore-helper:${VELERO_VERSION}" >> velero-images.txt
     $WORKING_DIR/ap-utilities/images/image_pull_push.sh -f $WORKING_DIR/ap-utilities/velero/velero-images.txt push $REGISTRY_INFO $REG_USER $REG_PASS
     cd $base_dir
     echo "  Velero images pushed to registry."
@@ -824,7 +823,6 @@ generate_images_file () {
   cd $WORKING_DIR/ap-utilities/velero
   echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
   echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
-  echo "velero/velero-restore-helper:${VELERO_VERSION}" >> velero-images.txt
   cat velero-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
 }

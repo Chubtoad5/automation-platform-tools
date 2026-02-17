@@ -54,6 +54,18 @@ SWFS_S3_PORT=8333
 DEFAULT_FILER_DIR_NAME="artifacts"
 ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 
+# Velero Backup Configuration
+VELERO_VERSION="v1.17.1"
+VELERO_AWS_PLUGIN_VERSION="v1.13.0"
+SNAPSHOTTER_VERSION="v8.2.0"
+VELERO_BUCKET="velero-backups"
+VELERO_S3_URL="http://${MGMT_IP}:${SWFS_S3_PORT}"        # SeaweedFS S3 endpoint for Velero backups
+VELERO_S3_ACCESS_KEY="${SWFS_HARBOR_USER}"                 # SeaweedFS S3 access key
+VELERO_S3_SECRET_KEY="${SWFS_HARBOR_PASS}"                 # SeaweedFS S3 secret key
+VELERO_BACKUP_NAMESPACES="default,dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
+VELERO_BACKUP_TTL="720h"                                   # Backup retention (30 days)
+VELERO_BACKUP_SCHEDULE="0 2 * * *"                         # Daily at 2 AM
+
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
 CLUSTER_TYPE=single-node
@@ -120,7 +132,7 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -130,8 +142,11 @@ Commands:
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
+    [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
+                 Requires a running Kubernetes cluster with Longhorn and SeaweedFS S3.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
+                 Includes Velero CLI, container images, and CSI snapshot CRDs.
                  Cannot be used with [install] [push] [join].
 
   push         : Pushes all kubernetes and utility container images to the specified registry.
@@ -331,6 +346,110 @@ run_install_harbor () {
       done
   fi
   PROJECTS=$PROJECTS HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
+  cd $base_dir
+}
+
+run_install_velero () {
+  export KUBECONFIG=/home/$user_name/.kube/config
+  export PATH=$PATH:/var/lib/rancher/rke2/bin
+
+  # Install Velero CLI binary
+  echo "  Installing Velero CLI ${VELERO_VERSION}..."
+  cd $WORKING_DIR/ap-utilities/velero
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    curl -L https://github.com/vmware-tanzu/velero/releases/download/${VELERO_VERSION}/velero-${VELERO_VERSION}-linux-amd64.tar.gz -o velero-${VELERO_VERSION}-linux-amd64.tar.gz
+  fi
+  tar -xzf velero-${VELERO_VERSION}-linux-amd64.tar.gz
+  mv velero-${VELERO_VERSION}-linux-amd64/velero /usr/local/bin/velero
+  rm -rf velero-${VELERO_VERSION}-linux-amd64
+  velero version --client-only
+
+  # Verify and install CSI snapshot CRDs if missing
+  echo "  Verifying CSI snapshot support..."
+  if ! kubectl get crd volumesnapshotclasses.snapshot.storage.k8s.io &>/dev/null; then
+    echo "  Installing CSI snapshot CRDs (${SNAPSHOTTER_VERSION})..."
+    if [[ $AIR_GAPPED_MODE == "0" ]]; then
+      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+    else
+      kubectl apply -f $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+      kubectl apply -f $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+      kubectl apply -f $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshots.yaml
+    fi
+  else
+    echo "  CSI snapshot CRDs already present."
+  fi
+
+  # Install snapshot controller if not present
+  if ! kubectl get pods -n kube-system 2>/dev/null | grep -q snapshot-controller; then
+    echo "  Installing snapshot controller (${SNAPSHOTTER_VERSION})..."
+    if [[ $AIR_GAPPED_MODE == "0" ]]; then
+      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
+      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
+    else
+      kubectl apply -f $WORKING_DIR/ap-utilities/velero/rbac-snapshot-controller.yaml
+      kubectl apply -f $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml
+    fi
+    echo "  Waiting for snapshot controller to be ready..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=snapshot-controller -n kube-system --timeout=120s 2>/dev/null || true
+  else
+    echo "  Snapshot controller already running."
+  fi
+
+  # Create VolumeSnapshotClass for Longhorn
+  echo "  Creating VolumeSnapshotClass for Longhorn..."
+  cat <<'SNAPEOF' | kubectl apply -f -
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: longhorn-snapshot-vsc
+  labels:
+    velero.io/csi-volumesnapshot-class: "true"
+driver: driver.longhorn.io
+deletionPolicy: Delete
+parameters:
+  type: snap
+SNAPEOF
+
+  # Create S3 credentials file
+  echo "  Creating Velero S3 credentials..."
+  cat > /tmp/credentials-velero <<CREDEOF
+[default]
+aws_access_key_id=${VELERO_S3_ACCESS_KEY}
+aws_secret_access_key=${VELERO_S3_SECRET_KEY}
+CREDEOF
+
+  # Install Velero into the cluster
+  echo "  Installing Velero server into the cluster..."
+  velero install \
+    --provider aws \
+    --plugins velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION} \
+    --bucket ${VELERO_BUCKET} \
+    --backup-location-config \
+      region=us-east-1,s3ForcePathStyle=true,s3Url=${VELERO_S3_URL},checksumAlgorithm="" \
+    --secret-file /tmp/credentials-velero \
+    --features=EnableCSI \
+    --use-node-agent \
+    --use-volume-snapshots=true \
+    --wait
+
+  # Clean up credentials file
+  rm -f /tmp/credentials-velero
+
+  # Verify installation
+  echo "  Verifying Velero installation..."
+  check_namespace_pods_ready "velero"
+
+  # Create scheduled backup
+  echo "  Creating daily scheduled backup..."
+  velero schedule create daily-full-backup \
+    --schedule="${VELERO_BACKUP_SCHEDULE}" \
+    --ttl ${VELERO_BACKUP_TTL} \
+    --snapshot-move-data \
+    --include-cluster-resources=true \
+    --include-namespaces ${VELERO_BACKUP_NAMESPACES}
+
   cd $base_dir
 }
 
@@ -576,9 +695,11 @@ run_offline_prep () {
     run_debug download_harbor
     echo "  Downloading dependancy helm charts..."
     run_debug download_helm_binaries
+    echo "  Downloading Velero binaries and manifests..."
+    run_debug download_velero
     run_debug image_pull_push_check
     run_debug generate_images_file
-    echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy."
+    echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy, Velero."
     echo "  This may take several minutes..."
     run_debug download_rke2
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
@@ -605,6 +726,18 @@ download_harbor () {
   chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
+}
+
+download_velero () {
+  echo "  Downloading Velero CLI ${VELERO_VERSION}..."
+  curl -L https://github.com/vmware-tanzu/velero/releases/download/${VELERO_VERSION}/velero-${VELERO_VERSION}-linux-amd64.tar.gz -o $WORKING_DIR/ap-utilities/velero/velero-${VELERO_VERSION}-linux-amd64.tar.gz
+  echo "  Downloading CSI snapshot CRDs (${SNAPSHOTTER_VERSION})..."
+  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml -o $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml -o $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml -o $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshots.yaml
+  echo "  Downloading snapshot controller manifests (${SNAPSHOTTER_VERSION})..."
+  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml -o $WORKING_DIR/ap-utilities/velero/rbac-snapshot-controller.yaml
+  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml -o $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml
 }
 
 download_ap_packages () {
@@ -698,6 +831,18 @@ generate_images_file () {
   curl -OL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  # Velero images
+  cd $WORKING_DIR/ap-utilities/velero
+  echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
+  echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
+  echo "velero/velero-restore-helper:${VELERO_VERSION}" >> velero-images.txt
+  # Snapshot controller image - extract from setup manifest
+  if [[ -f $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml ]]; then
+    grep 'image:' $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml | awk '{print $2}' | sort -u >> velero-images.txt
+  else
+    echo "registry.k8s.io/sig-storage/snapshot-controller:${SNAPSHOTTER_VERSION}" >> velero-images.txt
+  fi
+  cat velero-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
 }
 
@@ -803,6 +948,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
     [ -d "$WORKING_DIR/ap-utilities/images" ] || mkdir -p "$WORKING_DIR/ap-utilities/images"
+    [ -d "$WORKING_DIR/ap-utilities/velero" ] || mkdir -p "$WORKING_DIR/ap-utilities/velero"
     [ -d "$WORKING_DIR/bundle" ] || mkdir -p "$WORKING_DIR/bundle"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
@@ -1014,6 +1160,35 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
 EOF
     cat $base_dir/ap-install-upgrade-cmd.txt
   fi
+  if [[ $INSTALL_TYPE == "velero" ]]; then
+    echo ""
+    echo "### VELERO INSTALL FLOW COMPLETED ###"
+    echo "###       PRINTING OUTPUTS        ###"
+    echo ""
+    echo "Velero backup is installed and configured."
+    echo ""
+    echo "Velero Configuration:"
+    echo "  S3 Endpoint:        $VELERO_S3_URL"
+    echo "  S3 Bucket:          $VELERO_BUCKET"
+    echo "  Backup Namespaces:  $VELERO_BACKUP_NAMESPACES"
+    echo "  Backup Schedule:    $VELERO_BACKUP_SCHEDULE (TTL: $VELERO_BACKUP_TTL)"
+    echo ""
+    echo "Verify installation:"
+    echo "  velero backup-location get          # Should show 'Available'"
+    echo "  velero schedule get                 # Should show 'daily-full-backup'"
+    echo "  kubectl get pods -n velero          # Velero server + node-agent pods"
+    echo ""
+    echo "Common operations:"
+    echo "  velero backup create manual-backup --from-schedule daily-full-backup --wait"
+    echo "  velero backup get"
+    echo "  velero backup describe <backup-name> --details"
+    echo "  velero restore create --from-backup <backup-name> --wait"
+    echo ""
+    echo "If backup-location shows 'Unavailable', check:"
+    echo "  - SeaweedFS S3 is running and accessible at $VELERO_S3_URL"
+    echo "  - S3 credentials are correct (VELERO_S3_ACCESS_KEY / VELERO_S3_SECRET_KEY)"
+    echo "  - kubectl logs deployment/velero -n velero | tail -20"
+  fi
 }
 
 # --- Main Script Execution --- #
@@ -1042,8 +1217,8 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" ]]; then
-                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" ]]; then
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs|velero]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -1200,7 +1375,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   if [[ $REGISTRY_MODE == "1" ]]; then
     if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
@@ -1229,6 +1404,10 @@ fi
 if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."
   run_install_harbor
+fi
+if [[ $INSTALL_TYPE == "velero" ]]; then
+  echo "  Installing Velero backup with Longhorn CSI and SeaweedFS S3..."
+  run_install_velero
 fi
 runtime_outputs
 echo "### Automation Tools Finished on $(date) ###"

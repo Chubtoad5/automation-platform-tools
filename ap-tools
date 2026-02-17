@@ -37,7 +37,7 @@ LOCATION=EDGE
 ORGANIZATION=LAB
 HARBOR_COMMON_NAME="registry.$HOST_FQDN"
 DURATION_DAYS=3650
-PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher"
+PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero"
 
 # SeaweedFS Configuration
 SWFS_IMAGE="chrislusf/seaweedfs:latest"
@@ -58,13 +58,13 @@ ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/re
 VELERO_VERSION="v1.17.1"
 VELERO_AWS_PLUGIN_VERSION="v1.13.0"
 SNAPSHOTTER_VERSION="v8.2.0"
-VELERO_BUCKET="velero-backups"
-VELERO_S3_URL="http://${MGMT_IP}:${SWFS_S3_PORT}"        # SeaweedFS S3 endpoint for Velero backups
-VELERO_S3_ACCESS_KEY="${SWFS_HARBOR_USER}"                 # SeaweedFS S3 access key
-VELERO_S3_SECRET_KEY="${SWFS_HARBOR_PASS}"                 # SeaweedFS S3 secret key
+VELERO_BUCKET="velero"
+VELERO_S3_URL="https://${SWFS_S3_FQDN}:${SWFS_S3_PORT}"  # SeaweedFS S3 endpoint for Velero backups
+VELERO_S3_ACCESS_KEY=""                                  # SeaweedFS S3 access key
+VELERO_S3_SECRET_KEY=""                                  # SeaweedFS S3 secret key
 VELERO_BACKUP_NAMESPACES="default,dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
-VELERO_BACKUP_TTL="720h"                                   # Backup retention (30 days)
-VELERO_BACKUP_SCHEDULE="0 2 * * *"                         # Daily at 2 AM
+VELERO_BACKUP_TTL="720h"                                 # Backup retention (30 days)
+VELERO_BACKUP_SCHEDULE="0 2 * * *"                       # Daily at 2 AM
 
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
@@ -146,7 +146,7 @@ Commands:
                  Requires a running Kubernetes cluster with Longhorn and SeaweedFS S3.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
-                 Includes Velero CLI, container images, and CSI snapshot CRDs.
+                 Includes Velero CLI and container images.
                  Cannot be used with [install] [push] [join].
 
   push         : Pushes all kubernetes and utility container images to the specified registry.
@@ -353,6 +353,26 @@ run_install_velero () {
   export KUBECONFIG=/home/$user_name/.kube/config
   export PATH=$PATH:/var/lib/rancher/rke2/bin
 
+  # Push velero images to registry if push mode is active
+  if [[ $PUSH_MODE == "1" ]]; then
+    echo "  Checking for RKE2 registries.yaml..."
+    if [[ ! -f /etc/rancher/rke2/registries.yaml ]]; then
+      echo "Error: /etc/rancher/rke2/registries.yaml not found."
+      echo "  RKE2 must be installed with '-registry' to configure the docker.io mirror."
+      echo "  Run: ./ap-tools install rke2 push -registry <registry:port> <username> <password>"
+      exit 1
+    fi
+    echo "  Pushing Velero images to registry ${REGISTRY_INFO}..."
+    image_pull_push_check
+    cd $WORKING_DIR/ap-utilities/velero
+    echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
+    echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
+    echo "velero/velero-restore-helper:${VELERO_VERSION}" >> velero-images.txt
+    $WORKING_DIR/ap-utilities/images/image_pull_push.sh -f $WORKING_DIR/ap-utilities/velero/velero-images.txt push $REGISTRY_INFO $REG_USER $REG_PASS
+    cd $base_dir
+    echo "  Velero images pushed to registry."
+  fi
+
   # Install Velero CLI binary
   echo "  Installing Velero CLI ${VELERO_VERSION}..."
   cd $WORKING_DIR/ap-utilities/velero
@@ -364,38 +384,14 @@ run_install_velero () {
   rm -rf velero-${VELERO_VERSION}-linux-amd64
   velero version --client-only
 
-  # Verify and install CSI snapshot CRDs if missing
-  echo "  Verifying CSI snapshot support..."
-  if ! kubectl get crd volumesnapshotclasses.snapshot.storage.k8s.io &>/dev/null; then
-    echo "  Installing CSI snapshot CRDs (${SNAPSHOTTER_VERSION})..."
-    if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
-    else
-      kubectl apply -f $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-      kubectl apply -f $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-      kubectl apply -f $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshots.yaml
-    fi
-  else
-    echo "  CSI snapshot CRDs already present."
-  fi
-
-  # Install snapshot controller if not present
+  # Verify snapshot controller is running (provided by RKE2)
+  echo "  Verifying snapshot controller..."
   if ! kubectl get pods -n kube-system 2>/dev/null | grep -q snapshot-controller; then
-    echo "  Installing snapshot controller (${SNAPSHOTTER_VERSION})..."
-    if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
-      kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
-    else
-      kubectl apply -f $WORKING_DIR/ap-utilities/velero/rbac-snapshot-controller.yaml
-      kubectl apply -f $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml
-    fi
-    echo "  Waiting for snapshot controller to be ready..."
-    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=snapshot-controller -n kube-system --timeout=120s 2>/dev/null || true
-  else
-    echo "  Snapshot controller already running."
+    echo "Error: Snapshot controller not found in kube-system namespace."
+    echo "  The snapshot controller is required for Velero CSI integration and should be provided by RKE2."
+    exit 1
   fi
+  echo "  Snapshot controller is running."
 
   # Create VolumeSnapshotClass for Longhorn
   echo "  Creating VolumeSnapshotClass for Longhorn..."
@@ -427,7 +423,7 @@ CREDEOF
     --plugins velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION} \
     --bucket ${VELERO_BUCKET} \
     --backup-location-config \
-      region=us-east-1,s3ForcePathStyle=true,s3Url=${VELERO_S3_URL},checksumAlgorithm="" \
+      region=us-east-1,s3ForcePathStyle=true,s3Url=${VELERO_S3_URL},checksumAlgorithm="",insecureSkipTLSVerify=true \
     --secret-file /tmp/credentials-velero \
     --features=EnableCSI \
     --use-node-agent \
@@ -731,13 +727,6 @@ download_harbor () {
 download_velero () {
   echo "  Downloading Velero CLI ${VELERO_VERSION}..."
   curl -L https://github.com/vmware-tanzu/velero/releases/download/${VELERO_VERSION}/velero-${VELERO_VERSION}-linux-amd64.tar.gz -o $WORKING_DIR/ap-utilities/velero/velero-${VELERO_VERSION}-linux-amd64.tar.gz
-  echo "  Downloading CSI snapshot CRDs (${SNAPSHOTTER_VERSION})..."
-  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml -o $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml -o $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml -o $WORKING_DIR/ap-utilities/velero/snapshot.storage.k8s.io_volumesnapshots.yaml
-  echo "  Downloading snapshot controller manifests (${SNAPSHOTTER_VERSION})..."
-  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml -o $WORKING_DIR/ap-utilities/velero/rbac-snapshot-controller.yaml
-  curl -L https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml -o $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml
 }
 
 download_ap_packages () {
@@ -836,12 +825,6 @@ generate_images_file () {
   echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
   echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
   echo "velero/velero-restore-helper:${VELERO_VERSION}" >> velero-images.txt
-  # Snapshot controller image - extract from setup manifest
-  if [[ -f $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml ]]; then
-    grep 'image:' $WORKING_DIR/ap-utilities/velero/setup-snapshot-controller.yaml | awk '{print $2}' | sort -u >> velero-images.txt
-  else
-    echo "registry.k8s.io/sig-storage/snapshot-controller:${SNAPSHOTTER_VERSION}" >> velero-images.txt
-  fi
   cat velero-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
 }
@@ -1338,6 +1321,15 @@ fi
 if [[ "$INSTALL_TYPE" == "ap-bundle" ]]; then
     if [[ "$REGISTRY_MODE" == "0" ]]; then
         echo "Error: 'install ap-bundle' requires registry config. Format: install ap-bundle -registry [registry:port] [username] [password]"
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
+# Verify 'velero' params
+if [[ "$INSTALL_TYPE" == "velero" ]]; then
+    if [[ -z "$VELERO_S3_ACCESS_KEY" || -z "$VELERO_S3_SECRET_KEY" ]]; then
+        echo "Error: 'install velero' requires S3 credentials. Set VELERO_S3_ACCESS_KEY and VELERO_S3_SECRET_KEY in the script."
         echo "Type './$SCRIPT_NAME -h' for help."
         exit 1
     fi

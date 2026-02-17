@@ -2,7 +2,7 @@
 This is an unofficial pre-requisite tool designed for use with Dell Automation Platform on-premise bundle installation. 
 
 ## Preface
-This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. This script should not be used for a production environment.  
+This repository is not associated with Dell Technologies and the script is not officially supported. The tooling this script provides is based off system requirements from the official Dell Automation Platform documentation found on https://www.dell.com/support and leverages opensource tools. While the leveraged tools are tailored to common best practices, it may not be suitable for an enterprise environment. Reference the opensource vendors and documentation for production guidance based off your environment found at the bottom of this readme.  
 
 The ap-tools script uses helper scripts to perform certian actions. When running ap-tools, helper scripts are pulled from the following Chubtoad5 repositories:  
 - install-packages
@@ -143,7 +143,7 @@ git clone https://github.com/Chubtoad5/automation-platform-tools.git && cd autom
 
 ### Syntax
 ```
-Usage: ./ap-tools [install rke2|ap-bundle|harbor|nginx] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: ./ap-tools [install rke2|ap-bundle|harbor|swfs] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -152,7 +152,7 @@ Commands:
     [ap-bundle]  Extracts the Dell Automation Platform install bundle and outputs the install command.
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
-    [nginx]      Installs an nginx static file server.
+    [swfs]       Installs a single-node SeaweedFS server for artifact storage.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Cannot be used with [install] [push] [join].
@@ -265,6 +265,7 @@ This tool also includes extra binaries for troubleshooting the environment
 
 ## Dell Technologies references
 - Dell Automation Platform - https://www.dell.com/en-us/lp/dt/automation-platform  
+- Knowledge Article for log collection - https://www.dell.com/support/kbdoc/en-us/000216838/how-to-retrieve-logs-bundle-for-troubleshooting-nativeedge-solution
 
 ## Author notes
 Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!  

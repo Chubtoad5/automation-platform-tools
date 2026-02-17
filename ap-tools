@@ -11,22 +11,22 @@ SWFS_HARBOR_USER="admin"                               # Username for Harbor and
 SWFS_HARBOR_PASS="changeme"                            # Password for Harbor and SeaweedFS basic auth
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL=https://dl.dell.com/FOLDER13508681M/1/DellAutomationPlatform_v1.2.0.0.zip
-DOWNLOAD_AP_BUNDLE=false
-SKIP_IMAGES_LOADER=false
-REGISTRY_PROJECT_NAME=dell-automation
-ORCHESTRATOR_NAMESPACE=dell-orchestrator
-PORTAL_NAMESPACE=dell-portal
-PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"
-ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"
-PORTAL_FQDN="portal.$HOST_FQDN"
-PORTAL_INGRESS_CLASS_NAME=haproxy
-ORG_NAME=changeme
-ORG_DESC=changeme
-FIRST_NAME=changeme
-LAST_NAME=changeme
-USERNAME=administrator
-EMAIL=changeme@example.com
+AP_BUNDLE_URL=https://dl.dell.com/FOLDER14176884M/1/DellAutomationPlatform_v1.2.0.0.zip
+DOWNLOAD_AP_BUNDLE=false                               # Download install bundle during offline-prep or install rke2
+SKIP_IMAGES_LOADER=false                               # skip pushing images to local registry in install-upgrade.sh command
+REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
+ORCHESTRATOR_NAMESPACE=dell-orchestrator               # Namespace to use for Dell Automation Platform orchestrator
+PORTAL_NAMESPACE=dell-portal                           # Namespace to use for Dell Automation Platform portal
+PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"                    # Base domain, i.e. 'acme.com' or IP address for IP based install
+ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"            # FQDN for orchestrator, or <IP> address for IP based install
+PORTAL_FQDN="portal.$HOST_FQDN"                        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
+PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
+ORG_NAME=changeme                                      # Organization name for Dell Automation Platform                   
+ORG_DESC=changeme                                      # Organization description for Dell Automation Platform
+FIRST_NAME=changeme                                    # Admin user first name
+LAST_NAME=changeme                                     # Admin user last name                     
+USERNAME=administrator                                 # Admin user name
+EMAIL=changeme@example.com                             # Admin user email
 
 # Harbor Configuration
 HARBOR_VERSION=2.14.1
@@ -46,13 +46,11 @@ SWFS_ADMIN_FQDN="admin.$HOST_FQDN"      # FQDN for SeaweedFS Admin UI and Caddy 
 SWFS_MASTER_FQDN="master.$HOST_FQDN"    # FQDN for SeaweedFS Master UI/API
 SWFS_FILER_FQDN="filer.$HOST_FQDN"      # FQDN for SeaweedFS Filer UI/API
 SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
-SWFS_WEBDAV_FQDN="share.$HOST_FQDN"     # FQDN for SeaweedFS WebDav endpoint
-ENABLE_WEBDAV="true"                    # Expose WebDAV endpoint open file share (uses http and no authentication)
+ENABLE_SMB="true"                       # Enable an SMB share with basic authentication
 SWFS_ADMIN_PORT=9443
 SWFS_MASTER_PORT=9333
 SWFS_FILER_PORT=8888
 SWFS_S3_PORT=8333
-SWFS_WEBDAV_PORT=7333
 DEFAULT_FILER_DIR_NAME="artifacts"
 ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 
@@ -73,12 +71,10 @@ METALLB_VERSION=0.15.2
 INSTALL_METALLB=true
 KUBERNETES_INGRESS_VERSION=1.45.0
 HAPROXY_APP_VERSION=3.1.12
-INSTALL_HAPROXY=true                      # If true, IP based install will fail
+INSTALL_HAPROXY=true                      # Must be disabled if performing IP based install
 RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path
 PVC_DATA=${PVC_DATA:-"default"}           # Path where storage class PVCs are stored, update with valid local path
-
-RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA
 
 # --- INTERNAL VARIABLES - DO NOT EDIT --- #
 set -o errexit
@@ -118,7 +114,7 @@ bundle_file=$(basename $AP_BUNDLE_URL)
 REQUIRED_CPU=16
 REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
-kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000Sb4oIAC/logs_pkb_en_US_1.zip"
+kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
 
 # --- USAGE FUNCTION --- #
 
@@ -133,7 +129,7 @@ Commands:
     [ap-bundle]  Extracts the Dell Automation Platform install bundle and outputs the install command.
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
-    [swfs]       Installs a single-node sfws server for artifact storage.
+    [swfs]       Installs a single-node SeaweedFS server for artifact storage.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Cannot be used with [install] [push] [join].
@@ -317,9 +313,9 @@ run_install_swfs () {
     done
   fi
   if [[ $PUSH_MODE == "1" ]]; then
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN SWFS_WEBDAV_FQDN=$SWFS_WEBDAV_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT SWFS_WEBDAV_PORT=$SWFS_WEBDAV_PORT ENABLE_WEBDAV=$ENABLE_WEBDAV DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install push -registry $REGISTRY_INFO $REG_USER $REG_PASS
+    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install push -registry $REGISTRY_INFO $REG_USER $REG_PASS
   else
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN SWFS_WEBDAV_FQDN=$SWFS_WEBDAV_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT SWFS_WEBDAV_PORT=$SWFS_WEBDAV_PORT ENABLE_WEBDAV=$ENABLE_WEBDAV DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install
+    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install
   fi
   cd $base_dir
 }
@@ -986,16 +982,16 @@ runtime_outputs () {
     fi
   fi
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
-    echo ""
-    echo "### BUNDLE PREP FLOW COMPLETED ###"
-    echo "###      PRINTING OUTPUTS      ###"
-    echo ""
-    echo "Dell Automation Platform is ready for installation"
-    echo "$ntp_message"
-    echo "Next steps:"
-    echo "  - Run the following command block to install Dell Automation Platform Portal and Orchestrator:"
-    echo "----"
-  cat << EOF 
+    cat << EOF > $base_dir/ap-install-upgrade-cmd.txt
+
+### BUNDLE PREP FLOW COMPLETED ###
+###      PRINTING OUTPUTS      ###
+
+Dell Automation Platform is ready for installation
+$ntp_message
+Next steps:
+  - Run the following command block to install Dell Automation Platform Portal and Orchestrator:
+----
 sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   EO_HOST=$ORCHESTRATOR_FQDN \\
   PORTAL_HOST=$PORTAL_FQDN \\
@@ -1014,8 +1010,9 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   LAST_NAME=$LAST_NAME \\
   USERNAME=$USERNAME \\
   EMAIL=$EMAIL
+----
 EOF
-  echo "----"
+    cat $base_dir/ap-install-upgrade-cmd.txt
   fi
 }
 

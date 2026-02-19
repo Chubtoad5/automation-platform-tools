@@ -67,6 +67,15 @@ VSC_NAME="longhorn-snapshot-vsc"     # VolumeSnapshotClass name for Longhorn CSI
 VSC_DRIVER="driver.longhorn.io"      # CSI driver name for the VolumeSnapshotClass
 VELERO_BACKUP_NAMESPACES="default,dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
 
+# Monitoring Configuration
+MONITORING_S3_CREDENTIALS_FILE="/opt/seaweedfs/monitoring-credentials.env"  # Written by install-seaweedfs
+CLUSTER_NAME="rke2-prod"                                                      # Cluster label for metrics and logs
+KUBE_PROMETHEUS_STACK_VERSION=69.8.0                                          # kube-prometheus-stack Helm chart version
+FLUENT_BIT_VERSION=3.2.8                                                      # Fluent Bit app + chart version
+PROMETHEUS_RETENTION="48h"                                                    # In-cluster Prometheus retention (short; long-term on external host)
+PROMETHEUS_STORAGE_SIZE="50Gi"                                                # PVC size for in-cluster Prometheus
+PROMETHEUS_STORAGE_CLASS="longhorn"                                           # StorageClass for Prometheus PVCs
+
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
 CLUSTER_TYPE=single-node
@@ -145,6 +154,9 @@ Commands:
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
     [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
                  Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
+    [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster.
+                 Reads monitoring host details from $MONITORING_S3_CREDENTIALS_FILE (written by 'install swfs').
+                 Delegates to rke2_installer.sh. Run 'install swfs' first to generate credentials.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Includes Velero CLI and container images.
@@ -367,6 +379,41 @@ run_install_velero () {
   cd $base_dir
 }
 
+run_install_monitoring () {
+  rke2_installer_check
+  # Source monitoring credentials written by install-seaweedfs (install swfs)
+  local monitoring_host="$MGMT_IP"
+  local monitoring_loki_port=3100
+  local monitoring_prometheus_port=9090
+  local cluster_name="$CLUSTER_NAME"
+  if [[ -f "$MONITORING_S3_CREDENTIALS_FILE" ]]; then
+    echo "  Sourcing monitoring credentials from $MONITORING_S3_CREDENTIALS_FILE..."
+    # shellcheck disable=SC1090
+    source "$MONITORING_S3_CREDENTIALS_FILE"
+    monitoring_host="${MONITORING_HOST:-$MGMT_IP}"
+    monitoring_loki_port="${MONITORING_LOKI_PORT:-3100}"
+    monitoring_prometheus_port="${MONITORING_PROMETHEUS_PORT:-9090}"
+    cluster_name="${CLUSTER_NAME:-$cluster_name}"
+  else
+    echo "  Warning: $MONITORING_S3_CREDENTIALS_FILE not found. Using MGMT_IP ($MGMT_IP) as monitoring host."
+    echo "  For best results, run 'install swfs' first to generate monitoring credentials."
+  fi
+  cd $WORKING_DIR/rke2
+  echo "  Installing monitoring stack in RKE2 cluster via rke2_installer.sh..."
+  MONITORING_HOST=$monitoring_host \
+  MONITORING_LOKI_PORT=$monitoring_loki_port \
+  MONITORING_PROMETHEUS_PORT=$monitoring_prometheus_port \
+  CLUSTER_NAME=$cluster_name \
+  KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION \
+  FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION \
+  PROMETHEUS_RETENTION=$PROMETHEUS_RETENTION \
+  PROMETHEUS_STORAGE_SIZE=$PROMETHEUS_STORAGE_SIZE \
+  PROMETHEUS_STORAGE_CLASS=$PROMETHEUS_STORAGE_CLASS \
+  RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG \
+  ./rke2_installer.sh install monitoring
+  cd $base_dir
+}
+
 install_helm () {
   echo "  Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
@@ -380,6 +427,8 @@ install_helm () {
     /usr/bin/helm repo add metallb https://metallb.github.io/metallb
     /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
     /usr/bin/helm repo add longhorn https://charts.longhorn.io
+    /usr/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    /usr/bin/helm repo add fluent https://fluent.github.io/helm-charts
     /usr/bin/helm repo update
   fi
 }
@@ -679,6 +728,8 @@ download_helm_binaries () {
   /usr/bin/helm repo add metallb https://metallb.github.io/metallb
   /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
   /usr/bin/helm repo add longhorn https://charts.longhorn.io
+  /usr/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  /usr/bin/helm repo add fluent https://fluent.github.io/helm-charts
   /usr/bin/helm repo update
   echo "  Pulling helm charts..."
   # HAPROXY
@@ -692,6 +743,10 @@ download_helm_binaries () {
   # METALLB
   cd $WORKING_DIR/ap-utilities/helm/metallb
   /usr/bin/helm pull metallb/metallb --version $METALLB_VERSION
+  # MONITORING
+  cd $WORKING_DIR/ap-utilities/helm/monitoring
+  /usr/bin/helm pull prometheus-community/kube-prometheus-stack --version $KUBE_PROMETHEUS_STACK_VERSION
+  /usr/bin/helm pull fluent/fluent-bit --version $FLUENT_BIT_VERSION
 }
 
 download_ap_bundle () {
@@ -835,6 +890,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/ap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/haproxy"
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
+    [ -d "$WORKING_DIR/ap-utilities/helm/monitoring" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/monitoring"
     [ -d "$WORKING_DIR/ap-utilities/images" ] || mkdir -p "$WORKING_DIR/ap-utilities/images"
     [ -d "$WORKING_DIR/bundle" ] || mkdir -p "$WORKING_DIR/bundle"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
@@ -1075,8 +1131,8 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" ]]; then
-                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs|velero]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" && "$INSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs|velero|monitoring]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -1247,7 +1303,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero" && $INSTALL_TYPE != "monitoring") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   if [[ $REGISTRY_MODE == "1" ]]; then
     if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
@@ -1280,6 +1336,10 @@ fi
 if [[ $INSTALL_TYPE == "velero" ]]; then
   echo "  Installing Velero backup with Longhorn CSI and SeaweedFS S3..."
   run_install_velero
+fi
+if [[ $INSTALL_TYPE == "monitoring" ]]; then
+  echo "  Installing monitoring stack in RKE2 cluster..."
+  run_install_monitoring
 fi
 runtime_outputs
 echo "### Automation Tools Finished on $(date) ###"

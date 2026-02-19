@@ -21,10 +21,10 @@ PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"                    # Base domain, i.e. 'acme
 ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"            # FQDN for orchestrator, or <IP> address for IP based install
 PORTAL_FQDN="portal.$HOST_FQDN"                        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
 PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
-ORG_NAME=changeme                                      # Organization name for Dell Automation Platform                   
+ORG_NAME=changeme                                      # Organization name for Dell Automation Platform
 ORG_DESC=changeme                                      # Organization description for Dell Automation Platform
 FIRST_NAME=changeme                                    # Admin user first name
-LAST_NAME=changeme                                     # Admin user last name                     
+LAST_NAME=changeme                                     # Admin user last name
 USERNAME=administrator                                 # Admin user name
 EMAIL=changeme@example.com                             # Admin user email
 
@@ -57,14 +57,15 @@ ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/re
 # Velero Backup Configuration
 VELERO_VERSION="v1.17.1"
 VELERO_AWS_PLUGIN_VERSION="v1.13.0"
-SNAPSHOTTER_VERSION="v8.2.0"
-VELERO_BUCKET="velero"
-VELERO_S3_URL="https://${SWFS_S3_FQDN}:${SWFS_S3_PORT}"  # SeaweedFS S3 endpoint for Velero backups
-VELERO_S3_ACCESS_KEY=""                                  # SeaweedFS S3 access key
-VELERO_S3_SECRET_KEY=""                                  # SeaweedFS S3 secret key
+VELERO_BUCKET="velero-backups"
+VELERO_S3_URL=""                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
+VELERO_S3_ACCESS_KEY=""              # SeaweedFS S3 access key
+VELERO_S3_SECRET_KEY=""              # SeaweedFS S3 secret key
+VELERO_BACKUP_TTL="720h"             # Backup retention (30 days)
+VELERO_BACKUP_SCHEDULE="0 2 * * *"   # Daily at 2 AM
+VSC_NAME="longhorn-snapshot-vsc"     # VolumeSnapshotClass name for Longhorn CSI snapshots
+VSC_DRIVER="driver.longhorn.io"      # CSI driver name for the VolumeSnapshotClass
 VELERO_BACKUP_NAMESPACES="default,dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
-VELERO_BACKUP_TTL="720h"                                 # Backup retention (30 days)
-VELERO_BACKUP_SCHEDULE="0 2 * * *"                       # Daily at 2 AM
 
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
@@ -143,7 +144,7 @@ Commands:
     [harbor]     Installs the harbor registry.
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
     [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
-                 Requires a running Kubernetes cluster with Longhorn and SeaweedFS S3.
+                 Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Includes Velero CLI and container images.
@@ -158,7 +159,7 @@ Commands:
 
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup.
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
-	[server-fqdn-ip]
+        [server-fqdn-ip]
 
   -registry    : Used with [install rke2], [install ap-bundle], and [push] to provide a valid registry and credentials.
     [registry:port username password]
@@ -350,101 +351,19 @@ run_install_harbor () {
 }
 
 run_install_velero () {
-  export KUBECONFIG=/home/$user_name/.kube/config
-  export PATH=$PATH:/var/lib/rancher/rke2/bin
-
-  # Push velero images to registry if push mode is active
+  rke2_installer_check
+  cd $WORKING_DIR/rke2
+  local VELERO_CMD_ARGS="install velero"
   if [[ $PUSH_MODE == "1" ]]; then
-    echo "  Checking for RKE2 registries.yaml..."
-    if [[ ! -f /etc/rancher/rke2/registries.yaml ]]; then
-      echo "Error: /etc/rancher/rke2/registries.yaml not found."
-      echo "  RKE2 must be installed with '-registry' to configure the docker.io mirror."
-      echo "  Run: ./ap-tools install rke2 push -registry <registry:port> <username> <password>"
-      exit 1
-    fi
-    echo "  Pushing Velero images to registry ${REGISTRY_INFO}..."
-    image_pull_push_check
-    cd $WORKING_DIR/ap-utilities/velero
-    echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
-    echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
-    $WORKING_DIR/ap-utilities/images/image_pull_push.sh -f $WORKING_DIR/ap-utilities/velero/velero-images.txt push $REGISTRY_INFO $REG_USER $REG_PASS
-    cd $base_dir
-    echo "  Velero images pushed to registry."
+    VELERO_CMD_ARGS="install velero push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
   fi
-
-  # Install Velero CLI binary
-  echo "  Installing Velero CLI ${VELERO_VERSION}..."
-  cd $WORKING_DIR/ap-utilities/velero
-  if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -L https://github.com/vmware-tanzu/velero/releases/download/${VELERO_VERSION}/velero-${VELERO_VERSION}-linux-amd64.tar.gz -o velero-${VELERO_VERSION}-linux-amd64.tar.gz
-  fi
-  tar -xzf velero-${VELERO_VERSION}-linux-amd64.tar.gz
-  mv velero-${VELERO_VERSION}-linux-amd64/velero /usr/local/bin/velero
-  rm -rf velero-${VELERO_VERSION}-linux-amd64
-  velero version --client-only
-
-  # Verify snapshot controller is running (provided by RKE2)
-  echo "  Verifying snapshot controller..."
-  if ! kubectl get pods -n kube-system 2>/dev/null | grep -q snapshot-controller; then
-    echo "Error: Snapshot controller not found in kube-system namespace."
-    echo "  The snapshot controller is required for Velero CSI integration and should be provided by RKE2."
-    exit 1
-  fi
-  echo "  Snapshot controller is running."
-
-  # Create VolumeSnapshotClass for Longhorn
-  echo "  Creating VolumeSnapshotClass for Longhorn..."
-  cat <<'SNAPEOF' | kubectl apply -f -
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshotClass
-metadata:
-  name: longhorn-snapshot-vsc
-  labels:
-    velero.io/csi-volumesnapshot-class: "true"
-driver: driver.longhorn.io
-deletionPolicy: Delete
-parameters:
-  type: snap
-SNAPEOF
-
-  # Create S3 credentials file
-  echo "  Creating Velero S3 credentials..."
-  cat > /tmp/credentials-velero <<CREDEOF
-[default]
-aws_access_key_id=${VELERO_S3_ACCESS_KEY}
-aws_secret_access_key=${VELERO_S3_SECRET_KEY}
-CREDEOF
-
-  # Install Velero into the cluster
-  echo "  Installing Velero server into the cluster..."
-  velero install \
-    --provider aws \
-    --plugins velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION} \
-    --bucket ${VELERO_BUCKET} \
-    --backup-location-config \
-      region=us-east-1,s3ForcePathStyle=true,s3Url=${VELERO_S3_URL},checksumAlgorithm="",insecureSkipTLSVerify=true \
-    --secret-file /tmp/credentials-velero \
-    --features=EnableCSI \
-    --use-node-agent \
-    --use-volume-snapshots=true \
-    --wait
-
-  # Clean up credentials file
-  rm -f /tmp/credentials-velero
-
-  # Verify installation
-  echo "  Verifying Velero installation..."
-  check_namespace_pods_ready "velero"
-
-  # Create scheduled backup
-  echo "  Creating daily scheduled backup..."
-  velero schedule create daily-full-backup \
-    --schedule="${VELERO_BACKUP_SCHEDULE}" \
-    --ttl ${VELERO_BACKUP_TTL} \
-    --snapshot-move-data \
-    --include-cluster-resources=true \
-    --include-namespaces ${VELERO_BACKUP_NAMESPACES}
-
+  echo "  Running Velero install via rke2_installer.sh..."
+  VELERO_VERSION=$VELERO_VERSION VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION \
+  VELERO_BUCKET=$VELERO_BUCKET VELERO_S3_URL=$VELERO_S3_URL \
+  VELERO_S3_ACCESS_KEY=$VELERO_S3_ACCESS_KEY VELERO_S3_SECRET_KEY=$VELERO_S3_SECRET_KEY \
+  VELERO_BACKUP_NAMESPACES=$VELERO_BACKUP_NAMESPACES VELERO_BACKUP_TTL=$VELERO_BACKUP_TTL \
+  VELERO_BACKUP_SCHEDULE=$VELERO_BACKUP_SCHEDULE VSC_NAME=$VSC_NAME VSC_DRIVER=$VSC_DRIVER \
+  RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG ./rke2_installer.sh $VELERO_CMD_ARGS
   cd $base_dir
 }
 
@@ -591,7 +510,7 @@ spec:
     - $mgmt_if
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
+    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION
   else
     /usr/bin/helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
   fi
@@ -617,7 +536,7 @@ install_reg_docker () {
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     ./image_pull_push.sh docker
-  else 
+  else
     for file in "$WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz"; do
       ./image_pull_push.sh docker -f $file
     done
@@ -672,7 +591,7 @@ ap_host_config () {
   systemctl restart systemd-sysctl
   if [ $? -ne 0 ]; then
     echo "Error: systemd-sysctl.service failed to restart."
-    exit 1 
+    exit 1
   else
     echo "  systemd-sysctl.service restarted successfully."
   fi
@@ -690,8 +609,6 @@ run_offline_prep () {
     run_debug download_harbor
     echo "  Downloading dependancy helm charts..."
     run_debug download_helm_binaries
-    echo "  Downloading Velero binaries and manifests..."
-    run_debug download_velero
     run_debug image_pull_push_check
     run_debug generate_images_file
     echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy, Velero."
@@ -721,11 +638,6 @@ download_harbor () {
   chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
-}
-
-download_velero () {
-  echo "  Downloading Velero CLI ${VELERO_VERSION}..."
-  curl -L https://github.com/vmware-tanzu/velero/releases/download/${VELERO_VERSION}/velero-${VELERO_VERSION}-linux-amd64.tar.gz -o $WORKING_DIR/ap-utilities/velero/velero-${VELERO_VERSION}-linux-amd64.tar.gz
 }
 
 download_ap_packages () {
@@ -819,11 +731,6 @@ generate_images_file () {
   curl -OL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
-  # Velero images
-  cd $WORKING_DIR/ap-utilities/velero
-  echo "velero/velero:${VELERO_VERSION}" > velero-images.txt
-  echo "velero/velero-plugin-for-aws:${VELERO_AWS_PLUGIN_VERSION}" >> velero-images.txt
-  cat velero-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
 }
 
@@ -929,7 +836,6 @@ create_working_dir () {
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
     [ -d "$WORKING_DIR/ap-utilities/images" ] || mkdir -p "$WORKING_DIR/ap-utilities/images"
-    [ -d "$WORKING_DIR/ap-utilities/velero" ] || mkdir -p "$WORKING_DIR/ap-utilities/velero"
     [ -d "$WORKING_DIR/bundle" ] || mkdir -p "$WORKING_DIR/bundle"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
 }
@@ -1141,35 +1047,6 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
 EOF
     cat $base_dir/ap-install-upgrade-cmd.txt
   fi
-  if [[ $INSTALL_TYPE == "velero" ]]; then
-    echo ""
-    echo "### VELERO INSTALL FLOW COMPLETED ###"
-    echo "###       PRINTING OUTPUTS        ###"
-    echo ""
-    echo "Velero backup is installed and configured."
-    echo ""
-    echo "Velero Configuration:"
-    echo "  S3 Endpoint:        $VELERO_S3_URL"
-    echo "  S3 Bucket:          $VELERO_BUCKET"
-    echo "  Backup Namespaces:  $VELERO_BACKUP_NAMESPACES"
-    echo "  Backup Schedule:    $VELERO_BACKUP_SCHEDULE (TTL: $VELERO_BACKUP_TTL)"
-    echo ""
-    echo "Verify installation:"
-    echo "  velero backup-location get          # Should show 'Available'"
-    echo "  velero schedule get                 # Should show 'daily-full-backup'"
-    echo "  kubectl get pods -n velero          # Velero server + node-agent pods"
-    echo ""
-    echo "Common operations:"
-    echo "  velero backup create manual-backup --from-schedule daily-full-backup --wait"
-    echo "  velero backup get"
-    echo "  velero backup describe <backup-name> --details"
-    echo "  velero restore create --from-backup <backup-name> --wait"
-    echo ""
-    echo "If backup-location shows 'Unavailable', check:"
-    echo "  - SeaweedFS S3 is running and accessible at $VELERO_S3_URL"
-    echo "  - S3 credentials are correct (VELERO_S3_ACCESS_KEY / VELERO_S3_SECRET_KEY)"
-    echo "  - kubectl logs deployment/velero -n velero | tail -20"
-  fi
 }
 
 # --- Main Script Execution --- #
@@ -1331,6 +1208,11 @@ if [[ "$INSTALL_TYPE" == "velero" ]]; then
         echo "Type './$SCRIPT_NAME -h' for help."
         exit 1
     fi
+    if [[ -z "$VELERO_S3_URL" ]]; then
+        echo "Error: 'install velero' requires VELERO_S3_URL to be set (e.g. https://s3.example.com:8333)."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
 fi
 
 # Verify REGISTRY_MODE is an FQDN/IP and port
@@ -1401,3 +1283,4 @@ if [[ $INSTALL_TYPE == "velero" ]]; then
 fi
 runtime_outputs
 echo "### Automation Tools Finished on $(date) ###"
+

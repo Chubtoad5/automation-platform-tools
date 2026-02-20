@@ -377,7 +377,7 @@ run_install_swfs () {
 run_install_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/$harbor_feature_branch/main/install_harbor.sh
+      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
       chmod +x install_harbor.sh
   else
       for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
@@ -694,7 +694,7 @@ run_offline_prep () {
 }
 
 download_swfs () {
-  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/$swfs_feature_branch/main/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
   chmod +x $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
   cd $WORKING_DIR/ap-utilities/swfs
   ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
@@ -703,7 +703,7 @@ download_swfs () {
 
 download_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
-  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/$harbor_feature_branch/main/install_harbor.sh
+  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
   chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir

@@ -37,7 +37,7 @@ LOCATION=EDGE
 ORGANIZATION=LAB
 HARBOR_COMMON_NAME="registry.$HOST_FQDN"
 DURATION_DAYS=3650
-PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero"
+PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent"
 
 # SeaweedFS Configuration
 SWFS_IMAGE="chrislusf/seaweedfs:latest"
@@ -47,17 +47,19 @@ SWFS_MASTER_FQDN="master.$HOST_FQDN"    # FQDN for SeaweedFS Master UI/API
 SWFS_FILER_FQDN="filer.$HOST_FQDN"      # FQDN for SeaweedFS Filer UI/API
 SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
 ENABLE_SMB="true"                       # Enable an SMB share with basic authentication
+ENABLE_NFS="true"                       # Enable an NFS export with NFSv3, no authentication
 SWFS_ADMIN_PORT=9443
 SWFS_MASTER_PORT=9333
 SWFS_FILER_PORT=8888
 SWFS_S3_PORT=8333
+S3_BUCKET="velero"
 DEFAULT_FILER_DIR_NAME="artifacts"
 ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 
 # Velero Backup Configuration
 VELERO_VERSION="v1.17.1"
 VELERO_AWS_PLUGIN_VERSION="v1.13.0"
-VELERO_BUCKET="velero-backups"
+VELERO_BUCKET="velero"
 VELERO_S3_URL=""                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
 VELERO_S3_ACCESS_KEY=""              # SeaweedFS S3 access key
 VELERO_S3_SECRET_KEY=""              # SeaweedFS S3 secret key
@@ -65,16 +67,18 @@ VELERO_BACKUP_TTL="720h"             # Backup retention (30 days)
 VELERO_BACKUP_SCHEDULE="0 2 * * *"   # Daily at 2 AM
 VSC_NAME="longhorn-snapshot-vsc"     # VolumeSnapshotClass name for Longhorn CSI snapshots
 VSC_DRIVER="driver.longhorn.io"      # CSI driver name for the VolumeSnapshotClass
-VELERO_BACKUP_NAMESPACES="default,dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
+VELERO_BACKUP_NAMESPACES="dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
 
 # Monitoring Configuration
 MONITORING_S3_CREDENTIALS_FILE="/opt/seaweedfs/monitoring-credentials.env"  # Written by install-seaweedfs
-CLUSTER_NAME="rke2-prod"                                                      # Cluster label for metrics and logs
+CLUSTER_NAME="edge-lab"                                                      # Cluster label for metrics and logs
 KUBE_PROMETHEUS_STACK_VERSION=69.8.0                                          # kube-prometheus-stack Helm chart version
-FLUENT_BIT_VERSION=3.2.8                                                      # Fluent Bit app + chart version
+FLUENT_BIT_CHART_VERSION=0.55.0                                               # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
+FLUENT_BIT_VERSION=4.2.2                                                      # Fluent Bit application/image version (appVersion in the chart above)
 PROMETHEUS_RETENTION="48h"                                                    # In-cluster Prometheus retention (short; long-term on external host)
 PROMETHEUS_STORAGE_SIZE="50Gi"                                                # PVC size for in-cluster Prometheus
 PROMETHEUS_STORAGE_CLASS="longhorn"                                           # StorageClass for Prometheus PVCs
+MONITOR_CONFIGS_DIR=""                                                        # Optional: path to directory of custom ServiceMonitor YAML files
 
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
@@ -283,7 +287,11 @@ run_install_join_push () {
     echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
+    INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
+    INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
   else
@@ -297,7 +305,11 @@ run_install_join_push () {
       generate_images_file
     fi
     cd $WORKING_DIR/rke2
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
+    INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
+    INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
   fi
@@ -341,9 +353,17 @@ run_install_swfs () {
     done
   fi
   if [[ $PUSH_MODE == "1" ]]; then
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install push -registry $REGISTRY_INFO $REG_USER $REG_PASS
+    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
+    SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
+    MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
+    SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD \
+    CLUSTER_NAME=$CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs install push -registry $REGISTRY_INFO $REG_USER $REG_PASS
   else
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install
+    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
+    SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
+    MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
+    SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD \
+    CLUSTER_NAME=$CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs install
   fi
   cd $base_dir
 }
@@ -405,10 +425,13 @@ run_install_monitoring () {
   MONITORING_PROMETHEUS_PORT=$monitoring_prometheus_port \
   CLUSTER_NAME=$cluster_name \
   KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION \
+  FLUENT_BIT_CHART_VERSION=$FLUENT_BIT_CHART_VERSION \
   FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION \
+  HELM_VERSION=$HELM_VERSION \
   PROMETHEUS_RETENTION=$PROMETHEUS_RETENTION \
   PROMETHEUS_STORAGE_SIZE=$PROMETHEUS_STORAGE_SIZE \
   PROMETHEUS_STORAGE_CLASS=$PROMETHEUS_STORAGE_CLASS \
+  MONITOR_CONFIGS_DIR=$MONITOR_CONFIGS_DIR \
   RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG \
   ./rke2_installer.sh install monitoring
   cd $base_dir
@@ -713,7 +736,12 @@ download_ap_packages () {
 download_rke2 () {
   rke2_installer_check
   cd $WORKING_DIR/rke2
-  RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh save
+  RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR \
+  MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER \
+  LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY \
+  KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION FLUENT_BIT_CHART_VERSION=$FLUENT_BIT_CHART_VERSION \
+  FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION HELM_VERSION=$HELM_VERSION VELERO_VERSION=$VELERO_VERSION \
+  VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION DEBUG=$DEBUG ./rke2_installer.sh save
   cd $base_dir
 }
 
@@ -728,8 +756,6 @@ download_helm_binaries () {
   /usr/bin/helm repo add metallb https://metallb.github.io/metallb
   /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
   /usr/bin/helm repo add longhorn https://charts.longhorn.io
-  /usr/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-  /usr/bin/helm repo add fluent https://fluent.github.io/helm-charts
   /usr/bin/helm repo update
   echo "  Pulling helm charts..."
   # HAPROXY
@@ -743,10 +769,9 @@ download_helm_binaries () {
   # METALLB
   cd $WORKING_DIR/ap-utilities/helm/metallb
   /usr/bin/helm pull metallb/metallb --version $METALLB_VERSION
-  # MONITORING
-  cd $WORKING_DIR/ap-utilities/helm/monitoring
-  /usr/bin/helm pull prometheus-community/kube-prometheus-stack --version $KUBE_PROMETHEUS_STACK_VERSION
-  /usr/bin/helm pull fluent/fluent-bit --version $FLUENT_BIT_VERSION
+  # NOTE: monitoring charts (kube-prometheus-stack, fluent-bit) are downloaded by rke2_installer.sh
+  # save workflow into rke2-install/monitoring/ and packaged into rke2-save.tar.gz. They do not
+  # need to be downloaded here.
 }
 
 download_ap_bundle () {

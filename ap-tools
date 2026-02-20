@@ -85,7 +85,7 @@ MONITORING_LOKI_PORT="3100"           # Loki HTTP port on the monitoring host
 MONITORING_PROMETHEUS_PORT="9090"     # Prometheus remote-write receiver port on the monitoring host
 HELM_VERSION="3.12.0"                 # Helm version to download if not already installed
 MONITOR_EXCLUDE_NS="kube-system kube-public kube-node-lease default monitoring"  # Namespaces to skip during ServiceMonitor auto-discovery
-MONITOR_PORT_NAMES="manager metrics http-metrics prometheus monitoring prom"     # Port names to include in ServiceMonitor auto-discovery
+MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-port"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
@@ -801,11 +801,11 @@ generate_images_file () {
   cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Longhorn images
   cd $WORKING_DIR/ap-utilities/helm/longhorn
-  curl -OL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
+  curl -sOL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
   cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Metallb images
   cd $WORKING_DIR/ap-utilities/helm/metallb
-  curl -OL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
+  curl -sOL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir

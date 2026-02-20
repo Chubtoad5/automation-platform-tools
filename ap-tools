@@ -168,9 +168,7 @@ Commands:
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
     [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
                  Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
-    [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster.
-                 Reads monitoring host details from $MONITORING_S3_CREDENTIALS_FILE (written by 'install swfs').
-                 Delegates to rke2_installer.sh. Run 'install swfs' first to generate credentials.
+    [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster and configures ServiceMonitor auto-discovery.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Includes Velero CLI and container images.
@@ -354,6 +352,12 @@ run_install_join_push () {
 
 run_install_swfs () {
   cd $WORKING_DIR/ap-utilities/swfs
+  local swfs_cmd_args="install"
+  if [[ $PUSH_MODE == "0" && $REGISTRY_MODE == "1" ]]; then
+    swfs_cmd_args="install -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+  elif [[ $PUSH_MODE == "1" && $REGISTRY_MODE == "1" ]]; then
+    swfs_cmd_args="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+  fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs &>/dev/null || true
     chmod +x install-seaweedfs
@@ -362,19 +366,11 @@ run_install_swfs () {
       tar xzf $file
     done
   fi
-  if [[ $PUSH_MODE == "1" ]]; then
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
-    SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
-    MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
-    SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME \
-    ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD ENABLE_MONITORING=$ENABLE_MONITORING CLUSTER_NAME=$MON_CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs install push -registry $REGISTRY_INFO $REG_USER $REG_PASS
-  else
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
-    SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
-    MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
-    SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME \
-    ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD ENABLE_MONITORING=$ENABLE_MONITORING CLUSTER_NAME=$MON_CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs install
-  fi
+  SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
+  SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
+  MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
+  SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME \
+  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD ENABLE_MONITORING=$ENABLE_MONITORING CLUSTER_NAME=$MON_CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs $swfs_cmd_args
   cd $base_dir
 }
 

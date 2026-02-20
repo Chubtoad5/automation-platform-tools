@@ -141,6 +141,9 @@ REQUIRED_CPU=16
 REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
+swfs_feature_branch="main"
+rke2_feature_branch="main"
+harbor_feature_branch="main"
 
 # --- USAGE FUNCTION --- #
 
@@ -345,7 +348,7 @@ run_install_join_push () {
 run_install_swfs () {
   cd $WORKING_DIR/ap-utilities/swfs
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install-seaweedfs &>/dev/null || true
+    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs &>/dev/null || true
     chmod +x install-seaweedfs
   else
     for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
@@ -371,7 +374,7 @@ run_install_swfs () {
 run_install_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/$harbor_feature_branch/main/install_harbor.sh
       chmod +x install_harbor.sh
   else
       for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
@@ -697,7 +700,7 @@ run_offline_prep () {
 }
 
 download_swfs () {
-  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/$swfs_feature_branch/main/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
   chmod +x $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
   cd $WORKING_DIR/ap-utilities/swfs
   ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
@@ -706,7 +709,7 @@ download_swfs () {
 
 download_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
-  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/$harbor_feature_branch/main/install_harbor.sh
   chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
@@ -958,7 +961,7 @@ image_pull_push_check () {
 rke2_installer_check () {
     if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
         echo "  Downloading rke2_installer.sh..."
-        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/main/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
+        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/$rke2_feature_branch/main/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
         chmod +x $WORKING_DIR/rke2/rke2_installer.sh
     fi
 }

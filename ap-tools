@@ -955,7 +955,7 @@ image_pull_push_check () {
 rke2_installer_check () {
     if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
         echo "  Downloading rke2_installer.sh..."
-        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/$rke2_feature_branch/main/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
+        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
         chmod +x $WORKING_DIR/rke2/rke2_installer.sh
     fi
 }

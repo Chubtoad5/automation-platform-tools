@@ -21,10 +21,10 @@ PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"                    # Base domain, i.e. 'acme
 ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"            # FQDN for orchestrator, or <IP> address for IP based install
 PORTAL_FQDN="portal.$HOST_FQDN"                        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
 PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
-ORG_NAME=changeme                                      # Organization name for Dell Automation Platform                   
+ORG_NAME=changeme                                      # Organization name for Dell Automation Platform
 ORG_DESC=changeme                                      # Organization description for Dell Automation Platform
 FIRST_NAME=changeme                                    # Admin user first name
-LAST_NAME=changeme                                     # Admin user last name                     
+LAST_NAME=changeme                                     # Admin user last name
 USERNAME=administrator                                 # Admin user name
 EMAIL=changeme@example.com                             # Admin user email
 
@@ -37,7 +37,7 @@ LOCATION=EDGE
 ORGANIZATION=LAB
 HARBOR_COMMON_NAME="registry.$HOST_FQDN"
 DURATION_DAYS=3650
-PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher"
+PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent"
 
 # SeaweedFS Configuration
 SWFS_IMAGE="chrislusf/seaweedfs:latest"
@@ -47,12 +47,45 @@ SWFS_MASTER_FQDN="master.$HOST_FQDN"    # FQDN for SeaweedFS Master UI/API
 SWFS_FILER_FQDN="filer.$HOST_FQDN"      # FQDN for SeaweedFS Filer UI/API
 SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
 ENABLE_SMB="true"                       # Enable an SMB share with basic authentication
+ENABLE_NFS="true"                       # Enable an NFS export with NFSv3, no authentication
 SWFS_ADMIN_PORT=9443
 SWFS_MASTER_PORT=9333
 SWFS_FILER_PORT=8888
 SWFS_S3_PORT=8333
+S3_BUCKET="velero"
 DEFAULT_FILER_DIR_NAME="artifacts"
 ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+ENABLE_MONITORING="true"
+MON_CLUSTER_NAME="edge-lab"
+
+# Velero Backup Configuration
+VELERO_VERSION="v1.17.1"
+VELERO_AWS_PLUGIN_VERSION="v1.13.0"
+VELERO_BUCKET="velero"
+VELERO_S3_URL=""                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
+VELERO_S3_ACCESS_KEY=""              # SeaweedFS S3 access key
+VELERO_S3_SECRET_KEY=""              # SeaweedFS S3 secret key
+VELERO_BACKUP_TTL="720h"             # Backup retention (30 days)
+VELERO_BACKUP_SCHEDULE="0 2 * * *"   # Daily at 2 AM
+VSC_NAME="longhorn-snapshot-vsc"     # VolumeSnapshotClass name for Longhorn CSI snapshots
+VSC_DRIVER="driver.longhorn.io"      # CSI driver name for the VolumeSnapshotClass
+VELERO_BACKUP_NAMESPACES="dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
+
+# Monitoring Configuration
+MONITORING_HOST=""
+CLUSTER_NAME="edge-lab"               # Cluster label for metrics and logs
+KUBE_PROMETHEUS_STACK_VERSION=69.8.0  # kube-prometheus-stack Helm chart version
+FLUENT_BIT_CHART_VERSION=0.55.0       # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
+FLUENT_BIT_VERSION=4.2.2              # Fluent Bit application/image version (appVersion in the chart above)
+PROMETHEUS_RETENTION="48h"            # In-cluster Prometheus retention (short; long-term on external host)
+PROMETHEUS_STORAGE_SIZE="50Gi"        # PVC size for in-cluster Prometheus
+PROMETHEUS_STORAGE_CLASS="longhorn"   # StorageClass for Prometheus PVCs
+MONITOR_CONFIGS_DIR=""                # Optional: path to directory of custom ServiceMonitor YAML files
+MONITORING_LOKI_PORT="3100"           # Loki HTTP port on the monitoring host
+MONITORING_PROMETHEUS_PORT="9090"     # Prometheus remote-write receiver port on the monitoring host
+HELM_VERSION="3.12.0"                 # Helm version to download if not already installed
+MONITOR_EXCLUDE_NS="kube-system kube-public kube-node-lease default monitoring"  # Namespaces to skip during ServiceMonitor auto-discovery
+MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-port"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.32.5+rke2r1
@@ -115,12 +148,15 @@ REQUIRED_CPU=16
 REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
+swfs_feature_branch="main"
+rke2_feature_branch="main"
+harbor_feature_branch="main"
 
 # --- USAGE FUNCTION --- #
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -130,8 +166,12 @@ Commands:
                  Must be used with [-registry].
     [harbor]     Installs the harbor registry.
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
+    [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
+                 Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
+    [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster and configures ServiceMonitor auto-discovery.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
+                 Includes Velero CLI and container images.
                  Cannot be used with [install] [push] [join].
 
   push         : Pushes all kubernetes and utility container images to the specified registry.
@@ -143,7 +183,7 @@ Commands:
 
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup.
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
-	[server-fqdn-ip]
+        [server-fqdn-ip]
 
   -registry    : Used with [install rke2], [install ap-bundle], and [push] to provide a valid registry and credentials.
     [registry:port username password]
@@ -255,7 +295,11 @@ run_install_join_push () {
     echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
+    INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
+    INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
   else
@@ -269,7 +313,11 @@ run_install_join_push () {
       generate_images_file
     fi
     cd $WORKING_DIR/rke2
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY INSTALL_METALLB=$INSTALL_METALLB MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
+    INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
+    INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
   fi
@@ -304,33 +352,85 @@ run_install_join_push () {
 
 run_install_swfs () {
   cd $WORKING_DIR/ap-utilities/swfs
+  local swfs_cmd_args="install"
+  if [[ $PUSH_MODE == "0" && $REGISTRY_MODE == "1" ]]; then
+    swfs_cmd_args="install -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+  elif [[ $PUSH_MODE == "1" && $REGISTRY_MODE == "1" ]]; then
+    swfs_cmd_args="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+  fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install-seaweedfs &>/dev/null || true
+    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs &>/dev/null || true
     chmod +x install-seaweedfs
   else
     for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
       tar xzf $file
     done
   fi
-  if [[ $PUSH_MODE == "1" ]]; then
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install push -registry $REGISTRY_INFO $REG_USER $REG_PASS
-  else
-    SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs install
-  fi
+  SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
+  SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
+  MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
+  SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME \
+  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD ENABLE_MONITORING=$ENABLE_MONITORING CLUSTER_NAME=$MON_CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs $swfs_cmd_args
   cd $base_dir
 }
 
 run_install_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
       chmod +x install_harbor.sh
   else
       for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
         tar xzf $file
       done
   fi
-  PROJECTS=$PROJECTS HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME DEBUG=$DEBUG ./install_harbor.sh install-harbor
+  PROJECTS=$PROJECTS HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS \
+  COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME \
+  DEBUG=$DEBUG ./install_harbor.sh install-harbor
+  cd $base_dir
+}
+
+run_install_velero () {
+  rke2_installer_check
+  cd $WORKING_DIR/rke2
+  local VELERO_CMD_ARGS="install velero"
+  if [[ $PUSH_MODE == "1" ]]; then
+    VELERO_CMD_ARGS="install velero push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+  fi
+  echo "  Running Velero install via rke2_installer.sh..."
+  VELERO_VERSION=$VELERO_VERSION VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION \
+  VELERO_BUCKET=$VELERO_BUCKET VELERO_S3_URL=$VELERO_S3_URL \
+  VELERO_S3_ACCESS_KEY=$VELERO_S3_ACCESS_KEY VELERO_S3_SECRET_KEY=$VELERO_S3_SECRET_KEY \
+  VELERO_BACKUP_NAMESPACES=$VELERO_BACKUP_NAMESPACES VELERO_BACKUP_TTL=$VELERO_BACKUP_TTL \
+  VELERO_BACKUP_SCHEDULE=$VELERO_BACKUP_SCHEDULE VSC_NAME=$VSC_NAME VSC_DRIVER=$VSC_DRIVER \
+  RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG ./rke2_installer.sh $VELERO_CMD_ARGS
+  cd $base_dir
+}
+
+run_install_monitoring () {
+  rke2_installer_check
+  if [[ -z "$MONITORING_HOST" ]]; then
+    echo "Error: 'install monitoring' command requires a valid server fqdn/ip from the swfs host."
+    exit 1
+  fi
+  cd $WORKING_DIR/rke2
+  echo "  Installing monitoring stack in RKE2 cluster via rke2_installer.sh..."
+  MONITORING_HOST=$MONITORING_HOST \
+  MONITORING_LOKI_PORT=$MONITORING_LOKI_PORT \
+  MONITORING_PROMETHEUS_PORT=$MONITORING_PROMETHEUS_PORT \
+  CLUSTER_NAME=$CLUSTER_NAME \
+  KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION \
+  FLUENT_BIT_CHART_VERSION=$FLUENT_BIT_CHART_VERSION \
+  FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION \
+  HELM_VERSION=$HELM_VERSION \
+  PROMETHEUS_RETENTION=$PROMETHEUS_RETENTION \
+  PROMETHEUS_STORAGE_SIZE=$PROMETHEUS_STORAGE_SIZE \
+  PROMETHEUS_STORAGE_CLASS=$PROMETHEUS_STORAGE_CLASS \
+  MONITOR_EXCLUDE_NS=$MONITOR_EXCLUDE_NS \
+  MONITOR_PORT_NAMES=$MONITOR_PORT_NAMES \
+  MONITOR_CONFIGS_DIR=$MONITOR_CONFIGS_DIR \
+  DEBUG=$DEBUG \
+  ./rke2_installer.sh install monitoring
   cd $base_dir
 }
 
@@ -347,6 +447,8 @@ install_helm () {
     /usr/bin/helm repo add metallb https://metallb.github.io/metallb
     /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
     /usr/bin/helm repo add longhorn https://charts.longhorn.io
+    /usr/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    /usr/bin/helm repo add fluent https://fluent.github.io/helm-charts
     /usr/bin/helm repo update
   fi
 }
@@ -477,7 +579,7 @@ spec:
     - $mgmt_if
 EOF
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION 
+    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION
   else
     /usr/bin/helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
   fi
@@ -503,7 +605,7 @@ install_reg_docker () {
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     ./image_pull_push.sh docker
-  else 
+  else
     for file in "$WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz"; do
       ./image_pull_push.sh docker -f $file
     done
@@ -558,7 +660,7 @@ ap_host_config () {
   systemctl restart systemd-sysctl
   if [ $? -ne 0 ]; then
     echo "Error: systemd-sysctl.service failed to restart."
-    exit 1 
+    exit 1
   else
     echo "  systemd-sysctl.service restarted successfully."
   fi
@@ -578,7 +680,7 @@ run_offline_prep () {
     run_debug download_helm_binaries
     run_debug image_pull_push_check
     run_debug generate_images_file
-    echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy."
+    echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy, Velero."
     echo "  This may take several minutes..."
     run_debug download_rke2
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
@@ -592,7 +694,7 @@ run_offline_prep () {
 }
 
 download_swfs () {
-  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/main/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
   chmod +x $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
   cd $WORKING_DIR/ap-utilities/swfs
   ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
@@ -601,7 +703,7 @@ download_swfs () {
 
 download_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
-  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
   chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
@@ -631,7 +733,12 @@ download_ap_packages () {
 download_rke2 () {
   rke2_installer_check
   cd $WORKING_DIR/rke2
-  RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY DEBUG=$DEBUG ./rke2_installer.sh save
+  RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR SERVICE_CIDR=$SERVICE_CIDR \
+  MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER \
+  LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY \
+  KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION FLUENT_BIT_CHART_VERSION=$FLUENT_BIT_CHART_VERSION \
+  FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION HELM_VERSION=$HELM_VERSION VELERO_VERSION=$VELERO_VERSION \
+  VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION DEBUG=$DEBUG ./rke2_installer.sh save
   cd $base_dir
 }
 
@@ -659,6 +766,9 @@ download_helm_binaries () {
   # METALLB
   cd $WORKING_DIR/ap-utilities/helm/metallb
   /usr/bin/helm pull metallb/metallb --version $METALLB_VERSION
+  # NOTE: monitoring charts (kube-prometheus-stack, fluent-bit) are downloaded by rke2_installer.sh
+  # save workflow into rke2-install/monitoring/ and packaged into rke2-save.tar.gz. They do not
+  # need to be downloaded here.
 }
 
 download_ap_bundle () {
@@ -691,11 +801,11 @@ generate_images_file () {
   cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Longhorn images
   cd $WORKING_DIR/ap-utilities/helm/longhorn
-  curl -OL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
+  curl -sOL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
   cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   # Metallb images
   cd $WORKING_DIR/ap-utilities/helm/metallb
-  curl -OL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
+  curl -sOL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
   grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
   cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
   cd $base_dir
@@ -802,6 +912,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/ap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/haproxy"
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
+    [ -d "$WORKING_DIR/ap-utilities/helm/monitoring" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/monitoring"
     [ -d "$WORKING_DIR/ap-utilities/images" ] || mkdir -p "$WORKING_DIR/ap-utilities/images"
     [ -d "$WORKING_DIR/bundle" ] || mkdir -p "$WORKING_DIR/bundle"
     [ -d "$WORKING_DIR/rke2" ] || mkdir -p "$WORKING_DIR/rke2/rke2-install/rke2-utilities/images"
@@ -844,7 +955,7 @@ image_pull_push_check () {
 rke2_installer_check () {
     if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
         echo "  Downloading rke2_installer.sh..."
-        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/main/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
+        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
         chmod +x $WORKING_DIR/rke2/rke2_installer.sh
     fi
 }
@@ -1042,8 +1153,8 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" ]]; then
-                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" && "$INSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs|velero|monitoring]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -1168,6 +1279,20 @@ if [[ "$INSTALL_TYPE" == "ap-bundle" ]]; then
     fi
 fi
 
+# Verify 'velero' params
+if [[ "$INSTALL_TYPE" == "velero" ]]; then
+    if [[ -z "$VELERO_S3_ACCESS_KEY" || -z "$VELERO_S3_SECRET_KEY" ]]; then
+        echo "Error: 'install velero' requires S3 credentials. Set VELERO_S3_ACCESS_KEY and VELERO_S3_SECRET_KEY in the script."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ -z "$VELERO_S3_URL" ]]; then
+        echo "Error: 'install velero' requires VELERO_S3_URL to be set (e.g. https://s3.example.com:8333)."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
 # Verify REGISTRY_MODE is an FQDN/IP and port
 if [[ "$REGISTRY_MODE" == "1" ]]; then
     if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
@@ -1200,7 +1325,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero" && $INSTALL_TYPE != "monitoring") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   if [[ $REGISTRY_MODE == "1" ]]; then
     if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
@@ -1230,5 +1355,14 @@ if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."
   run_install_harbor
 fi
+if [[ $INSTALL_TYPE == "velero" ]]; then
+  echo "  Installing Velero backup with Longhorn CSI and SeaweedFS S3..."
+  run_install_velero
+fi
+if [[ $INSTALL_TYPE == "monitoring" ]]; then
+  echo "  Installing monitoring stack in RKE2 cluster..."
+  run_install_monitoring
+fi
 runtime_outputs
 echo "### Automation Tools Finished on $(date) ###"
+

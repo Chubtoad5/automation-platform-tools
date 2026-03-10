@@ -415,6 +415,58 @@ Resource checks are performed against Kubernetes allocatable capacity (`kubectl 
 
 ---
 
+## Registry CA Certificate guidance
+
+On some linux hosts, like **RHEL**, you may also need to trust the CA certificate in the system's certificate store. 
+If leveraging the Harbor registry for your environment, the CA certificate can be downloaded using the following methods:
+
+- On the registry host, download the certificate from `/data/ca_download/ca.crt`.  
+- Download from the Harbor UI: Projects > **your project** > `REGISTRY CERTIFICATE` link.  
+- Download using curl:
+```
+curl -k https://<REGISTRY_COMMON_NAME>:<PORT>/api/v2.0/systeminfo/getcert -o ca.crt
+```
+
+On your OS client, trust the CA certificate manually:  
+
+**Ubuntu**
+```bash
+# Trust the CA in the system store
+sudo cp ca.crt /usr/local/share/ca-certificates/
+sudo update-ca-certificates
+```
+
+**RHEL**
+```bash
+# Trust the CA in the system store
+sudo cp ca.crt /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust extract
+```
+
+**SLES**
+```bash
+# Trust the CA in the system store
+sudo cp ca.crt /etc/pki/trust/anchors/
+sudo update-ca-certificates
+```
+
+**Docker engine (optional)**
+```bash
+# Copy the CA to the client
+sudo mkdir -p /etc/docker/certs.d/<REGISTRY_COMMON_NAME>:<PORT>
+sudo cp ca.crt /etc/docker/certs.d/<REGISTRY_COMMON_NAME>:<PORT>/
+```
+
+Restart any dependant services
+```bash
+# Docker
+sudo systemctl restart docker
+# RKE2 Server
+sudo systemctl restart rke2-server.service
+# RKE2 Agent
+sudo systemctl restart rke2-agent.service
+```
+
 ## Network Requirements
 
 ### IP Assignment

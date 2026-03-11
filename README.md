@@ -6,13 +6,13 @@ An unofficial prerequisite toolkit for deploying [Dell Automation Platform](http
 
 ## Architecture Overview
 
-`ap-tools` orchestrates several helper scripts pulled at runtime from companion repositories:
+`ap-tools` orchestrates several helper scripts pulled at runtime from companion repositories from [Chubtoad5](https://github.com/Chubtoad5):
 
 | Helper | Repository | Purpose |
 |:-------|:-----------|:--------|
 | `install_packages.sh` | `install-packages` | OS package installation (online/offline/save) |
 | `image_pull_push.sh` | `images-pull-push` | Container image pull, push, and registry cert handling |
-| `rke2_installer.sh` | `rke2-installer` | RKE2 install, join, push, save, Velero, and monitoring |
+| `rke2_installer.sh` | `rke2-installer` | RKE2 install, join, push, save, upgrade, Velero, and monitoring |
 | `install_harbor.sh` | `harbor-registry-installer` | Harbor OCI registry deployment |
 | `install-seaweedfs` | `seaweedfs-installer` | SeaweedFS object/file storage deployment |
 
@@ -28,6 +28,7 @@ An unofficial prerequisite toolkit for deploying [Dell Automation Platform](http
 | **Monitoring** | Deploys kube-prometheus-stack and Fluent Bit with remote-write to an external Prometheus/Loki host and ServiceMonitor auto-discovery. |
 | **Air-Gapped / Offline** | Packages all binaries, images, and charts into `ap-offline.tar.gz` for fully disconnected installations. |
 | **Registry Push** | Pulls all required container images and pushes them to a user-specified registry. |
+| **RKE2 Upgrade** | Upgrades RKE2 cluster nodes (server, agent, or both) to a target version using system-upgrade-controller. |
 | **Cluster Join** | Joins additional server or agent nodes to an existing RKE2 cluster. |
 
 ---
@@ -61,6 +62,20 @@ Installs a component and its dependencies. When `ap-offline.tar.gz` is present, 
 
 Creates `ap-offline.tar.gz` containing all binaries, container images, Helm charts, and OS packages for a fully disconnected installation. Cannot be combined with `install`, `push`, or `join`. Requires an active internet connection.
 
+#### `upgrade rke2 <server|agent|both> <stable|version>`
+
+Upgrades RKE2 cluster nodes using the system-upgrade-controller. Only `rke2` is supported as an upgrade target at this time. Delegates to `rke2_installer.sh`.
+
+| Parameter | Description |
+|:----------|:------------|
+| `server` | Upgrades control-plane nodes only. |
+| `agent` | Upgrades worker nodes only. |
+| `both` | Upgrades all nodes (servers first, then agents). |
+| `stable` | Uses the latest stable RKE2 release channel. |
+| `<version>` | A specific RKE2 version (e.g., `v1.33.4+rke2r1`). |
+
+Optional: `-registry` to pull/push upgrade images through a private registry.
+
 #### `push`
 
 Pulls all RKE2 and utility container images from upstream registries and pushes them to a specified local registry. Does **not** push Dell Automation Platform images (those are handled by `install-upgrade.sh`).
@@ -88,7 +103,7 @@ Valid with: `install rke2`, `join server`.
 
 Configures a private registry for container images. The value must be an FQDN or IPv4 address with a port (e.g., `registry.lab:8443`). Do not include `https://`.
 
-Valid with: `install rke2`, `install ap-bundle`, `install swfs`, `push`, `join`.
+Valid with: `install rke2`, `install ap-bundle`, `install swfs`, `push`, `join`, `upgrade rke2`.
 
 #### `-h`, `--help`
 
@@ -118,6 +133,10 @@ The script validates argument combinations at startup. The following table shows
 | `join server <fqdn> <token> -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin pass -tls-san cluster.lab` |
 | `join agent <fqdn> <token>` | `./ap-tools join agent node1.lab K10...` |
 | `join agent <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join agent node1.lab K10... -registry reg.lab:443 admin pass` |
+| `upgrade rke2 server stable` | `./ap-tools upgrade rke2 server stable` |
+| `upgrade rke2 agent <version>` | `./ap-tools upgrade rke2 agent v1.33.4+rke2r1` |
+| `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` |
+| `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin pass` |
 | `offline-prep` | `./ap-tools offline-prep` |
 
 ---
@@ -294,6 +313,19 @@ sudo ./ap-tools install rke2 -registry myregistry.lab:443 admin password
 
 # Push images to registry, install RKE2, and add TLS-SAN
 sudo ./ap-tools install rke2 push -registry myregistry.lab:443 admin password -tls-san rke2-cluster.mydomain.lab
+```
+
+### RKE2 Upgrade
+
+```bash
+# Upgrade all nodes to latest stable version
+sudo ./ap-tools upgrade rke2 both stable
+
+# Upgrade only server (control-plane) nodes to a specific version
+sudo ./ap-tools upgrade rke2 server v1.33.4+rke2r1
+
+# Upgrade agent (worker) nodes using a private registry
+sudo ./ap-tools upgrade rke2 agent stable -registry myregistry.lab:443 admin password
 ```
 
 ### Cluster Join

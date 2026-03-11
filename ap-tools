@@ -83,7 +83,6 @@ PROMETHEUS_STORAGE_CLASS="longhorn"   # StorageClass for Prometheus PVCs
 MONITOR_CONFIGS_DIR=""                # Optional: path to directory of custom ServiceMonitor YAML files
 MONITORING_LOKI_PORT="3100"           # Loki HTTP port on the monitoring host
 MONITORING_PROMETHEUS_PORT="9090"     # Prometheus remote-write receiver port on the monitoring host
-HELM_VERSION="3.12.0"                 # Helm version to download if not already installed
 MONITOR_EXCLUDE_NS="kube-system kube-public kube-node-lease default monitoring"  # Namespaces to skip during ServiceMonitor auto-discovery
 MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-port"     # Port names to include in ServiceMonitor auto-discovery
 

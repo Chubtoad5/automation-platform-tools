@@ -83,12 +83,11 @@ PROMETHEUS_STORAGE_CLASS="longhorn"   # StorageClass for Prometheus PVCs
 MONITOR_CONFIGS_DIR=""                # Optional: path to directory of custom ServiceMonitor YAML files
 MONITORING_LOKI_PORT="3100"           # Loki HTTP port on the monitoring host
 MONITORING_PROMETHEUS_PORT="9090"     # Prometheus remote-write receiver port on the monitoring host
-HELM_VERSION="3.12.0"                 # Helm version to download if not already installed
 MONITOR_EXCLUDE_NS="kube-system kube-public kube-node-lease default monitoring"  # Namespaces to skip during ServiceMonitor auto-discovery
 MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-port"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
-RKE2_VERSION=v1.32.5+rke2r1
+RKE2_VERSION=v1.34.5+rke2r1
 CLUSTER_TYPE=single-node
 MAX_PODS=250
 CNI_TYPE=calico
@@ -132,6 +131,9 @@ JOIN_SERVER_FQDN=""
 base_dir=$(pwd)
 mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
 WORKING_DIR="$base_dir/ap-install"
+UPGRADE_MODE=0
+UPGRADE_TYPE=""
+UPGRADE_VERSION=""
 REGISTRY_MODE=0
 REGISTRY_INFO=""
 REG_FQDN=""
@@ -156,7 +158,7 @@ harbor_feature_branch="main"
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -185,7 +187,13 @@ Commands:
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
         [server-fqdn-ip]
 
-  -registry    : Used with [install rke2], [install ap-bundle], and [push] to provide a valid registry and credentials.
+  upgrade      : Upgrades RKE2 cluster nodes using system-upgrade-controller.
+                 Delegates to rke2_installer.sh. Only supports rke2 at this time.
+    [rke2]       Upgrade target. Only 'rke2' is supported.
+      [server|agent|both]  Nodes to upgrade: server (control-plane), agent (workers), or both.
+      [stable|<version>]   Target version: 'stable' for latest, or specific version (e.g. v1.33.4+rke2r1).
+
+  -registry    : Used with [install rke2], [install ap-bundle], [push], and [upgrade rke2] to provide a valid registry and credentials.
     [registry:port username password]
 
 EOF
@@ -206,6 +214,9 @@ display_args() {
     echo "  JOIN_SERVER_FQDN: $JOIN_SERVER_FQDN"
     echo "  JOIN_TOKEN: $JOIN_TOKEN"
     echo "  PUSH_MODE: $PUSH_MODE"
+    echo "  UPGRADE_MODE: $UPGRADE_MODE"
+    echo "  UPGRADE_TYPE: $UPGRADE_TYPE"
+    echo "  UPGRADE_VERSION: $UPGRADE_VERSION"
     echo "  REGISTRY_MODE: $REGISTRY_MODE"
     echo "  REGISTRY_INFO: $REGISTRY_INFO"
     echo "  REG_USER: $REG_USER"
@@ -348,6 +359,19 @@ run_install_join_push () {
     tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
     cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/bin/k9s || true
   fi
+}
+
+run_upgrade_rke2 () {
+  echo "  Upgrading RKE2 cluster ($UPGRADE_TYPE) to version: $UPGRADE_VERSION"
+  rke2_installer_check
+  cd $WORKING_DIR/rke2
+  local upgrade_cmd="upgrade $UPGRADE_TYPE $UPGRADE_VERSION"
+  if [[ $REGISTRY_MODE == "1" ]]; then
+    upgrade_cmd="$upgrade_cmd -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+  fi
+  CNI_TYPE=$CNI_TYPE DEBUG=$DEBUG ./rke2_installer.sh $upgrade_cmd
+  cd $base_dir
+  echo "  RKE2 upgrade completed"
 }
 
 run_install_swfs () {
@@ -1161,6 +1185,31 @@ while [[ "$#" -gt 0 ]]; do
             shift
             shift
             ;;
+        upgrade)
+            UPGRADE_MODE=1
+            UPGRADE_TYPE_ARG="${2:-}"
+            if [[ -z "$UPGRADE_TYPE_ARG" || "$UPGRADE_TYPE_ARG" != "rke2" ]]; then
+                echo "Error: 'upgrade' command only supports 'rke2'. Format: upgrade rke2 [server|agent|both] [stable|<version>]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            UPGRADE_TYPE="${3:-}"
+            if [[ -z "$UPGRADE_TYPE" || ( "$UPGRADE_TYPE" != "server" && "$UPGRADE_TYPE" != "agent" && "$UPGRADE_TYPE" != "both" ) ]]; then
+                echo "Error: 'upgrade rke2' requires a node type. Format: upgrade rke2 [server|agent|both] [stable|<version>]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            UPGRADE_VERSION="${4:-}"
+            if [[ -z "$UPGRADE_VERSION" ]]; then
+                echo "Error: 'upgrade rke2' requires a version. Format: upgrade rke2 [server|agent|both] [stable|<version>]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            shift
+            shift
+            ;;
         offline-prep)
             OFFLINE_PREP_MODE=1
             shift
@@ -1293,6 +1342,20 @@ if [[ "$INSTALL_TYPE" == "velero" ]]; then
     fi
 fi
 
+# Verify UPGRADE_MODE is not combined with other commands
+if [[ "$UPGRADE_MODE" == "1" ]]; then
+    if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" ]]; then
+        echo "Error: 'upgrade' command cannot be used with 'install, join, push, or offline-prep'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ $TLS_SAN_MODE == "1" ]]; then
+        echo "Error: 'upgrade' command cannot be used with '-tls-san'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
 # Verify REGISTRY_MODE is an FQDN/IP and port
 if [[ "$REGISTRY_MODE" == "1" ]]; then
     if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
@@ -1362,6 +1425,14 @@ fi
 if [[ $INSTALL_TYPE == "monitoring" ]]; then
   echo "  Installing monitoring stack in RKE2 cluster..."
   run_install_monitoring
+fi
+if [[ $UPGRADE_MODE == "1" ]]; then
+  if [[ $REGISTRY_MODE == "1" ]]; then
+    if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
+      dns_pre_flight_checks $REG_FQDN
+    fi
+  fi
+  run_upgrade_rke2
 fi
 runtime_outputs
 echo "### Automation Tools Finished on $(date) ###"

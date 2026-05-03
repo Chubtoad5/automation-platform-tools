@@ -11,7 +11,7 @@ SWFS_HARBOR_USER="admin"                               # Username for Harbor and
 SWFS_HARBOR_PASS="changeme"                            # Password for Harbor and SeaweedFS basic auth
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL=https://dl.dell.com/FOLDER14176884M/1/DellAutomationPlatform_v1.2.0.0.zip
+AP_BUNDLE_URL=https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip
 DOWNLOAD_AP_BUNDLE=false                               # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER=false                               # skip pushing images to local registry in install-upgrade.sh command
 REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
@@ -29,7 +29,7 @@ USERNAME=administrator                                 # Admin user name
 EMAIL=changeme@example.com                             # Admin user email
 
 # Harbor Configuration
-HARBOR_VERSION=2.14.1
+HARBOR_VERSION=2.15.0
 HARBOR_PORT=8443
 COUNTRY=US
 STATE=MA
@@ -54,13 +54,13 @@ SWFS_FILER_PORT=8888
 SWFS_S3_PORT=8333
 S3_BUCKET="velero"
 DEFAULT_FILER_DIR_NAME="artifacts"
-ARTIFACTS_TO_DOWNLOAD="https://github.com/tme-tech-lab/infra-dev-apps/archive/refs/heads/main.zip https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+ARTIFACTS_TO_DOWNLOAD="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 ENABLE_MONITORING="true"
 MON_CLUSTER_NAME="edge-lab"
 
 # Velero Backup Configuration
-VELERO_VERSION="v1.17.1"
-VELERO_AWS_PLUGIN_VERSION="v1.13.0"
+VELERO_VERSION="v1.18.0"
+VELERO_AWS_PLUGIN_VERSION="v1.14.0"
 VELERO_BUCKET="velero"
 VELERO_S3_URL=""                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
 VELERO_S3_ACCESS_KEY=""              # SeaweedFS S3 access key
@@ -74,9 +74,9 @@ VELERO_BACKUP_NAMESPACES="dell-portal,dell-orchestrator,haproxy-controller,metal
 # Monitoring Configuration
 MONITORING_HOST=""
 CLUSTER_NAME="edge-lab"               # Cluster label for metrics and logs
-KUBE_PROMETHEUS_STACK_VERSION=69.8.0  # kube-prometheus-stack Helm chart version
-FLUENT_BIT_CHART_VERSION=0.55.0       # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
-FLUENT_BIT_VERSION=4.2.2              # Fluent Bit application/image version (appVersion in the chart above)
+KUBE_PROMETHEUS_STACK_VERSION=84.5.0  # kube-prometheus-stack Helm chart version
+FLUENT_BIT_CHART_VERSION=0.57.3       # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
+FLUENT_BIT_VERSION=5.0.4              # Fluent Bit application/image version (appVersion in the chart above)
 PROMETHEUS_RETENTION="48h"            # In-cluster Prometheus retention (short; long-term on external host)
 PROMETHEUS_STORAGE_SIZE="50Gi"        # PVC size for in-cluster Prometheus
 PROMETHEUS_STORAGE_CLASS="longhorn"   # StorageClass for Prometheus PVCs
@@ -95,14 +95,14 @@ CLUSTER_CIDR="10.42.0.0/16"
 SERVICE_CIDR="10.43.0.0/16"
 INSTALL_DNS_UTILITY=true
 INSTALL_LOCAL_PATH_PROVISIONER=false    # If true, Longhorn is not installed
-LOCAL_PATH_PROVISIONER_VERSION=v0.0.32
-HELM_VERSION=3.12.0
-LONGHORN_VERSION=1.9.2
+LOCAL_PATH_PROVISIONER_VERSION=v0.0.35
+HELM_VERSION=4.0.5
+LONGHORN_VERSION=1.11.1
 LONGHORN_UI_PORT=31000
-METALLB_VERSION=0.15.2
+METALLB_VERSION=0.15.3
 INSTALL_METALLB=true
-KUBERNETES_INGRESS_VERSION=1.45.0
-HAPROXY_APP_VERSION=3.1.12
+KUBERNETES_INGRESS_VERSION=1.49.0
+HAPROXY_APP_VERSION=3.2.6
 INSTALL_HAPROXY=true                      # Must be disabled if performing IP based install
 RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path

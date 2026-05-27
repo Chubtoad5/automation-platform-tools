@@ -23,7 +23,7 @@ meets:
 |:--|:--|
 | CPU | 16 vCPU |
 | RAM | **34 GB** — use 34, not 32: RKE2 + services reserve ~2 GB, and a 32 GB host fails the bundle's capacity pre-check |
-| Disk | 500 GB SSD minimum (1 TB recommended) |
+| Disk | 1 TB SSD minimum |
 | OS | Ubuntu 22.04+, RHEL 9.2+, or SLES 15 SP7 (x86_64) |
 | Network | A **static IP** (or DHCP reservation) |
 | Hostname | Lowercase letters, numbers, and hyphens only (DNS-1123) |
@@ -49,6 +49,7 @@ authentication:
 
 DAP pulls its images from an OCI registry. Either:
 - **Don't have one?** Let `ap-tools` install Harbor for you (step 4b below), or
+> **Tip:** `ap-tools` can install Harbor on this host, or you can use a separate host if you would like to separate the registry from the DAP orchestrator
 - **Already have one** (Harbor or any OCI registry)? Have its `host:port`, username, and password ready.
 
 ### Step 4 — Install
@@ -64,6 +65,7 @@ chmod +x ap-tools
 sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2
 
 # b) ONLY if you need a registry — install Harbor on this host (admin / Harbor12345 by default)
+#    NOTE: if you would rather the registy live on a separate host, clone this repo to a separate host and install harbor there, then continue to step c. 
 sudo BASE_DOMAIN=mydomain.lab ./ap-tools install harbor
 
 # c) Stage the DAP bundle. Required: -registry <host:port> <user> <pass>. Recommended: BASE_DOMAIN
@@ -486,7 +488,7 @@ Primary test matrix:
 |:---------|:--------|:------------|
 | CPU | 16 vCPU | 16+ vCPU |
 | Memory | 32 GB | 34 GB (RKE2 + services consume ~2 GB) |
-| Storage | 500 GB SSD | 1 TB SSD |
+| Storage | 1 TB SSD | More if using DDPC and storing VM images locally |
 
 Resource checks are performed against Kubernetes allocatable capacity (`kubectl get nodes`) during `install ap-bundle`.
 
@@ -585,13 +587,13 @@ DNS A records are required for Automation Platform and strongly recommended for 
 | AP Orchestrator | `orchestrator.myhost.mydomain.lab` | 192.168.50.30 |
 | AP mTLS | `mtls-orchestrator.myhost.mydomain.lab` | 192.168.50.30 |
 | AP mTLS Recovery | `mtls-recovery-orchestrator.myhost.mydomain.lab` | 192.168.50.30 |
-| Global Rendezvous (FDO) | `rv.dell.fdo` | 192.168.50.30 |
+| Local Rendezvous (FDO) | `rv.dell.fdo` | 192.168.50.30 |
 
 **Important DNS notes:**
 
 - The TLS-SAN cluster entry is only needed for multi-node clusters; each server node should resolve to the shared FQDN.
 - The `mtls-` and `mtls-recovery-` prefixes are hard requirements for Orchestrator device mTLS authentication.
-- The `rv.dell.fdo` record is only required when Global Rendezvous is unavailable (e.g., air-gapped FDO onboarding).
+- The `rv.dell.fdo` record is only required when Global Rendezvous (`rv.dell.com`) is unavailable (e.g., air-gapped FDO onboarding).
 - Avoid DNS zones named `.local` (conflicts with RFC 6762 mDNS) or `local.edge` (per Dell guidance).
 - Wildcard DNS is supported. For example, `*.myhost.mydomain.lab` resolving to the AP host IP covers all four AP records with a single entry.
 
@@ -637,7 +639,7 @@ When using a private registry, all required container images must exist on the r
 ### Co-location Constraints
 
 - Harbor and SeaweedFS may coexist on the same host provided they use different TCP ports.
-- Running `install rke2` on the same host as Harbor or SeaweedFS is **not recommended** due to potential port and resource conflicts with Automation Platform services.
+- Running `install rke2` on the same host as Harbor or SeaweedFS should be used **with caution** due to potential port and resource conflicts with Automation Platform services.
 
 ### Debug Mode
 

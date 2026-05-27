@@ -287,6 +287,11 @@ build_command_syntax() {
 run_install_join_push () {
   run_debug build_command_syntax
   check_rke2_service_running
+  # Apply DAP host kernel settings on every node being set up (install or join),
+  # so joined nodes aren't left with default inotify limits.
+  if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
+    run_debug configure_node_sysctl
+  fi
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
       longhorn_packages="nfs-common open-iscsi cryptsetup"
@@ -538,9 +543,11 @@ csi:
   kubeletRootDir: $kubelet_data_path
 defaultSettings:
   defaultDataPath: $pvc_data_path
+  defaultReplicaCount: 3
+  defaultDataLocality: best-effort
   storageReservedPercentageForDefaultDisk: 10
-  storageOverProvisioningPercentage: 100
-  storageMinimalAvailablePercentage: 5
+  storageOverProvisioningPercentage: 200
+  storageMinimalAvailablePercentage: 10
 EOF
   fi
   local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
@@ -680,7 +687,14 @@ ap_host_config () {
     echo "  Downloading support log collector tool..."
     curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
   fi
-  echo "  Configuring host settings for Dell Automation Platform..."
+  configure_node_sysctl
+}
+
+# Apply DAP host kernel settings (inotify limits). Must run on EVERY cluster node
+# (install + join), not just the ap-bundle host, or fluentbit (DaemonSet) crashes
+# on joined nodes with inotify EMFILE. Idempotent.
+configure_node_sysctl () {
+  echo "  Configuring host kernel settings (inotify limits) for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
   systemctl restart systemd-sysctl
   if [ $? -ne 0 ]; then

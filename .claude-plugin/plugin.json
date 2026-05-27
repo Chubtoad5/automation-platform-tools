@@ -1,0 +1,20 @@
+{
+  "name": "deploy-dell-ap",
+  "description": "Deploy Dell Automation Platform (DAP) on-premise with ap-tools. Interactive intake (single/multi-node, SSH key or password, DNS, registry, identity), then RKE2 + optional Harbor + the DAP bundle, online or air-gapped. Use when a user wants to install or stand up Dell Automation Platform / DAP on Linux host(s).",
+  "version": "1.0.0",
+  "author": {
+    "name": "Chubtoad5"
+  },
+  "homepage": "https://github.com/Chubtoad5/automation-platform-tools",
+  "repository": "https://github.com/Chubtoad5/automation-platform-tools",
+  "keywords": [
+    "dell-automation-platform",
+    "dap",
+    "rke2",
+    "kubernetes",
+    "harbor",
+    "deployment",
+    "ap-tools",
+    "air-gapped"
+  ]
+}

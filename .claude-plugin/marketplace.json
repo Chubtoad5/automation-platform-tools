@@ -1,0 +1,14 @@
+{
+  "name": "chubtoad5-automation",
+  "owner": {
+    "name": "Chubtoad5"
+  },
+  "description": "Chubtoad5 automation tooling — a portable skill for deploying Dell Automation Platform with ap-tools.",
+  "plugins": [
+    {
+      "name": "deploy-dell-ap",
+      "source": ".",
+      "description": "Deploy Dell Automation Platform (DAP) with ap-tools — interactive intake, single/multi-node, online/air-gapped."
+    }
+  ]
+}

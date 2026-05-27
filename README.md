@@ -4,6 +4,90 @@ An unofficial prerequisite toolkit for deploying [Dell Automation Platform](http
 
 > **Disclaimer** &mdash; This repository is not associated with Dell Technologies and is not officially supported. The tooling is based on system requirements from official Dell Automation Platform documentation and leverages open-source components. While it follows common best practices, it may not be suitable for every enterprise environment. Consult the upstream vendor documentation (linked at the bottom) for production guidance.
 
+## Quick Start (single-node)
+
+New to this tool? This is the fastest path to a working **single-node** Dell Automation Platform (DAP)
+install. Multi-node and the advanced components are covered later — start here.
+
+> **Single node or multi-node?** A single node is simplest and is the right choice for labs, demos, and
+> most proofs-of-concept. Choose **multi-node** only when you need high availability or more capacity
+> than one host provides. If unsure, start single-node and see [Going multi-node](#multi-node-clusters)
+> when you're ready.
+
+### Step 1 — Prepare a host
+
+Provision **one Linux VM or server** — on vSphere, Proxmox, a cloud, or bare metal, your choice — that
+meets:
+
+| Requirement | Value |
+|:--|:--|
+| CPU | 16 vCPU |
+| RAM | **34 GB** — use 34, not 32: RKE2 + services reserve ~2 GB, and a 32 GB host fails the bundle's capacity pre-check |
+| Disk | 500 GB SSD minimum (1 TB recommended) |
+| OS | Ubuntu 22.04+, RHEL 9.2+, or SLES 15 SP7 (x86_64) |
+| Network | A **static IP** (or DHCP reservation) |
+| Hostname | Lowercase letters, numbers, and hyphens only (DNS-1123) |
+
+### Step 2 — Create DNS records
+
+Pick a base domain (e.g. `mydomain.lab`) and create **A records pointing at the host's IP**. The
+`portal`/`orchestrator` names are required; the two `mtls-` names are **hard requirements** for device
+authentication:
+
+| Record | Example |
+|:--|:--|
+| Portal | `portal.myhost.mydomain.lab` |
+| Orchestrator | `orchestrator.myhost.mydomain.lab` |
+| Orchestrator mTLS | `mtls-orchestrator.myhost.mydomain.lab` |
+| Orchestrator mTLS recovery | `mtls-recovery-orchestrator.myhost.mydomain.lab` |
+
+> **Tip:** a single wildcard record — `*.myhost.mydomain.lab` → host IP — covers all of these at once.
+> Avoid `.local` domains. (Multi-node also needs a shared cluster/API name — see
+> [Network Requirements](#network-requirements).)
+
+### Step 3 — Have a container registry ready
+
+DAP pulls its images from an OCI registry. Either:
+- **Don't have one?** Let `ap-tools` install Harbor for you (step 4b below), or
+- **Already have one** (Harbor or any OCI registry)? Have its `host:port`, username, and password ready.
+
+### Step 4 — Install
+
+```bash
+# Get the tool
+git clone https://github.com/Chubtoad5/automation-platform-tools.git
+cd automation-platform-tools
+chmod +x ap-tools
+
+# a) Install the RKE2 Kubernetes cluster (minimum: just the subcommand; set BASE_DOMAIN so the
+#    generated service FQDNs match the DNS records you created in Step 2)
+sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2
+
+# b) ONLY if you need a registry — install Harbor on this host (admin / Harbor12345 by default)
+sudo BASE_DOMAIN=mydomain.lab ./ap-tools install harbor
+
+# c) Stage the DAP bundle. Required: -registry <host:port> <user> <pass>. Recommended: BASE_DOMAIN
+#    plus your admin identity. (If you ran step 4b, the registry is registry.<hostname>.<domain>:8443.)
+sudo BASE_DOMAIN=mydomain.lab ORG_NAME="My Org" EMAIL=admin@mydomain.lab \
+  ./ap-tools install ap-bundle -registry registry.myhost.mydomain.lab:8443 admin Harbor12345
+```
+
+> **Important:** `install ap-bundle` **does not deploy DAP**. It downloads and stages the bundle, then
+> writes a ready-to-run command to `ap-install-upgrade-cmd.txt`. Open that file and run the
+> `install-upgrade.sh` command it contains to actually deploy — this final step takes 20–40 minutes.
+
+### Step 5 — Log in
+
+When `install-upgrade.sh` reports success, open `https://portal.myhost.mydomain.lab` and sign in with
+the initial credentials `administrator` / `Temporary@123` — **you must change the password on first
+login**.
+
+That is the single-node happy path. For multi-node, the optional components (Velero backups,
+monitoring, SeaweedFS), air-gapped installs, the full CLI reference, and every configuration variable,
+read on.
+
+---
+
 ## Architecture Overview
 
 `ap-tools` orchestrates several helper scripts pulled at runtime from companion repositories from [Chubtoad5](https://github.com/Chubtoad5):
@@ -160,7 +244,7 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `AP_BUNDLE_URL` | Dell download URL (v1.2.0.0) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. |
+| `AP_BUNDLE_URL` | Dell download URL (v2.0.0.0) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. |
 | `DOWNLOAD_AP_BUNDLE` | `false` | When `true`, the bundle is downloaded during `offline-prep` or `install rke2`. |
 | `SKIP_IMAGES_LOADER` | `false` | When `true`, skips pushing AP images to the registry during `install-upgrade.sh`. |
 | `REGISTRY_PROJECT_NAME` | `dell-automation` | Project/namespace on the registry for AP container images. |
@@ -181,7 +265,7 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `RKE2_VERSION` | `v1.32.5+rke2r1` | RKE2 release to install. |
+| `RKE2_VERSION` | `v1.34.5+rke2r1` | RKE2 release to install. |
 | `CLUSTER_TYPE` | `single-node` | Set to `multi-node` when planning to join additional nodes (adjusts Longhorn replica count). |
 | `MAX_PODS` | `250` | Maximum pods per node. |
 | `CNI_TYPE` | `calico` | CNI plugin (`calico` or `canal`). |
@@ -206,7 +290,7 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `HARBOR_VERSION` | `2.14.1` | Harbor release version. |
+| `HARBOR_VERSION` | `2.15.0` | Harbor release version. |
 | `HARBOR_PORT` | `8443` | HTTPS port for Harbor. |
 | `COUNTRY` | `US` | Certificate subject: country code. |
 | `STATE` | `MA` | Certificate subject: state. |
@@ -271,29 +355,6 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 | `MONITORING_PROMETHEUS_PORT` | `9090` | Prometheus remote-write receiver port on the monitoring host. |
 | `MONITOR_EXCLUDE_NS` | `kube-system kube-public kube-node-lease default monitoring` | Space-separated namespaces excluded from ServiceMonitor auto-discovery. |
 | `MONITOR_PORT_NAMES` | `manager metrics http-metrics prometheus prom stat metrics-port` | Port names matched during ServiceMonitor auto-discovery. |
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone and make executable
-git clone https://github.com/Chubtoad5/automation-platform-tools.git
-cd automation-platform-tools
-chmod +x ap-tools
-
-# 2. (Optional) Edit user-defined variables
-nano ap-tools
-
-# 3. Run as root
-sudo ./ap-tools install rke2
-```
-
-### One-liner
-
-```bash
-git clone https://github.com/Chubtoad5/automation-platform-tools.git && cd automation-platform-tools && chmod +x ap-tools && sudo ./ap-tools install rke2
-```
 
 ---
 

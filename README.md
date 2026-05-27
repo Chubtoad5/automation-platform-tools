@@ -4,6 +4,27 @@ An unofficial prerequisite toolkit for deploying [Dell Automation Platform](http
 
 > **Disclaimer** &mdash; This repository is not associated with Dell Technologies and is not officially supported. The tooling is based on system requirements from official Dell Automation Platform documentation and leverages open-source components. While it follows common best practices, it may not be suitable for every enterprise environment. Consult the upstream vendor documentation (linked at the bottom) for production guidance.
 
+---
+
+## Table of Contents
+
+- [Quick Start (single-node)](#quick-start-single-node)
+- [Using the Integrated Skills](#using-the-integrated-skills)
+- [Architecture Overview](#architecture-overview)
+- [Feature Summary](#feature-summary)
+- [CLI Reference](#cli-reference)
+- [Configuration Variables](#configuration-variables)
+- [Usage Examples](#usage-examples)
+- [Host Prerequisites](#host-prerequisites)
+- [Registry CA Certificate guidance](#registry-ca-certificate-guidance)
+- [Network Requirements](#network-requirements)
+- [Operational Notes](#operational-notes)
+- [Open-Source References](#open-source-references)
+- [Dell Technologies References](#dell-technologies-references)
+- [Author Notes](#author-notes)
+
+---
+
 ## Quick Start (single-node)
 
 New to this tool? This is the fastest path to a working **single-node** Dell Automation Platform (DAP)
@@ -87,6 +108,59 @@ login**.
 That is the single-node happy path. For multi-node, the optional components (Velero backups,
 monitoring, SeaweedFS), air-gapped installs, the full CLI reference, and every configuration variable,
 read on.
+
+---
+
+## Using the Integrated Skills
+
+Prefer to let an AI coding agent drive the deployment instead of running the commands by hand? This
+repository ships a portable, **intake-first** deployment skill so an agent can interview you for your
+topology, hosts, DNS, registry, and identity, confirm a plan, run a preflight check, and then install
+the components in the correct order. The same procedure is packaged for several agent tools — pick the
+one you use.
+
+### Claude Code
+
+Install it as a plugin from this repo's bundled marketplace:
+
+```bash
+/plugin marketplace add Chubtoad5/automation-platform-tools
+/plugin install deploy-dell-ap@Chubtoad5/automation-platform-tools
+```
+
+Then start it with `/deploy-dell-ap:deploy-dell-ap`.
+
+Or skip the marketplace and copy the skill folder directly — globally (all projects) or scoped to one
+project:
+
+```bash
+# Global (available everywhere)
+cp -r skills/deploy-dell-ap ~/.claude/skills/deploy-dell-ap
+
+# Project-scoped (run from your project root)
+cp -r skills/deploy-dell-ap .claude/skills/deploy-dell-ap
+```
+
+Copied this way it is invoked as `/deploy-dell-ap`.
+
+### Devin
+
+Paste the contents of [`devin/deploy-dell-ap.devin.md`](devin/deploy-dell-ap.devin.md) into Devin as a
+Playbook, then ask Devin to deploy Dell Automation Platform.
+
+### Cursor, Codex, and other agents
+
+Point your agent at the repository-root [`AGENTS.md`](AGENTS.md). It routes the agent to the same skill
+and its `reference/` files, and spells out the conventions (run as root on the target host, the install
+order, and "verify after exit 0").
+
+### What every path does
+
+All four entry points run the **same** procedure and never install before you confirm: intake
+(topology → SSH key or password → DNS → registry → identity) → echo the plan back and wait for your go
+→ preflight validation on each host → ordered install (`install rke2` → optional `install harbor` →
+`install ap-bundle` → run the generated `install-upgrade.sh`). The skill is documentation plus a
+preflight script — it does **not** modify `ap-tools` itself.
 
 ---
 

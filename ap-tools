@@ -5,28 +5,29 @@
 # Global Variables
 DEBUG=1                                                # Debug mode 1=enabled 0=disabled
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
-BASE_DOMAIN="edge.lab"                                 # Base domain for environment
-HOST_FQDN="$(hostname).$BASE_DOMAIN"                   # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+LB_IP=${LB_IP:-$MGMT_IP}                               # LoadBalancer VIP for ingress (MetalLB pool); defaults to MGMT_IP for single-node
+BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
+HOST_FQDN="${HOST_FQDN:-$(hostname).$BASE_DOMAIN}"     # Host FQDN for Automation Platform, Harbor, and SeaweedFS
 SWFS_HARBOR_USER="admin"                               # Username for Harbor and SeaweedFS basic auth
 SWFS_HARBOR_PASS="changeme"                            # Password for Harbor and SeaweedFS basic auth
 
 # Dell Automation Platform Variables
 AP_BUNDLE_URL=https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip
-DOWNLOAD_AP_BUNDLE=false                               # Download install bundle during offline-prep or install rke2
-SKIP_IMAGES_LOADER=false                               # skip pushing images to local registry in install-upgrade.sh command
+DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
+SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
 REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
 ORCHESTRATOR_NAMESPACE=dell-orchestrator               # Namespace to use for Dell Automation Platform orchestrator
 PORTAL_NAMESPACE=dell-portal                           # Namespace to use for Dell Automation Platform portal
-PORTAL_COOKIE_DOMAIN="$BASE_DOMAIN"                    # Base domain, i.e. 'acme.com' or IP address for IP based install
-ORCHESTRATOR_FQDN="orchestrator.$HOST_FQDN"            # FQDN for orchestrator, or <IP> address for IP based install
-PORTAL_FQDN="portal.$HOST_FQDN"                        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
+PORTAL_COOKIE_DOMAIN="${PORTAL_COOKIE_DOMAIN:-$BASE_DOMAIN}"  # Base domain, i.e. 'acme.com' or IP address for IP based install
+ORCHESTRATOR_FQDN="${ORCHESTRATOR_FQDN:-orchestrator.$HOST_FQDN}"  # FQDN for orchestrator, or <IP> address for IP based install
+PORTAL_FQDN="${PORTAL_FQDN:-portal.$HOST_FQDN}"        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
 PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
-ORG_NAME=changeme                                      # Organization name for Dell Automation Platform
-ORG_DESC=changeme                                      # Organization description for Dell Automation Platform
-FIRST_NAME=changeme                                    # Admin user first name
-LAST_NAME=changeme                                     # Admin user last name
-USERNAME=administrator                                 # Admin user name
-EMAIL=changeme@example.com                             # Admin user email
+ORG_NAME="${ORG_NAME:-changeme}"                       # Organization name for Dell Automation Platform
+ORG_DESC="${ORG_DESC:-changeme}"                       # Organization description for Dell Automation Platform
+FIRST_NAME="${FIRST_NAME:-changeme}"                   # Admin user first name
+LAST_NAME="${LAST_NAME:-changeme}"                     # Admin user last name
+USERNAME="${USERNAME:-administrator}"                  # Admin user name
+EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 
 # Harbor Configuration
 HARBOR_VERSION=2.15.0
@@ -88,7 +89,7 @@ MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-po
 
 # RKE2 Kubernetes Configuration
 RKE2_VERSION=v1.34.5+rke2r1
-CLUSTER_TYPE=single-node
+CLUSTER_TYPE="${CLUSTER_TYPE:-single-node}"
 MAX_PODS=250
 CNI_TYPE=calico
 CLUSTER_CIDR="10.42.0.0/16"
@@ -588,7 +589,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - $MGMT_IP/32
+    - $LB_IP/32
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta1

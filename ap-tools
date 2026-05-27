@@ -151,9 +151,9 @@ REQUIRED_CPU=16
 REQUIRED_MEM_GB=32
 REQUIRED_STORAGE_GB=500
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
-swfs_feature_branch="main"
-rke2_feature_branch="main"
-harbor_feature_branch="main"
+swfs_feature_branch="${swfs_feature_branch:-main}"
+rke2_feature_branch="${rke2_feature_branch:-main}"
+harbor_feature_branch="${harbor_feature_branch:-main}"
 
 # --- USAGE FUNCTION --- #
 

@@ -310,7 +310,10 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 | Variable | Default | Description |
 |:---------|:--------|:------------|
 | `DEBUG` | `1` | Debug output. `1` = verbose, `0` = suppress helper output. |
-| `MGMT_IP` | Auto-detected (`hostname -I`) | Primary management IP. Used as the RKE2 node-ip, MetalLB pool address, and service bind address. Override for multi-homed hosts. |
+| `MGMT_IP` | Auto-detected (`hostname -I`) | Primary management IP. Used as the RKE2 node-ip and service bind address. Override for multi-homed hosts. |
+| `LB_IP` | `$MGMT_IP` | LoadBalancer VIP for ingress (MetalLB pool). Defaults to the node's own IP — correct for single-node. |
+| `LB_VIP` | _(empty)_ | **Multi-node:** optional dedicated floating ingress VIP — a free IP in the nodes' L2 subnet, outside any DHCP range. When set it becomes the MetalLB pool address so the portal/orchestrator stay reachable if the VIP's current owner node fails (MetalLB re-elects a speaker). When empty, falls back to `LB_IP`. Point `portal.*`/`orchestrator.*` DNS at this VIP, not a node IP. |
+| `NTP_SERVERS` | _(empty)_ | Optional space/comma-separated NTP server list. When set, it is applied during `install rke2` and every `join` (chrony if present, else systemd-timesyncd) and re-verified during `install ap-bundle`. Clock skew across nodes breaks etcd, TLS, and DAP tokens. When empty, the OS default time source is left unchanged. |
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain appended to hostnames. |
 | `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` | Fully qualified hostname for AP, Harbor, and SeaweedFS service FQDNs. |
 | `SWFS_HARBOR_USER` | `admin` | Shared username for Harbor and SeaweedFS basic auth. |
@@ -709,6 +712,23 @@ When using a private registry, all required container images must exist on the r
 - Use `join` only against RKE2 clusters of the same version. Joining a cluster not created by this script may cause configuration conflicts.
 - If the initial install used `-registry`, all joined nodes must also specify `-registry`.
 - If the initial install used `-tls-san`, all joined server nodes must also specify `-tls-san`.
+- **Join address rule:** join via a node **IP** or the `-tls-san` name — not a node's own FQDN. RKE2 auto-adds only the short hostname and `-tls-san` entries to the API server certificate, so joining via `<node>.<domain>` fails an x509 SAN check.
+
+### Multi-Node Resilience
+
+For a cluster that tolerates a single node failure without manual recovery:
+
+- **Floating ingress VIP** — set `LB_VIP` to a dedicated free IP in the nodes' L2 subnet (not a node IP) and point `portal.*`/`orchestrator.*` DNS at it. MetalLB announces the VIP from one node and re-elects a new speaker within seconds if that node fails, so the portal stays reachable. With the default (`LB_IP` = a single node's IP) the VIP would be lost while that node is down.
+- **Automatic pod recovery** — on multi-node installs Longhorn is configured with `nodeDownPodDeletionPolicy: delete-statefulset-pod`. When a node fails ungracefully, StatefulSet pods on the dead node are deleted automatically so replacements can start on healthy nodes without manual force-deletion (which otherwise blocks on `Multi-Attach` errors).
+- **CSI registration check** — after Longhorn installs, `install rke2` verifies the `driver.longhorn.io` CSI driver registered on every node and bounces `longhorn-csi-plugin` if a node's `CSINode` is empty (a known post-rejoin condition that otherwise fails all volume attaches).
+
+### Time Synchronization (NTP)
+
+Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set `NTP_SERVERS` (e.g. `NTP_SERVERS="time.example.com 10.0.0.1"`) so a known time source is configured on **every** node during `install rke2` and `join` (chrony if present, otherwise systemd-timesyncd) and re-verified during `install ap-bundle`. Leave empty to keep the OS default. The `install ap-bundle` pre-flight always reports the current sync state regardless.
+
+### Storage — multipathd
+
+`multipathd` claims Longhorn's iSCSI `sd*` block devices via device-mapper and breaks every CSI mount (`exit status 32` / `Can't open blockdev`, pods stuck in `Init:`). The node preparation step disables and masks `multipathd` and writes an `/etc/multipath.conf` `sd*` blacklist on every node so the protection persists even if a package update re-enables it. On these nodes the OS root disk is NVMe, so excluding all `sd*` devices is safe. No manual action is required for new deployments.
 
 ### Co-location Constraints
 

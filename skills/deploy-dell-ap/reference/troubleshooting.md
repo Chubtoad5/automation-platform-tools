@@ -25,6 +25,17 @@ Walk this tree top-down; most failures match the early branches.
     matching the target's OS family **and** version.
 11. **Wrong join target** — join via a node IP or the `-tls-san` name; reuse the same `-registry` /
     `-tls-san` on every node. See [topology.md](topology.md).
+12. **Pods stuck in `Init:` with `exit status 32` / `Can't open blockdev`** — `multipathd` has claimed
+    Longhorn's iSCSI `sd*` devices. Node prep disables/masks `multipathd` and blacklists `sd*`
+    automatically; if you hit it on an existing/foreign node: `systemctl stop multipathd && multipath -F`,
+    force-delete the stuck pods, then disable+mask `multipathd` and add an `sd*` `devnode` blacklist to
+    `/etc/multipath.conf`.
+13. **Clock skew** — etcd, TLS, and DAP tokens fail if nodes disagree on time. `install ap-bundle` reports
+    NTP sync state; if unsynced, set `NTP_SERVERS` and re-run node prep (`install rke2` / `join`) or fix the
+    OS time source. Verify with `timedatectl`.
+14. **Ingress VIP unreachable after a node failure (multi-node)** — the VIP was a node IP. Use a dedicated
+    `LB_VIP` and repoint `portal.*`/`orchestrator.*` DNS at it so MetalLB can fail the VIP over. See
+    [topology.md](topology.md).
 
 > Note: env-var overrides (`BASE_DOMAIN`, the identity vars, `SKIP_IMAGES_LOADER`, …) are honored on the
 > current `main`. If an override seems ignored, update your checkout rather than editing the script.

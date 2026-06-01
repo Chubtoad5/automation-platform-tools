@@ -22,6 +22,10 @@ Primary test matrix: Ubuntu 22.04+, RHEL 9.2+, SLES 15 SP7.
 - A **DNS-1123 hostname** (lowercase letters, digits, hyphens) — RKE2 uses it as the Kubernetes node
   name.
 - Root / sudo access.
+- **Accurate, consistent time (NTP).** All nodes must agree on the clock — skew breaks etcd quorum, TLS, and
+  DAP tokens. Have a reachable NTP source ready and pass it as `NTP_SERVERS` so the tool configures it on every
+  node (internal/air-gapped sources are common). If relying on the OS default, confirm the hosts are already
+  synced (`timedatectl`).
 - Outbound internet for an online install (or build an air-gap bundle on a connected host).
 
 ## Optional companion hosts

@@ -43,6 +43,8 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 |:--|:--|:--|
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain for all service FQDNs. |
 | `CLUSTER_TYPE` | `single-node` | Set `multi-node` before the first `install rke2`. |
+| `LB_VIP` | _(empty)_ | Multi-node: dedicated floating ingress VIP (free L2 IP, not a node IP). Falls back to the node IP when empty. |
+| `NTP_SERVERS` | _(empty)_ | NTP server(s) to configure on every node (`install rke2`/`join`) and verify at `install ap-bundle`. Empty = OS default. |
 | `RKE2_VERSION` | `v1.34.5+rke2r1` | RKE2 release to install. |
 | `ORG_NAME` / `ORG_DESC` | `changeme` | DAP organization identity. |
 | `FIRST_NAME` / `LAST_NAME` / `USERNAME` / `EMAIL` | see README | DAP admin identity. |

@@ -13,6 +13,10 @@ Collect ALL of the following before doing anything. Do not assume defaults for h
 - Base domain, and confirmation these A records resolve to the host IP: `portal.`, `orchestrator.`,
   `mtls-orchestrator.`, `mtls-recovery-orchestrator.` (multi-node also needs a cluster/API name for
   `-tls-san`).
+- Multi-node only: whether to use a dedicated floating ingress VIP (`LB_VIP`) — a free L2 IP, not a node
+  IP — for HA. If used, `portal.`/`orchestrator.` DNS must point at the VIP.
+- NTP: ask which NTP server(s) the nodes should use (`NTP_SERVERS`). Required for consistent time across
+  nodes (etcd/TLS/tokens). If none supplied, confirm the hosts are already time-synced.
 - Registry: install Harbor via ap-tools, or an external OCI registry (host:port + credentials, supplied
   at run time — never committed).
 - Identity: organization name and description; admin first name, last name, username, email.
@@ -24,9 +28,9 @@ Collect ALL of the following before doing anything. Do not assume defaults for h
 - Wait for explicit user confirmation ("proceed") before changing anything.
 - Run `bash skills/deploy-dell-ap/scripts/preflight.sh --dns <portal,orchestrator,mtls,mtls-recovery> [--multi-node]` on each host and resolve every failure.
 - Clone or checkout this repository on the target host and run `chmod +x ap-tools`.
-- Install the cluster: `sudo BASE_DOMAIN=<domain> ./ap-tools install rke2` (add `-tls-san <cluster-name>` and `CLUSTER_TYPE=multi-node` for multi-node).
+- Install the cluster: `sudo BASE_DOMAIN=<domain> [NTP_SERVERS=<servers>] ./ap-tools install rke2` (add `-tls-san <cluster-name>`, `CLUSTER_TYPE=multi-node`, and `LB_VIP=<free-ip>` for multi-node HA). Pass the same `NTP_SERVERS` on every node.
 - If no external registry exists, run `sudo BASE_DOMAIN=<domain> ./ap-tools install harbor`.
-- For multi-node, join each additional node with `sudo ./ap-tools join server|agent <fqdn> <token> [-tls-san <cluster-name>]` (token at `/var/lib/rancher/rke2/server/node-token`).
+- For multi-node, join each additional node with `sudo [NTP_SERVERS=<servers>] ./ap-tools join server|agent <node-ip-or-tls-san> <token> [-tls-san <cluster-name>]` (token at `/var/lib/rancher/rke2/server/node-token`; join via a node IP or the `-tls-san` name, not a node FQDN).
 - Stage the bundle: `sudo BASE_DOMAIN=<domain> ORG_NAME=<org> EMAIL=<email> ./ap-tools install ap-bundle -registry <host:port> <user> <pass>`.
 - Open `ap-install-upgrade-cmd.txt` and run the `install-upgrade.sh` command it contains; wait for `Installation has completed successfully` (20–40 minutes).
 - Verify the install before reporting success (see Specifications).

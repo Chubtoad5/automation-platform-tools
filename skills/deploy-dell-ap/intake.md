@@ -23,6 +23,11 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
 - Confirm these A records resolve to the host IP (the `mtls-` ones are **mandatory**):
   `portal.<...>`, `orchestrator.<...>`, `mtls-orchestrator.<...>`, `mtls-recovery-orchestrator.<...>`.
 - **Multi-node:** also a shared cluster / API name to use as the `-tls-san` value.
+- **Multi-node ingress VIP:** ask whether to use a **dedicated floating VIP** (`LB_VIP`) — a free IP in the
+  nodes' L2 subnet (outside any DHCP range), distinct from any node IP. Recommended for HA so the portal stays
+  reachable if a node fails. If used, the `portal.*`/`orchestrator.*` records must point at the **VIP**, not a
+  node IP. If declined, the ingress VIP defaults to the first node's IP (lost if that node goes down).
+  See [reference/topology.md](reference/topology.md).
 - A wildcard `*.<host>.<domain>` is the easiest way to satisfy all of these.
   See [reference/dns-and-certs.md](reference/dns-and-certs.md).
 
@@ -39,7 +44,15 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
 - Confirm each host meets **16 vCPU / 34 GB RAM / 500 GB+ disk** (34, not 32 — see
   [reference/prerequisites.md](reference/prerequisites.md)) and runs a supported OS.
 
-## 7. Mode
+## 7. Time synchronization (NTP)
+- **Ask which NTP server(s) the nodes should use.** Accurate, consistent time across nodes is required —
+  skew breaks etcd quorum, TLS validation, and DAP tokens. If the user has a preferred/internal NTP source
+  (common in air-gapped or enterprise environments), collect it and pass it as `NTP_SERVERS` (space/comma
+  separated) so it is applied on **every** node during `install rke2` / `join` and verified during
+  `install ap-bundle`. If the user has no preference and the hosts already sync via the OS default, you may
+  leave it unset — but still confirm the hosts are currently time-synced before installing.
+
+## 8. Mode
 - **Online** (internet-connected) or **air-gapped**? Air-gapped uses `offline-prep` on a connected host,
   then transfer + install. See [reference/commands.md](reference/commands.md).
 

@@ -25,3 +25,14 @@
   cluster can cause configuration conflicts.
 - Join via a **node IP or the `-tls-san` name** — RKE2 does not add a node's own FQDN to the API cert.
 - If the first install used `-registry`, every joined node must also pass `-registry`.
+
+## Multi-node high availability
+For a cluster that survives a single node failure without manual recovery, set these on the **first**
+`install rke2` (and pass `NTP_SERVERS` on every node):
+- **`LB_VIP=<free-IP>`** — a dedicated floating ingress VIP in the nodes' L2 subnet (outside DHCP, not a
+  node IP). MetalLB announces it from one node and fails it over to a surviving node within seconds. Point
+  `portal.*`/`orchestrator.*` DNS at the VIP. Without it, the ingress VIP is a node IP and is lost while that
+  node is down.
+- The tool also auto-configures Longhorn `nodeDownPodDeletionPolicy: delete-statefulset-pod` (StatefulSet
+  pods on a dead node are deleted so replacements start automatically) and verifies the Longhorn CSI driver
+  registered on every node — no manual steps after a node fails or rejoins.

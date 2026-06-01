@@ -41,8 +41,11 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
 - Admin first name, last name, username, and email.
 
 ## 6. Resource confirmation
-- Confirm each host meets **16 vCPU / 34 GB RAM / 500 GB+ disk** (34, not 32 — see
-  [reference/prerequisites.md](reference/prerequisites.md)) and runs a supported OS.
+- **Single-node:** confirm the host meets **16 vCPU / 34 GB RAM / 500 GB+ disk** (34, not 32).
+- **Multi-node:** confirm each node meets **16 vCPU / ≥ 20 GB RAM (3-node) / 500 GB+ disk**. 16 GB/node is
+  **not** enough — a 16 GB × 3 cluster wedges the Orchestrator install at 90-99% memory. See
+  [reference/prerequisites.md](reference/prerequisites.md).
+- Either way, confirm a supported OS.
 
 ## 7. Time synchronization (NTP)
 - **Ask which NTP server(s) the nodes should use.** Accurate, consistent time across nodes is required —

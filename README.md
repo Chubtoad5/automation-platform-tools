@@ -564,10 +564,13 @@ Primary test matrix:
 | Resource | Minimum | Recommended |
 |:---------|:--------|:------------|
 | CPU | 16 vCPU | 16+ vCPU |
-| Memory | 32 GB | 34 GB (RKE2 + services consume ~2 GB) |
+| Memory (single-node) | 32 GB | 34 GB (RKE2 + services consume ~2 GB) |
+| Memory (multi-node, per node) | **20 GB (3-node)** | 24 GB+ per node for headroom |
 | Storage | 1 TB SSD | More if using DDPC and storing VM images locally |
 
 Resource checks are performed against Kubernetes allocatable capacity (`kubectl get nodes`) during `install ap-bundle`.
+
+> **Multi-node sizing:** the platform footprint requests **~46 GB cluster-wide**. **16 GB per node is not enough** for a 3-node cluster — it saturates to 90-99% allocatable memory and the Orchestrator install wedges mid-convergence (services fail liveness). A validated 3-node cluster uses **≥ 20 GB per node** (≈84% memory utilization, converges cleanly). Larger clusters spread the load further; fewer/larger nodes follow the single-node 34 GB guidance.
 
 #### SeaweedFS host
 

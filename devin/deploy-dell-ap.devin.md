@@ -21,7 +21,8 @@ Collect ALL of the following before doing anything. Do not assume defaults for h
   at run time — never committed).
 - Identity: organization name and description; admin first name, last name, username, email.
 - Mode: online or air-gapped.
-- Confirmation that each host meets 16 vCPU / 34 GB RAM / 500 GB+ disk and runs a supported OS.
+- Confirmation of sizing + supported OS: single-node 16 vCPU / 34 GB RAM / 500 GB+ disk; multi-node
+  16 vCPU / **≥ 20 GB RAM per node (3-node)** / 500 GB+ disk (16 GB/node wedges the Orchestrator install).
 
 ## Procedure
 - Collect every item in "What's Needed From User" and echo it back to the user as a plan.

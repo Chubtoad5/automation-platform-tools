@@ -4,7 +4,9 @@
 - **Single-node** — one host runs everything. Simplest; right for labs, demos, and most proofs of
   concept. Start here if unsure.
 - **Multi-node** — multiple control-plane (and optionally worker) nodes for high availability and
-  capacity. Choose this when you need HA or more resources than one host provides.
+  capacity. Choose this when you need HA or more resources than one host provides. **Size each node at
+  ≥ 20 GB RAM for a 3-node cluster** — 16 GB/node is insufficient (the Orchestrator install wedges at
+  90-99% cluster memory). See [prerequisites.md](prerequisites.md).
 
 ## Single-node flow
 `install rke2` → (optional `install harbor`) → `install ap-bundle -registry …` → run `install-upgrade.sh`.

@@ -6,6 +6,8 @@
 DEBUG=1                                                # Debug mode 1=enabled 0=disabled
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
 LB_IP=${LB_IP:-$MGMT_IP}                               # LoadBalancer VIP for ingress (MetalLB pool); defaults to MGMT_IP for single-node
+LB_VIP=${LB_VIP:-}                                     # Optional dedicated floating ingress VIP for multi-node (free IP in the nodes' L2 subnet); if unset, falls back to LB_IP
+NTP_SERVERS=${NTP_SERVERS:-}                           # Optional space/comma-separated NTP server list applied during 'install rke2'/'join' and verified during 'install ap-bundle'; empty = leave the OS default time source unchanged
 BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
 HOST_FQDN="${HOST_FQDN:-$(hostname).$BASE_DOMAIN}"     # Host FQDN for Automation Platform, Harbor, and SeaweedFS
 SWFS_HARBOR_USER="admin"                               # Username for Harbor and SeaweedFS basic auth
@@ -291,6 +293,7 @@ run_install_join_push () {
   # so joined nodes aren't left with default inotify limits.
   if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
     run_debug configure_node_sysctl
+    run_debug configure_node_ntp
   fi
   if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
     if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
@@ -545,6 +548,7 @@ defaultSettings:
   defaultDataPath: $pvc_data_path
   defaultReplicaCount: 3
   defaultDataLocality: best-effort
+  nodeDownPodDeletionPolicy: delete-statefulset-pod
   storageReservedPercentageForDefaultDisk: 10
   storageOverProvisioningPercentage: 200
   storageMinimalAvailablePercentage: 10
@@ -564,6 +568,7 @@ EOF
     mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
   fi
   check_namespace_pods_ready "longhorn-system"
+  verify_longhorn_csi_registration
   if [[ -n $LONGHORN_UI_PORT ]]; then
     cat << EOF > $WORKING_DIR/ap-utilities/helm/longhorn/longhornNodePort.yaml
 apiVersion: v1
@@ -587,7 +592,39 @@ EOF
   fi
 }
 
+# Verify the Longhorn CSI driver registered with kubelet on every node. After a node rejoins
+# (reboot, rke2-server restart, drain/uncordon) the longhorn-csi-plugin pod can show Running while
+# its CSINode entry stays empty ("no drivers registered"), which fails all volume attach with
+# "CSINode <node> does not contain driver driver.longhorn.io". Bounce the plugin daemonset to fix.
+verify_longhorn_csi_registration () {
+  echo "  Verifying Longhorn CSI driver registration on all nodes..."
+  local timeout=120 interval=10 elapsed=0 all_registered
+  while [ $elapsed -lt $timeout ]; do
+    all_registered=true
+    for node in $(kubectl get nodes --no-headers -o custom-columns=NAME:.metadata.name); do
+      local drivers
+      drivers=$(kubectl get csinode "$node" -o jsonpath='{.spec.drivers[*].name}' 2>/dev/null || echo "")
+      if ! echo "$drivers" | grep -q "driver.longhorn.io"; then
+        echo "  - $node: CSI driver not yet registered, waiting..."
+        all_registered=false
+      fi
+    done
+    if $all_registered; then
+      echo "  Longhorn CSI driver registered on all nodes."
+      return 0
+    fi
+    sleep $interval
+    elapsed=$((elapsed + interval))
+  done
+  echo "  WARNING: CSI driver registration timed out. Restarting longhorn-csi-plugin pods..."
+  kubectl rollout restart daemonset/longhorn-csi-plugin -n longhorn-system
+  kubectl rollout status daemonset/longhorn-csi-plugin -n longhorn-system --timeout=120s || true
+  echo "  longhorn-csi-plugin restarted. Verify CSI registration with:"
+  echo "    kubectl get csinode -o custom-columns=NODE:.metadata.name,DRIVERS:.spec.drivers[*].name"
+}
+
 helm_install_metallb () {
+  local pool_ip="${LB_VIP:-$LB_IP}"
   cat << EOF > $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -596,7 +633,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - $LB_IP/32
+    - $pool_ip/32
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta1
@@ -693,6 +730,8 @@ ap_host_config () {
 # Apply DAP host kernel settings (inotify limits). Must run on EVERY cluster node
 # (install + join), not just the ap-bundle host, or fluentbit (DaemonSet) crashes
 # on joined nodes with inotify EMFILE. Idempotent.
+# Also disables multipathd, which otherwise claims Longhorn's iSCSI sd* block devices via
+# device-mapper and breaks every CSI mount (exit status 32 / "Can't open blockdev").
 configure_node_sysctl () {
   echo "  Configuring host kernel settings (inotify limits) for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
@@ -703,6 +742,56 @@ configure_node_sysctl () {
   else
     echo "  systemd-sysctl.service restarted successfully."
   fi
+  # Disable multipathd and blacklist sd* so it never claims Longhorn iSCSI LUNs. The blacklist
+  # is written first so the protection persists even if a package update re-enables multipathd.
+  # Idempotent: only writes the blacklist if one is not already present. On ap-tools nodes the OS
+  # root disk is NVMe, so excluding all sd* (Longhorn iSCSI LUNs) is safe.
+  echo "  Disabling multipathd to prevent Longhorn iSCSI volume mount conflicts..."
+  if ! grep -qs 'devnode' /etc/multipath.conf 2>/dev/null; then
+    printf 'defaults {\n    user_friendly_names yes\n}\n\nblacklist {\n    devnode "^sd[a-z0-9]+"\n}\n' \
+      > /etc/multipath.conf
+  fi
+  systemctl stop multipathd.service multipathd.socket 2>/dev/null || true
+  systemctl disable multipathd.service multipathd.socket 2>/dev/null || true
+  systemctl mask multipathd.service multipathd.socket 2>/dev/null || true
+  echo "  multipathd disabled."
+}
+
+# Configure a user-defined NTP source on every node (install + join). Clock skew across nodes
+# breaks etcd, TLS, and DAP tokens. Only acts when NTP_SERVERS is set; otherwise the OS default
+# time source is left untouched. Auto-detects the time daemon: chrony if present, else
+# systemd-timesyncd (the Ubuntu/Debian default). Idempotent.
+configure_node_ntp () {
+  if [[ -z "${NTP_SERVERS// /}" ]]; then
+    echo "  NTP_SERVERS not set; leaving the OS default time source unchanged."
+    return 0
+  fi
+  # Normalise comma or space separated input to a clean space-separated list
+  local ntp_list
+  ntp_list=$(echo "$NTP_SERVERS" | tr ',' ' ' | xargs)
+  echo "  Configuring user-defined NTP servers: $ntp_list"
+  timedatectl set-ntp true 2>/dev/null || true
+  if command -v chronyd >/dev/null 2>&1 || systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^chronyd\.service'; then
+    # chrony path (RHEL/Rocky/SLES default; Ubuntu when chrony is installed)
+    local chrony_conf="/etc/chrony/chrony.conf"
+    [[ -f /etc/chrony.conf ]] && chrony_conf="/etc/chrony.conf"
+    sed -i '/# ap-tools NTP$/d' "$chrony_conf" 2>/dev/null || true
+    for s in $ntp_list; do
+      echo "server $s iburst # ap-tools NTP" >> "$chrony_conf"
+    done
+    systemctl enable chronyd 2>/dev/null || true
+    systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null || true
+    chronyc makestep >/dev/null 2>&1 || true
+  else
+    # systemd-timesyncd path (Ubuntu/Debian default)
+    mkdir -p /etc/systemd/timesyncd.conf.d
+    printf '[Time]\nNTP=%s\n' "$ntp_list" > /etc/systemd/timesyncd.conf.d/10-ap-tools.conf
+    systemctl enable systemd-timesyncd 2>/dev/null || true
+    systemctl restart systemd-timesyncd 2>/dev/null || true
+  fi
+  # Give the daemon a moment, then report
+  sleep 2
+  echo "  NTP configured. Current status: $(timedatectl show -p NTP -p NTPSynchronized 2>/dev/null | tr '\n' ' ')"
 }
 
 # -- Offline Prep Definitions -- #
@@ -908,6 +997,26 @@ ap_preflight_checks () {
   if [ "$ntp_status" != "yes" ]; then
     echo "WARNING: NTP is not synchronized! This may cause Kubernetes pod connectivity issues, use the 'timedatectl' command to check the status."
     ntp_message="WARNING: NTP is not synchronized or timedatectl command failed! This may cause Kubernetes pod connectivity issues, use the 'timedatectl' command to check the status."
+  fi
+  # When a user-defined NTP source was configured during 'install rke2', verify it is actually in use
+  if [ -n "${NTP_SERVERS// /}" ]; then
+    local want_ntp active_ntp
+    want_ntp=$(echo "$NTP_SERVERS" | tr ',' ' ' | xargs)
+    active_ntp=$(timedatectl show-timesync 2>/dev/null | awk -F= '/^ServerName=|^ServerAddress=/ {print $2}' | xargs)
+    if command -v chronyc >/dev/null 2>&1; then
+      active_ntp="$active_ntp $(chronyc -n sources 2>/dev/null | awk 'NR>2 {print $2}' | xargs)"
+    fi
+    local ntp_ok=1
+    for s in $want_ntp; do
+      echo "$active_ntp" | grep -qw "$s" || ntp_ok=0
+    done
+    if [ "$ntp_ok" -eq 1 ]; then
+      echo "  NTP source verification PASSED — configured server(s) in use: $want_ntp"
+      ntp_message="$ntp_message Configured NTP server(s) verified in use: $want_ntp"
+    else
+      echo "WARNING: configured NTP_SERVERS ($want_ntp) not found among active sources ($active_ntp). Re-check 'install rke2' NTP config."
+      ntp_message="$ntp_message WARNING: configured NTP_SERVERS ($want_ntp) not confirmed active; active sources: $active_ntp"
+    fi
   fi
 }
 dns_pre_flight_checks () {

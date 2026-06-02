@@ -565,9 +565,9 @@ Sizing depends on the deployment model — per host (validated guidance):
 
 | Deployment model | Per host | Notes |
 |:-----------------|:---------|:------|
-| **Single-node** | 16 vCPU / 34 GB / 500 GB+ | All platform services on one node. Use 34 GB, not 32. |
-| **Multi-node (3-node)** | 16 vCPU / **20 GB** / 500 GB+ per node | Each node holds a replica of the HA services, so per-node RAM stays high even though the load is spread. Below ~20 GB/node the Orchestrator install wedges. |
-| **All-in-one single-node** (local Harbor + SeaweedFS + RKE2/DAP co-located) | 20 vCPU / **40 GB** / 1 TB | The extra CPU/RAM covers Harbor + SeaweedFS alongside DAP; the larger disk holds the locally-pushed image set when installing with `SKIP_IMAGES_LOADER=false`. |
+| **Single-node** | 16 vCPU / 34 GB / 500 1 TB SSD | All platform services on one node. Use 34 GB, not 32. |
+| **Multi-node (3-node)** | 16 vCPU / **20 GB** / 500 GB+ SSD per node | Each node holds a replica of the HA services, so per-node RAM stays high even though the load is spread. Below ~20 GB/node the Orchestrator install wedges. |
+| **All-in-one single-node** (local Harbor + SeaweedFS + RKE2/DAP co-located) | 20 vCPU / **40 GB** / 1 TB SSD | The extra CPU/RAM covers Harbor + SeaweedFS alongside DAP; the larger disk holds the locally-pushed image set when installing with `SKIP_IMAGES_LOADER=false`. |
 
 Resource checks are performed against Kubernetes allocatable capacity (`kubectl get nodes`) during `install ap-bundle`.
 

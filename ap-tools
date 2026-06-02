@@ -10,8 +10,8 @@ LB_VIP=${LB_VIP:-}                                     # Optional dedicated floa
 NTP_SERVERS=${NTP_SERVERS:-}                           # Optional space/comma-separated NTP server list applied during 'install rke2'/'join' and verified during 'install ap-bundle'; empty = leave the OS default time source unchanged
 BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
 HOST_FQDN="${HOST_FQDN:-$(hostname).$BASE_DOMAIN}"     # Host FQDN for Automation Platform, Harbor, and SeaweedFS
-SWFS_HARBOR_USER="admin"                               # Username for Harbor and SeaweedFS basic auth
-SWFS_HARBOR_PASS="changeme"                            # Password for Harbor and SeaweedFS basic auth
+SWFS_HARBOR_USER="${SWFS_HARBOR_USER:-admin}"          # Username for Harbor and SeaweedFS basic auth
+SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and SeaweedFS basic auth
 
 # Dell Automation Platform Variables
 AP_BUNDLE_URL=https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip

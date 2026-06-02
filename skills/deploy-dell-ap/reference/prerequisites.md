@@ -11,6 +11,7 @@ everywhere.
 | CPU | 16 vCPU | |
 | RAM (single-node) | **34 GB** | Use 34, not 32. RKE2 + platform services reserve ~2 GB, and the DAP bundle's pre-flight measures *Kubernetes-allocatable* capacity — a 32 GB host fails it. |
 | RAM (multi-node, per node) | **≥ 20 GB** for a 3-node cluster | The platform footprint requests **~46 GB cluster-wide**. **16 GB/node is insufficient** — a 16 GB × 3 cluster saturates to 90-99% memory and the Orchestrator install wedges mid-convergence (services can't pass liveness). 20 GB/node (validated) leaves ~84% headroom and converges cleanly. Fewer than 3 nodes need more per node. |
+| All-in-one single-node | **20 vCPU / 40 GB / 1 TB** | Only when co-locating a local Harbor + SeaweedFS with RKE2/DAP on one host. The extra CPU/RAM covers the registry + storage services; the larger disk holds the locally-pushed image set (`SKIP_IMAGES_LOADER=false`). |
 | Disk | 500 GB SSD | 1 TB recommended, especially for multi-node (Longhorn replicates volumes across nodes). |
 
 ## Operating system

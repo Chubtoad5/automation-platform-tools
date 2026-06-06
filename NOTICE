@@ -1,0 +1,26 @@
+Automation Platform Tools
+Copyright (C) 2026 Chubtoad5
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This is an original automation/orchestration helper. It is NOT affiliated with,
+endorsed by, or supported by Dell Technologies. It installs the Dell Automation
+Platform on-premise bundle (a proprietary Dell product that you must be entitled
+to and download yourself — it is not redistributed by this project) by
+orchestrating the following third-party open-source software, each under its own
+license (all credit to their respective authors):
+
+  Rancher RKE2            Apache-2.0          https://github.com/rancher/rke2
+  HAProxy (ingress)       GPL-2.0-or-later    https://www.haproxy.org/
+  Longhorn                Apache-2.0          https://github.com/longhorn/longhorn
+  Helm                    Apache-2.0          https://github.com/helm/helm
+  kube-prometheus-stack   Apache-2.0 (chart)  https://github.com/prometheus-community/helm-charts
+  Fluent Bit              Apache-2.0          https://github.com/fluent/fluent-bit
+  Velero                  Apache-2.0          https://github.com/vmware-tanzu/velero
+  Docker / Moby           Apache-2.0          https://github.com/moby/moby
+
+Most redistribution happens through the sibling Chubtoad scripts this tool calls
+(rke2-installer, images-pull-push); see their NOTICE files. Note that HAProxy is
+GPL-2.0-or-later: when its binary/image is redistributed in an air-gap bundle,
+provide the corresponding source or a written offer per the GPL, and retain its
+license text.

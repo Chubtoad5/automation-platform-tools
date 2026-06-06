@@ -107,6 +107,7 @@ INSTALL_METALLB=true
 KUBERNETES_INGRESS_VERSION=1.49.0
 HAPROXY_APP_VERSION=3.2.6
 INSTALL_HAPROXY=true                      # Must be disabled if performing IP based install
+LICENSE_OFFER_CONTACT=${LICENSE_OFFER_CONTACT:-"the Chubtoad5 project via https://github.com/Chubtoad5"}  # contact named in the air-gap bundle's GPL/AGPL written offer
 RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path
 PVC_DATA=${PVC_DATA:-"default"}           # Path where storage class PVCs are stored, update with valid local path
@@ -939,10 +940,62 @@ generate_images_file () {
   cd $base_dir
 }
 
+generate_bundle_licenses () {
+    # Write a LICENSES/ dir into the air-gap archive: a third-party manifest plus a
+    # written offer for the bundled copyleft components (Grafana, AGPL-3.0; and HAProxy,
+    # GPL-2.0+, which ships inside the haproxytech ingress image). Satisfies the GPL/AGPL
+    # "corresponding source or written offer" requirement.
+    local dir="$base_dir/LICENSES"
+    rm -rf "$dir"; mkdir -p "$dir"
+    {
+        echo "Third-party components redistributed in this Dell AP (ap-tools) air-gap bundle"
+        echo "Generated: $(date)"
+        echo ""
+        echo "This bundle orchestrates many open-source components and pushes their container"
+        echo "images into your registry. Notable licenses among the bundled images:"
+        echo ""
+        echo "  RKE2 + add-ons, Longhorn, Velero, fluent, ingress-nginx, metallb,"
+        echo "  kube-state-metrics, prometheus-operator ........ Apache-2.0"
+        echo "  Grafana ........................................ AGPL-3.0          (see WRITTEN_OFFER.txt)"
+        echo "  HAProxy (within haproxytech ingress image v${HAPROXY_APP_VERSION}) GPL-2.0-or-later (see WRITTEN_OFFER.txt)"
+        echo ""
+        echo "The Dell Automation Platform bundle itself is proprietary Dell software (you must"
+        echo "be entitled to it; it is NOT redistributed by this project). The installer scripts"
+        echo "are Apache-2.0 (Chubtoad5). Each bundled image carries its own license/notice."
+    } > "$dir/THIRD_PARTY_NOTICES.txt"
+    cat > "$dir/WRITTEN_OFFER.txt" <<EOF
+WRITTEN OFFER FOR CORRESPONDING SOURCE CODE (AGPL-3.0 / GPL-2.0+)
+
+This air-gap bundle redistributes, in object (image) form, components under copyleft
+licenses:
+
+  Grafana ......................... AGPL-3.0          https://github.com/grafana/grafana
+  HAProxy (within the haproxytech
+    Kubernetes Ingress image,
+    app v${HAPROXY_APP_VERSION}) ............ GPL-2.0-or-later  https://www.haproxy.org/
+                                    https://github.com/haproxytech/kubernetes-ingress
+
+In accordance with GPLv2 section 3 and GPLv3/AGPLv3 section 6, the distributor of this
+bundle hereby makes a written offer, valid for three (3) years from the date this bundle
+was created ($(date +%Y-%m-%d)), to give any third party who possesses this bundle a
+complete machine-readable copy of the corresponding source code for these components,
+for a charge no more than the cost of physically performing the source distribution.
+
+These components are redistributed UNMODIFIED; the AGPLv3 section 13 obligation (which
+applies to modified versions only) therefore does not apply.
+
+To request the source on a physical medium, contact: ${LICENSE_OFFER_CONTACT}
+
+This offer is independent of the Apache-2.0 license covering the installer scripts.
+EOF
+    echo "  Wrote LICENSES/ (manifest + AGPL/GPL written offer for Grafana + HAProxy)."
+}
+
 create_offline_prep_archive () {
     # saves downloaded files into ap-offline.tar.gz
     echo "  Creating offline archive 'ap-offline.tar.gz'"
-    tar -czf ap-offline.tar.gz ap-install ap-tools
+    generate_bundle_licenses
+    tar -czf ap-offline.tar.gz ap-install ap-tools LICENSES
 }
 
 # --- Helper Functions --- #

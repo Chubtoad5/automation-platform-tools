@@ -775,3 +775,19 @@ Set `DEBUG=1` (default) for verbose output from all helper scripts. Set `DEBUG=0
 ## Author Notes
 
 Thanks to all the nerds out there who think infrastructure automation is fun and motivated me to make this tool!
+
+---
+
+## Upstream / Credits
+
+This is an original orchestration helper and is **not affiliated with, endorsed by, or supported by Dell
+Technologies**. It installs the proprietary Dell Automation Platform bundle (which you must be entitled to and
+download yourself — it is not redistributed here) by orchestrating these open-source tools; all credit to their
+authors. See [NOTICE](NOTICE) for the full list + licenses.
+
+- Rancher RKE2 (Apache-2.0), Longhorn (Apache-2.0), Helm (Apache-2.0), Velero (Apache-2.0), Fluent Bit (Apache-2.0), Docker (Apache-2.0)
+- HAProxy ingress — **GPL-2.0-or-later** (provide source/offer if its binary is bundled)
+
+## License
+
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

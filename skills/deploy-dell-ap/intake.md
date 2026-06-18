@@ -59,6 +59,16 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
 - **Online** (internet-connected) or **air-gapped**? Air-gapped uses `offline-prep` on a connected host,
   then transfer + install. See [reference/commands.md](reference/commands.md).
 
+## 9. Optional add-ons (post-install) — ask, don't assume
+- These are **not** part of deploying DAP and DAP does not depend on them. Ask only whether the user
+  also wants any of them; install after DAP is verified up. See "Optional add-ons" in
+  [SKILL.md](SKILL.md) and [reference/commands.md](reference/commands.md).
+  - **SeaweedFS** (`install swfs`) — artifact storage (S3 / Filer, optional SMB/NFS), e.g. day-2
+    blueprint artifacts.
+  - **Velero** (`install velero`) — cluster backups; needs an S3 endpoint (a SeaweedFS bucket is the
+    intended backend).
+  - **Monitoring** (`install monitoring`) — kube-prometheus-stack + Fluent Bit.
+
 ---
 
 ## Confirmation gate

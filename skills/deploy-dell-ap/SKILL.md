@@ -74,6 +74,24 @@ actually up before telling the user "done":
 - Portal answers over HTTPS at `https://<portal-fqdn>` and serves a login page.
 - Initial login `administrator` / `Temporary@123` works and forces a password change.
 
+## Optional add-ons (after DAP is up)
+
+None of these are required to deploy DAP, and DAP never consumes them at install time — install them
+**only if the user asks**, and only after the platform is verified up. The full flags are in
+[reference/commands.md](reference/commands.md).
+
+- **`install swfs`** — a single-node SeaweedFS instance (S3 / Filer, optional SMB/NFS) for **artifact
+  storage**, e.g. day-2 blueprint artifacts. Standalone — DAP does not depend on it. Can run on this host
+  or a separate one.
+- **`install velero`** — cluster backups via Velero with Longhorn CSI snapshots. Needs an S3 endpoint
+  (`VELERO_S3_URL` / `VELERO_S3_ACCESS_KEY` / `VELERO_S3_SECRET_KEY`) — a SeaweedFS S3 bucket is the
+  intended backend, so this typically follows `install swfs`.
+- **`install monitoring`** — kube-prometheus-stack + Fluent Bit. Requires `MONITORING_HOST` (and
+  references the SeaweedFS host FQDN for metrics).
+
+Suggested order when used: install `swfs` any time after `rke2`; install `velero` / `monitoring` after
+DAP is verified up.
+
 ## Scope — what this skill does NOT do
 - It does **not** provision infrastructure (VMs, networks, DNS zones) — you create those first; the
   skill tells you what to create.

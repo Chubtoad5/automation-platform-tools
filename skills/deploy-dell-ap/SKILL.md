@@ -12,6 +12,38 @@ You bring a Linux host (or hosts) and DNS; the skill does the rest.
 `ap-tools` runs as **root on the target host itself**. If you (the agent) are working from a different
 machine, SSH into the target to run each step.
 
+## Lead with this — show the user the shape of the job before interviewing
+
+Before the first intake question, give the user a quick orientation so they know what they are signing up
+for. Surface these three things up front (details in the linked references):
+
+**1. The phases you will run** (what actually happens, in order):
+
+| # | Phase | What runs | Where | Rough time |
+|:--|:--|:--|:--|:--|
+| 0 | Preflight | `scripts/preflight.sh` (OS/CPU/RAM/disk/DNS) | every node | seconds |
+| 1 | RKE2 cluster | `install rke2` (+`-tls-san` multi-node) | first node | 5–15 min |
+| 2 | Registry | `install harbor` **or** point at an external registry | first node / external | 0–10 min |
+| 3 | Join nodes *(multi-node)* | `join server …` on each extra node | nodes 2..N | 2–5 min/node |
+| 4 | Stage DAP bundle | `install ap-bundle -registry …` (writes `ap-install-upgrade-cmd.txt`) | a control-plane node | 5–40 min (download) |
+| 5 | Deploy DAP | run `install-upgrade.sh` from that file | same node | 20–40 min |
+| 6 | Verify | nodes/pods/portal smoke (don't trust exit 0) | from any node | minutes |
+
+**2. The hard prerequisites** (the install aborts without them — see [reference/prerequisites.md](reference/prerequisites.md)
+and [reference/dns-and-certs.md](reference/dns-and-certs.md)): the right-sized host(s); the four DNS records
+(`portal.` / `orchestrator.` / `mtls-orchestrator.` / `mtls-recovery-orchestrator.`) resolving **before** phase 4;
+a reachable OCI registry; accurate NTP; and — if you connect over SSH with a **password** — `sshpass` on **your**
+(controller) machine. Offer to install it (`apt-get install -y sshpass` / `dnf install -y sshpass`); with an SSH
+key you don't need it.
+
+**3. What to build if the host(s) don't exist yet** (you provision these — the skill does not):
+
+| Topology | Build | Per-node size | Extra |
+|:--|:--|:--|:--|
+| Single-node | 1 VM, static IP | **18 vCPU / 34 GB / 1 TB** (16/34/500 floor) | 4 DNS records → host IP |
+| Multi-node (3) | 3 VMs, static IPs | **16 vCPU / 20 GB / 500 GB+** each | + **1 free ingress VIP IP** (not a node IP); DNS split (see below) |
+| All-in-one | 1 VM | **20 vCPU / 40 GB / 1 TB** | co-locates Harbor+SeaweedFS |
+
 ## Run this skill in three phases — never install before intake is confirmed
 
 ### Phase A — Intake (gather requirements) FIRST
@@ -32,15 +64,39 @@ credentials — if something is missing, ask.
 Never skip RKE2 first. The exact flags and env vars are in
 [reference/commands.md](reference/commands.md) — read it; do not guess flag names.
 
-1. **RKE2 cluster** — `install rke2` (add `-tls-san <cluster-name>` for multi-node).
-2. **Registry** — either `install harbor` on this host, or point at an external registry you run.
+1. **RKE2 cluster** — `install rke2` (add `-tls-san <cluster-name>` for multi-node; set `CLUSTER_TYPE=multi-node`
+   and, for a dedicated ingress VIP, `LB_IP=<vip>` — see the multi-node box below).
+2. **Registry** — either `install harbor` on this host, or point at an external registry you run. If the
+   registry **already holds** the RKE2 images, pass `-registry` to `install rke2`; if it already holds the DAP
+   images, set `SKIP_IMAGES_LOADER=true` at phase 4 so the bundle step doesn't re-push them.
 3. *(multi-node only)* **join** each additional node — see [reference/topology.md](reference/topology.md).
+   **Join via a node IP** (the first server's IP), not the cluster/VIP name.
 4. **DAP bundle** — `install ap-bundle -registry <host:port> <user> <pass>` — stages the bundle.
+   **Multi-node: pass `HOST_FQDN=<cluster-name>`** so the portal/orchestrator FQDNs match the DNS you created
+   (see the box below) — otherwise the DNS pre-flight checks `portal.<hostname>` and aborts.
 5. **Run `install-upgrade.sh`** from the generated `ap-install-upgrade-cmd.txt` — this is what actually
-   deploys DAP (20–40 min).
+   deploys DAP (20–40 min). It inherits `EO_HOST`/`PORTAL_HOST` from the `HOST_FQDN` you set in step 4.
 6. **Smoke-verify** — see "Verify, don't trust exit codes" below.
 
-## The five things that trip people up
+### Multi-node: VIP, DNS split, and HOST_FQDN (read before phases 1/3/4)
+The single thing that most often breaks a multi-node install is conflating two different addresses:
+
+- **Ingress VIP (`LB_IP`)** — fronts the **portal/orchestrator HTTPS** only, via MetalLB. This is the *only*
+  VIP `ap-tools` manages. `portal.` / `orchestrator.` / `mtls-*` DNS point **here**.
+- **Cluster / API name (`-tls-san`)** — the Kubernetes API. **`ap-tools` does NOT load-balance the API server.**
+  This name must resolve to the **node IPs** (e.g. 3 A records, one per node), or to your own external LB — *never*
+  to the ingress VIP. Joining nodes connect to the API, so a cluster name pointing at the ingress VIP fails the join.
+
+So a 3-node cluster needs a **DNS split** (full example in [reference/dns-and-certs.md](reference/dns-and-certs.md)):
+
+| Name | Resolves to | Used by |
+|:--|:--|:--|
+| `portal.<cluster>` / `orchestrator.<cluster>` / `mtls-orchestrator.<cluster>` / `mtls-recovery-orchestrator.<cluster>` | **ingress VIP** (`LB_IP`) | DAP UI / device mTLS |
+| `<cluster>` (the bare `-tls-san` name) | **the node IPs** (round-robin) | Kubernetes API |
+
+Then: phase 1 `install rke2 -tls-san <cluster>` with `CLUSTER_TYPE=multi-node LB_IP=<vip>`; phase 3 `join server <first-node-IP> <token> -tls-san <cluster>`; phase 4 `HOST_FQDN=<cluster> install ap-bundle …`.
+
+## The six things that trip people up
 
 1. **`install ap-bundle` does NOT deploy DAP.** It stages the bundle and writes
    `ap-install-upgrade-cmd.txt`. You must then run the `install-upgrade.sh` command in that file.
@@ -49,11 +105,19 @@ Never skip RKE2 first. The exact flags and env vars are in
 3. **Order matters.** RKE2 first, then registry, then ap-bundle. ap-tools installs its own HAProxy
    ingress — do not point it at a pre-existing cluster that already has a different ingress controller.
 4. **DNS must resolve before `install ap-bundle`.** Its pre-flight aborts if the portal / orchestrator /
-   `mtls-` records don't resolve. See [reference/dns-and-certs.md](reference/dns-and-certs.md).
-5. **34 GB RAM, not 32.** RKE2 reserves ~2 GB; a 32 GB host fails the bundle's allocatable-capacity
-   check. See [reference/prerequisites.md](reference/prerequisites.md).
+   `mtls-` records don't resolve. **Multi-node:** it derives them from `HOST_FQDN`, so set
+   `HOST_FQDN=<cluster-name>` (step 4 above). See [reference/dns-and-certs.md](reference/dns-and-certs.md).
+5. **The VIP is for ingress, not the API.** `LB_IP` fronts only the portal/orchestrator. The `-tls-san`
+   cluster name must resolve to node IPs and you **join via a node IP** — see the multi-node box above.
+6. **34 GB RAM single-node, 20 GB/node multi-node — not 32 / not 16.** RKE2 reserves ~2 GB; a 32 GB single
+   host fails the bundle's allocatable check, and 16 GB/node wedges the Orchestrator. A node provisioned at
+   exactly the floor reports ~1 GB less (firmware/kernel reserve); the preflight tolerates that. See
+   [reference/prerequisites.md](reference/prerequisites.md).
 
 ## Reference material (read on demand)
+
+- [dap-deploy-template.env](dap-deploy-template.env) — a fill-in-the-blank worksheet for every intake
+  answer; offer it to the user to collect requirements (no secret values).
 
 - [reference/prerequisites.md](reference/prerequisites.md) — host sizing, supported OS, what YOU must
   provision (this skill does not create infrastructure).

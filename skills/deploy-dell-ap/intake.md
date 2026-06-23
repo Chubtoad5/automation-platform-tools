@@ -16,25 +16,44 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
 - **Authentication:** SSH key (path to the private key) **or** password? Ask which.
   - Verify reachability before proceeding, e.g.
     `ssh -o BatchMode=yes -o ConnectTimeout=5 <user>@<host> 'echo ok'`.
+  - **If password auth:** confirm `sshpass` is installed on **your (controller) machine** — you'll need it
+    to script the non-interactive SSH/SCP calls. Check with `command -v sshpass`; if missing, offer to install
+    it (`sudo apt-get install -y sshpass` / `sudo dnf install -y sshpass` / `sudo zypper install -y sshpass`).
+    With key auth you don't need it.
 - Confirm the user has **root / sudo** on each host.
 
 ## 3. Base domain + DNS
 - The base domain (e.g. `mydomain.lab`).
 - Confirm these A records resolve to the host IP (the `mtls-` ones are **mandatory**):
   `portal.<...>`, `orchestrator.<...>`, `mtls-orchestrator.<...>`, `mtls-recovery-orchestrator.<...>`.
-- **Multi-node:** also a shared cluster / API name to use as the `-tls-san` value.
-- **Multi-node ingress VIP:** ask whether to use a **dedicated floating VIP** (`LB_VIP`) — a free IP in the
+- **Multi-node:** also a shared cluster / API name to use as the `-tls-san` value. This name must resolve to
+  the **node IPs** (round-robin), not the ingress VIP — `ap-tools` does not load-balance the API server.
+- **Multi-node ingress VIP:** ask whether to use a **dedicated floating VIP** (`LB_IP`) — a free IP in the
   nodes' L2 subnet (outside any DHCP range), distinct from any node IP. Recommended for HA so the portal stays
-  reachable if a node fails. If used, the `portal.*`/`orchestrator.*` records must point at the **VIP**, not a
-  node IP. If declined, the ingress VIP defaults to the first node's IP (lost if that node goes down).
-  See [reference/topology.md](reference/topology.md).
-- A wildcard `*.<host>.<domain>` is the easiest way to satisfy all of these.
-  See [reference/dns-and-certs.md](reference/dns-and-certs.md).
+  reachable if a node fails. If used, the `portal.*`/`orchestrator.*`/`mtls-*` records must point at the **VIP**,
+  not a node IP. If declined, the ingress VIP defaults to the first node's IP (lost if that node goes down).
+  (`LB_VIP` is a deprecated alias for `LB_IP`.) See [reference/topology.md](reference/topology.md).
+- A wildcard `*.<cluster>` → the VIP covers the four service records, while the bare `<cluster>` name stays a
+  separate record set → the node IPs. See [reference/dns-and-certs.md](reference/dns-and-certs.md).
 
 ## 4. Container registry
 - Install Harbor via ap-tools on this host, **or** use an external OCI registry?
 - If external: `host:port`, username, password (by reference / at run time), and confirm the required
   project paths exist — see [reference/registry.md](reference/registry.md).
+- **Does the registry already hold the images?** Ask two things:
+  - **RKE2 / infra images** already mirrored? → pass `-registry` to `install rke2` so it pulls from the
+    registry instead of the internet.
+  - **DAP bundle images** already pushed? → set `SKIP_IMAGES_LOADER=true` at `install ap-bundle` so it
+    doesn't re-push the ~126 images. If unsure, leave it `false` (the loader is idempotent but slower).
+
+## 4b. DAP version + bundle source
+- **Which DAP version?** Default is the version pinned in `ap-tools` (`AP_BUNDLE_URL`, currently v2.0.0.0).
+  If the user wants a **different** version, ask for the bundle **URL** and pass it as `AP_BUNDLE_URL=<url>`.
+- **Is the bundle already staged on the host**, or should the tool download it?
+  - **Pre-staged:** place the `.zip` in the working dir and set `AP_BUNDLE_URL` to its filename/path — the
+    tool uses it instead of downloading (~19 GB saved).
+  - **Download:** the tool fetches `AP_BUNDLE_URL` during `install ap-bundle` (needs outbound internet;
+    ~19 GB, 5–40 min). See [reference/commands.md](reference/commands.md).
 
 ## 5. Identity / organization (for DAP setup)
 - Organization name and description.

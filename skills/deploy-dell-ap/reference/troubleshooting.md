@@ -23,8 +23,14 @@ Walk this tree top-down; most failures match the early branches.
    clean residual files → re-run.
 10. **Air-gap version skew** — save archives are OS-version-specific. Build the archive on a host
     matching the target's OS family **and** version.
-11. **Wrong join target** — join via a node IP or the `-tls-san` name; reuse the same `-registry` /
-    `-tls-san` on every node. See [topology.md](topology.md).
+11. **Wrong join target** — **join via the first server's node IP**, not the cluster/`-tls-san` name. That
+    name usually resolves to the **ingress VIP** (which doesn't serve the RKE2 API/supervisor port 9345 → the
+    `rke2-server` service fails to start) or round-robins across nodes. A node IP always works. Reuse the same
+    `-registry` / `-tls-san` on every node. See [topology.md](topology.md).
+11b. **`install ap-bundle` checks the wrong FQDNs (multi-node)** — the DNS pre-flight aborts on
+    `portal.<hostname>` / `orchestrator.<hostname>` because `HOST_FQDN` defaulted to the node's hostname. Fix:
+    re-run with `HOST_FQDN=<cluster-name>` so it checks `portal.<cluster-name>` etc. (the names your DNS
+    actually has). See [dns-and-certs.md](dns-and-certs.md).
 12. **Pods stuck in `Init:` with `exit status 32` / `Can't open blockdev`** — `multipathd` has claimed
     Longhorn's iSCSI `sd*` devices. Node prep disables/masks `multipathd` and blacklists `sd*`
     automatically; if you hit it on an existing/foreign node: `systemctl stop multipathd && multipath -F`,
@@ -34,8 +40,9 @@ Walk this tree top-down; most failures match the early branches.
     NTP sync state; if unsynced, set `NTP_SERVERS` and re-run node prep (`install rke2` / `join`) or fix the
     OS time source. Verify with `timedatectl`.
 14. **Ingress VIP unreachable after a node failure (multi-node)** — the VIP was a node IP. Use a dedicated
-    `LB_VIP` and repoint `portal.*`/`orchestrator.*` DNS at it so MetalLB can fail the VIP over. See
-    [topology.md](topology.md).
+    `LB_IP` and repoint `portal.*`/`orchestrator.*` DNS at it so MetalLB can fail the VIP over. Remember the
+    VIP is **ingress-only** — it is not the API server; the `-tls-san` cluster name still points at node IPs.
+    See [topology.md](topology.md).
 
 > Note: env-var overrides (`BASE_DOMAIN`, the identity vars, `SKIP_IMAGES_LOADER`, …) are honored on the
 > current `main`. If an override seems ignored, update your checkout rather than editing the script.

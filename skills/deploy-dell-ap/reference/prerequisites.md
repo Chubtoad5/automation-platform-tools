@@ -14,6 +14,18 @@ everywhere.
 | All-in-one single-node | **20 vCPU / 40 GB / 1 TB** | Only when co-locating a local Harbor + SeaweedFS with RKE2/DAP on one host. The extra CPU/RAM covers the registry + storage services; the larger disk holds the locally-pushed image set (`SKIP_IMAGES_LOADER=false`). |
 | Disk | 500 GB SSD | 1 TB recommended, especially for multi-node (Longhorn replicates volumes across nodes). |
 
+> **Provisioning the floor:** a host provisioned at *exactly* the RAM floor reports slightly less than
+> allocated (firmware/kernel reserve) — a "20 GB" node shows ~19 GiB, a "34 GB" node ~33 GiB. That is
+> expected; `scripts/preflight.sh` accepts a ~2 GiB tolerance so a correctly-sized node passes. If you have
+> the headroom, provisioning ~1 GB above the floor avoids any ambiguity.
+
+## Multi-node also needs a free ingress VIP IP
+Beyond the per-node IPs, a multi-node cluster needs **one extra free IP** in the nodes' L2 subnet (outside
+any DHCP range, not a node IP) for the **MetalLB ingress VIP** (`LB_IP`). The `portal.`/`orchestrator.`/`mtls-*`
+DNS records point at this VIP; the cluster/`-tls-san` name points at the node IPs. See
+[dns-and-certs.md](dns-and-certs.md) for the DNS split and [topology.md](topology.md) for why the VIP is
+ingress-only (not an API-server LB).
+
 ## Operating system
 x86_64 Linux. Supported `/etc/os-release` IDs:
 `ubuntu, debian, rhel, centos, rocky, almalinux, fedora, sles, opensuse-leap`.

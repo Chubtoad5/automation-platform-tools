@@ -5,8 +5,8 @@
 # Global Variables
 DEBUG=1                                                # Debug mode 1=enabled 0=disabled
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
-LB_IP=${LB_IP:-$MGMT_IP}                               # LoadBalancer VIP for ingress (MetalLB pool); defaults to MGMT_IP for single-node
-LB_VIP=${LB_VIP:-}                                     # Optional dedicated floating ingress VIP for multi-node (free IP in the nodes' L2 subnet); if unset, falls back to LB_IP
+LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB pool) for portal/orchestrator. Single-node: defaults to MGMT_IP. Multi-node: set to a dedicated free L2 IP (not a node IP). NOT an API-server load balancer.
+LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
 NTP_SERVERS=${NTP_SERVERS:-}                           # Optional space/comma-separated NTP server list applied during 'install rke2'/'join' and verified during 'install ap-bundle'; empty = leave the OS default time source unchanged
 BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
 HOST_FQDN="${HOST_FQDN:-$(hostname).$BASE_DOMAIN}"     # Host FQDN for Automation Platform, Harbor, and SeaweedFS
@@ -14,7 +14,7 @@ SWFS_HARBOR_USER="${SWFS_HARBOR_USER:-admin}"          # Username for Harbor and
 SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and SeaweedFS basic auth
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL=https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip
+AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir
 DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
 REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
@@ -625,7 +625,7 @@ verify_longhorn_csi_registration () {
 }
 
 helm_install_metallb () {
-  local pool_ip="${LB_VIP:-$LB_IP}"
+  local pool_ip="$LB_IP"   # LB_IP already folds in the deprecated LB_VIP alias (see top of script)
   cat << EOF > $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool

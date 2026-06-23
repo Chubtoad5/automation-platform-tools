@@ -43,12 +43,15 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 |:--|:--|:--|
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain for all service FQDNs. |
 | `CLUSTER_TYPE` | `single-node` | Set `multi-node` before the first `install rke2`. |
-| `LB_VIP` | _(empty)_ | Multi-node: dedicated floating ingress VIP (free L2 IP, not a node IP). Falls back to the node IP when empty. |
+| `HOST_FQDN` | `<hostname>.<BASE_DOMAIN>` | Base FQDN the portal/orchestrator/`mtls-*` names derive from. **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (else the pre-flight checks `portal.<hostname>` and aborts). |
+| `LB_IP` | host `MGMT_IP` | The MetalLB **ingress** VIP (portal/orchestrator HTTPS). Single-node: leave default (= host IP). Multi-node: set to a dedicated free L2 IP (not a node IP). **Not** an API-server LB. |
+| `LB_VIP` | _(empty)_ | **Deprecated alias for `LB_IP`** — still honored if set, but prefer `LB_IP`. |
 | `NTP_SERVERS` | _(empty)_ | NTP server(s) to configure on every node (`install rke2`/`join`) and verify at `install ap-bundle`. Empty = OS default. |
 | `RKE2_VERSION` | `v1.34.5+rke2r1` | RKE2 release to install. |
+| `AP_BUNDLE_URL` | pinned (v2.0.0.0) | DAP bundle URL. Override to deploy a different version, or point at a pre-staged `.zip` filename in the working dir to skip the download. |
 | `ORG_NAME` / `ORG_DESC` | `changeme` | DAP organization identity. |
 | `FIRST_NAME` / `LAST_NAME` / `USERNAME` / `EMAIL` | see README | DAP admin identity. |
-| `SKIP_IMAGES_LOADER` | `false` | `true` if the DAP images are already in your registry. |
+| `SKIP_IMAGES_LOADER` | `false` | `true` if the DAP images are already in your registry (skips re-pushing ~126 images at `install ap-bundle`). |
 | `DOWNLOAD_AP_BUNDLE` | `false` | `true` to download the (~19 GB) bundle during offline-prep/install. |
 | `MGMT_IP` | auto-detected | Override on multi-homed hosts. |
 

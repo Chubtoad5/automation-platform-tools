@@ -311,11 +311,11 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 |:---------|:--------|:------------|
 | `DEBUG` | `1` | Debug output. `1` = verbose, `0` = suppress helper output. |
 | `MGMT_IP` | Auto-detected (`hostname -I`) | Primary management IP. Used as the RKE2 node-ip and service bind address. Override for multi-homed hosts. |
-| `LB_IP` | `$MGMT_IP` | LoadBalancer VIP for ingress (MetalLB pool). Defaults to the node's own IP — correct for single-node. |
-| `LB_VIP` | _(empty)_ | **Multi-node:** optional dedicated floating ingress VIP — a free IP in the nodes' L2 subnet, outside any DHCP range. When set it becomes the MetalLB pool address so the portal/orchestrator stay reachable if the VIP's current owner node fails (MetalLB re-elects a speaker). When empty, falls back to `LB_IP`. Point `portal.*`/`orchestrator.*` DNS at this VIP, not a node IP. |
+| `LB_IP` | `$MGMT_IP` | **Ingress** VIP for the portal/orchestrator (MetalLB pool) — *not* an API-server load balancer. Single-node: defaults to the node's own IP (leave it). **Multi-node:** set to a dedicated free IP in the nodes' L2 subnet (outside DHCP, not a node IP) so the portal/orchestrator stay reachable if the owning node fails (MetalLB re-elects a speaker). Point `portal.*`/`orchestrator.*`/`mtls-*` DNS at it. |
+| `LB_VIP` | _(empty)_ | **Deprecated alias for `LB_IP`** — still honored if set (it overrides `LB_IP`), but prefer `LB_IP`. |
 | `NTP_SERVERS` | _(empty)_ | Optional space/comma-separated NTP server list. When set, it is applied during `install rke2` and every `join` (chrony if present, else systemd-timesyncd) and re-verified during `install ap-bundle`. Clock skew across nodes breaks etcd, TLS, and DAP tokens. When empty, the OS default time source is left unchanged. |
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain appended to hostnames. |
-| `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` | Fully qualified hostname for AP, Harbor, and SeaweedFS service FQDNs. |
+| `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` | Base FQDN the portal/orchestrator/`mtls-*` names derive from. **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (otherwise the pre-flight checks `portal.<hostname>` and aborts). |
 | `SWFS_HARBOR_USER` | `admin` | Shared username for Harbor and SeaweedFS basic auth. |
 | `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. |
 
@@ -714,13 +714,27 @@ When using a private registry, all required container images must exist on the r
 - Use `join` only against RKE2 clusters of the same version. Joining a cluster not created by this script may cause configuration conflicts.
 - If the initial install used `-registry`, all joined nodes must also specify `-registry`.
 - If the initial install used `-tls-san`, all joined server nodes must also specify `-tls-san`.
-- **Join address rule:** join via a node **IP** or the `-tls-san` name — not a node's own FQDN. RKE2 auto-adds only the short hostname and `-tls-san` entries to the API server certificate, so joining via `<node>.<domain>` fails an x509 SAN check.
+- **Join address rule:** **join via the first server's node IP** — e.g. `join server 10.0.0.11 <token> -tls-san <cluster>`. Do **not** join via the cluster/`-tls-san` name: that name should resolve to the **ingress VIP** (which does not serve the RKE2 API/supervisor port 9345 → `rke2-server` fails to start) or round-robin across nodes — both make it an unreliable join target. Also never join via a node's own FQDN (RKE2 adds only the short hostname and `-tls-san` entries to the API cert, so `<node>.<domain>` fails an x509 SAN check). A node IP always works.
+- **Set `HOST_FQDN=<cluster-name>` on `install ap-bundle`** so the portal/orchestrator/`mtls-*` FQDNs match the DNS that points at the ingress VIP. Without it, the bundle pre-flight checks `portal.<hostname>` and aborts.
+
+### Multi-Node DNS (the VIP vs. API split)
+
+Multi-node has **two distinct addresses** that must be different records — conflating them is the most common multi-node failure:
+
+| Name | Resolves to | Used by |
+|:-----|:------------|:--------|
+| `portal.<cluster>`, `orchestrator.<cluster>`, `mtls-orchestrator.<cluster>`, `mtls-recovery-orchestrator.<cluster>` | **ingress VIP** (`LB_IP`) | DAP Portal / Orchestrator / device mTLS |
+| `<cluster>` (the bare `-tls-san` name) | **the node IPs** (one A record each, round-robin) | Kubernetes API |
+
+- The ingress VIP (`LB_IP`) is the **only** VIP this tool manages; it fronts HTTPS ingress, **not** the Kubernetes API server.
+- The cluster/`-tls-san` name must point at the **node IPs** (or your own external API load balancer) — never the ingress VIP, or node joins fail. DNS round-robin is adequate API "HA" for labs (no health-checking); for production API HA, front the API with a real load balancer and use its VIP as `-tls-san`.
+- A `*.<cluster>` wildcard → the VIP cleanly covers the four service records, while the bare `<cluster>` name stays a separate record set → the node IPs (a wildcard does not match the bare name). Example — cluster `cl.example.lab`, nodes `.11/.12/.13`, VIP `.20`: `cl.example.lab` → A `.11`,`.12`,`.13`; `*.cl.example.lab` → A `.20`. Then install with `-tls-san cl.example.lab`, `LB_IP=.20`, and `HOST_FQDN=cl.example.lab` on `install ap-bundle`.
 
 ### Multi-Node Resilience
 
 For a cluster that tolerates a single node failure without manual recovery:
 
-- **Floating ingress VIP** — set `LB_VIP` to a dedicated free IP in the nodes' L2 subnet (not a node IP) and point `portal.*`/`orchestrator.*` DNS at it. MetalLB announces the VIP from one node and re-elects a new speaker within seconds if that node fails, so the portal stays reachable. With the default (`LB_IP` = a single node's IP) the VIP would be lost while that node is down.
+- **Floating ingress VIP** — set `LB_IP` to a dedicated free IP in the nodes' L2 subnet (not a node IP) and point `portal.*`/`orchestrator.*`/`mtls-*` DNS at it. MetalLB announces the VIP from one node and re-elects a new speaker within seconds if that node fails, so the portal stays reachable. Left at its default (`LB_IP` = a single node's IP) the VIP would be lost while that node is down. This VIP fronts **ingress only** — the Kubernetes API is not load-balanced by this tool, so the `-tls-san` cluster name must resolve to the node IPs (see "Multi-node DNS" below), not this VIP.
 - **Automatic pod recovery** — on multi-node installs Longhorn is configured with `nodeDownPodDeletionPolicy: delete-statefulset-pod`. When a node fails ungracefully, StatefulSet pods on the dead node are deleted automatically so replacements can start on healthy nodes without manual force-deletion (which otherwise blocks on `Multi-Attach` errors).
 - **CSI registration check** — after Longhorn installs, `install rke2` verifies the `driver.longhorn.io` CSI driver registered on every node and bounces `longhorn-csi-plugin` if a node's `CSINode` is empty (a known post-rejoin condition that otherwise fails all volume attaches).
 

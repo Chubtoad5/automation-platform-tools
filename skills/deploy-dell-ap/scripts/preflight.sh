@@ -17,11 +17,15 @@
 set -u
 
 MIN_CPU=16
-MIN_RAM_GB=34          # 34, not 32: RKE2 reserves ~2GB; the bundle pre-check measures allocatable.
+MIN_RAM_GB=34          # single-node floor. 34, not 32: RKE2 reserves ~2GB; the bundle pre-check measures allocatable.
+MIN_RAM_GB_MULTI=20    # per-node floor for a 3-node cluster (16 GB/node wedges the Orchestrator install).
+RAM_TOLERANCE_GB=2     # a VM "allocated" N GiB presents MemTotal a bit under N (firmware/kernel reserve);
+                       # accept mem >= floor - tolerance so a real 20 GB node (shows ~19) passes while 16 still fails.
 MIN_DISK_GB=500
 DISK_PATH="/"
 DNS_NAMES=""
 MULTI_NODE=0
+RAM_EXPLICIT=0
 SKIP_DNS=0
 SKIP_RES=0
 
@@ -35,7 +39,7 @@ while [ $# -gt 0 ]; do
     --dns)            DNS_NAMES="$2"; shift 2 ;;
     --multi-node)     MULTI_NODE=1; shift ;;
     --cpu)            MIN_CPU="$2"; shift 2 ;;
-    --ram-gb)         MIN_RAM_GB="$2"; shift 2 ;;
+    --ram-gb)         MIN_RAM_GB="$2"; RAM_EXPLICIT=1; shift 2 ;;
     --disk-gb)        MIN_DISK_GB="$2"; shift 2 ;;
     --disk-path)      DISK_PATH="$2"; shift 2 ;;
     --skip-dns)       SKIP_DNS=1; shift ;;
@@ -46,7 +50,11 @@ while [ $# -gt 0 ]; do
 done
 
 echo "== ap-tools / Dell AP preflight =="
-[ "$MULTI_NODE" -eq 1 ] && echo "(multi-node mode: run this on every node)"
+# Multi-node uses a lower per-node RAM floor (20 GB) unless the caller set --ram-gb explicitly.
+if [ "$MULTI_NODE" -eq 1 ]; then
+  echo "(multi-node mode: run this on every node)"
+  [ "$RAM_EXPLICIT" -eq 0 ] && MIN_RAM_GB="$MIN_RAM_GB_MULTI"
+fi
 
 # --- OS support ---------------------------------------------------------------
 echo "Operating system:"
@@ -76,8 +84,11 @@ if [ "$SKIP_RES" -eq 0 ]; then
   if [ -r /proc/meminfo ]; then
     mem_kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
     mem_gb=$(( mem_kb / 1024 / 1024 ))
-    if [ "$mem_gb" -ge "$MIN_RAM_GB" ]; then pass_msg "RAM: ${mem_gb} GB (>= ${MIN_RAM_GB})"
-    else fail_msg "RAM: ${mem_gb} GB (need >= ${MIN_RAM_GB}; use 34 not 32)"; fi
+    ram_floor=$(( MIN_RAM_GB - RAM_TOLERANCE_GB ))
+    # MemTotal is always a bit under the VM's allocated RAM (firmware/kernel reserve), so a host
+    # provisioned with exactly MIN_RAM_GB reports slightly less. Accept down to the tolerance floor.
+    if [ "$mem_gb" -ge "$ram_floor" ]; then pass_msg "RAM: ${mem_gb} GB (target ${MIN_RAM_GB}, tolerance ${RAM_TOLERANCE_GB})"
+    else fail_msg "RAM: ${mem_gb} GB (need ~${MIN_RAM_GB}; a ${MIN_RAM_GB} GB VM reports ~$(( MIN_RAM_GB - 1 )); this is below the ${ram_floor} GB floor)"; fi
   else
     warn_msg "cannot read /proc/meminfo — RAM not checked"
   fi

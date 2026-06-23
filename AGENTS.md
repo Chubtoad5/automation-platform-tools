@@ -17,6 +17,10 @@ Playbook is at [`devin/deploy-dell-ap.devin.md`](devin/deploy-dell-ap.devin.md).
   generated `install-upgrade.sh`. `install ap-bundle` stages the bundle but does **not** deploy DAP by
   itself.
 - Exit code 0 is not proof of success — verify nodes, pods, and the portal after install.
+- **Multi-node:** `portal.`/`orchestrator.`/`mtls-*` DNS point at the ingress VIP (`LB_IP`); the cluster
+  `-tls-san` name points at the **node IPs** (the VIP is ingress-only, not an API LB). Join via a node IP,
+  and set `HOST_FQDN=<cluster-name>` on `install ap-bundle`. See the skill's `reference/dns-and-certs.md`.
+- A fill-in intake worksheet lives at `skills/deploy-dell-ap/dap-deploy-template.env`.
 - Never commit secrets. Pass registry and SSH credentials at run time, not in files.
 - The companion installers (`rke2-installer`, `harbor-registry-installer`, `seaweedfs-installer`,
   `images-pull-push`, `install-packages`) are separate Chubtoad5 repositories that `ap-tools` fetches

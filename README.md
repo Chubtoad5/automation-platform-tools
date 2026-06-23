@@ -396,6 +396,7 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 | `SWFS_FILER_PORT` | `8888` | SeaweedFS Filer port. |
 | `SWFS_S3_PORT` | `8333` | SeaweedFS S3 port. |
 | `S3_BUCKET` | `velero` | Default S3 bucket created at startup. |
+| `EXTRA_BUCKETS` | `""` | Space-separated list of additional S3 buckets to pre-create on the SeaweedFS host (forwarded to `install-seaweedfs`). Useful for per-cluster Velero buckets. |
 | `DEFAULT_FILER_DIR_NAME` | `artifacts` | Default Filer directory name. |
 | `ARTIFACTS_TO_DOWNLOAD` | *(URLs in script)* | Space-separated URLs of artifacts downloaded into the Filer directory. |
 | `ENABLE_MONITORING` | `true` | Expose Prometheus metrics from the SeaweedFS instance. |
@@ -407,7 +408,7 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 |:---------|:--------|:------------|
 | `VELERO_VERSION` | `v1.17.1` | Velero release version. |
 | `VELERO_AWS_PLUGIN_VERSION` | `v1.13.0` | Velero AWS S3 plugin version. |
-| `VELERO_BUCKET` | `velero` | S3 bucket for backup storage. |
+| `VELERO_BUCKET` | `velero` | S3 bucket for backup storage. In a multi-cluster environment set this per cluster (e.g. to match `CLUSTER_NAME`) to avoid backup collision. `install velero` warns if left at the default `velero` while `CLUSTER_NAME` is customised. |
 | `VELERO_S3_URL` | *(empty)* | **Required.** SeaweedFS S3 endpoint (e.g., `https://s3.example.com:8333`). |
 | `VELERO_S3_ACCESS_KEY` | *(empty)* | **Required.** S3 access key for the Velero bucket. |
 | `VELERO_S3_SECRET_KEY` | *(empty)* | **Required.** S3 secret key for the Velero bucket. |

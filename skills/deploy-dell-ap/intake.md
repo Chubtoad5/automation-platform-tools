@@ -83,10 +83,17 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
   also wants any of them; install after DAP is verified up. See "Optional add-ons" in
   [SKILL.md](SKILL.md) and [reference/commands.md](reference/commands.md).
   - **SeaweedFS** (`install swfs`) — artifact storage (S3 / Filer, optional SMB/NFS), e.g. day-2
-    blueprint artifacts.
+    blueprint artifacts. **Multi-cluster:** to back up several clusters to one SeaweedFS, pre-create a
+    bucket per cluster in one pass with `EXTRA_BUCKETS="<id1> <id2> …"` on the swfs install.
   - **Velero** (`install velero`) — cluster backups; needs an S3 endpoint (a SeaweedFS bucket is the
-    intended backend).
-  - **Monitoring** (`install monitoring`) — kube-prometheus-stack + Fluent Bit.
+    intended backend) via `VELERO_S3_URL` / `VELERO_S3_ACCESS_KEY` / `VELERO_S3_SECRET_KEY`.
+    **Multi-cluster: give each cluster its own bucket** — set `VELERO_BUCKET=<cluster-id>` (match
+    `CLUSTER_NAME`). The installer prints a warning if `VELERO_BUCKET` is left at the default `velero`
+    while `CLUSTER_NAME` is customised (avoids backup collision / an `Unavailable` BSL). Ask for the
+    cluster id when velero is wanted in a multi-cluster environment.
+  - **Monitoring** (`install monitoring`) — kube-prometheus-stack + Fluent Bit. Needs `MONITORING_HOST`
+    (the shared SeaweedFS monitoring host running Loki/Grafana/Prometheus); `CLUSTER_NAME` labels this
+    cluster's metrics and logs so multiple clusters can be filtered apart in Grafana/Loki.
 
 ---
 

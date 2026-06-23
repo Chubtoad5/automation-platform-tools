@@ -149,9 +149,13 @@ None of these are required to deploy DAP, and DAP never consumes them at install
   or a separate one.
 - **`install velero`** — cluster backups via Velero with Longhorn CSI snapshots. Needs an S3 endpoint
   (`VELERO_S3_URL` / `VELERO_S3_ACCESS_KEY` / `VELERO_S3_SECRET_KEY`) — a SeaweedFS S3 bucket is the
-  intended backend, so this typically follows `install swfs`.
-- **`install monitoring`** — kube-prometheus-stack + Fluent Bit. Requires `MONITORING_HOST` (and
-  references the SeaweedFS host FQDN for metrics).
+  intended backend, so this typically follows `install swfs`. **Multi-cluster:** give each cluster its own
+  bucket — set `VELERO_BUCKET=<cluster-id>` (and `CLUSTER_NAME` to match). The installer prints a warning if
+  `VELERO_BUCKET` is left at the default `velero` while `CLUSTER_NAME` is customised. Pre-create the buckets
+  on SeaweedFS with `EXTRA_BUCKETS="<id1> <id2> …"` on `install swfs`.
+- **`install monitoring`** — kube-prometheus-stack + Fluent Bit. Requires `MONITORING_HOST` (the shared
+  SeaweedFS host running Loki/Grafana/Prometheus). **Multi-cluster:** set `CLUSTER_NAME=<cluster-id>` so
+  this cluster's metrics and logs are labelled and can be filtered apart from other clusters in Grafana/Loki.
 
 Suggested order when used: install `swfs` any time after `rke2`; install `velero` / `monitoring` after
 DAP is verified up.

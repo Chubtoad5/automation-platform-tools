@@ -43,6 +43,25 @@ Walk this tree top-down; most failures match the early branches.
     `LB_IP` and repoint `portal.*`/`orchestrator.*` DNS at it so MetalLB can fail the VIP over. Remember the
     VIP is **ingress-only** — it is not the API server; the `-tls-san` cluster name still points at node IPs.
     See [topology.md](topology.md).
+15. **`install-upgrade.sh` aborts with "Invalid parameter format" / a multi-word value splits** — the
+    generated `ap-install-upgrade-cmd.txt` quotes values on the current `ap-tools`; on an **older checkout**
+    a multi-word `ORG_DESC`/`FIRST_NAME` is emitted unquoted (e.g. `ORG_DESC=Acme Edge Team`) and word-splits
+    on run. Fix: quote each multi-word value when you run the block (`ORG_DESC="Acme Edge Team"`), or update
+    `ap-tools`.
+16. **DAP pods stall in `CreateContainerConfigError` / `Init:0/1` (multi-node)** — DAP bootstraps through a
+    long secret/config dependency cascade (cert-manager mTLS secrets → NATS → postgres → keycloak client
+    creds). A pod can sit in kubelet's **config-error backoff** for minutes *after* its secret/configmap
+    actually exists. This is normal for a multi-node bring-up. First confirm the dependency is really present
+    (`kubectl get secret/configmap …`), then `kubectl delete pod <stuck-pod>` — the controller recreates it
+    and it mounts cleanly, clearing the backoff. Watch, don't assume the installer's wait will always ride
+    it out.
+17. **`ReplicaSchedulingFailure: insufficient storage` (multi-node Longhorn)** — large replica-3 volumes
+    (e.g. OpenSearch/vmstorage, tens of GB each) can fail to schedule on **500 GB-class nodes**: the tool sets
+    Longhorn `storage-over-provisioning-percentage=200`, and DAP's total scheduled allocation can exceed that
+    against a 500–600 GB disk. Remedy: provision **≥1 TB/node** (recommended for multi-node), or raise the
+    setting — `kubectl patch settings.longhorn.io storage-over-provisioning-percentage --type=merge -p '{"value":"400"}'`
+    (Longhorn volumes are thin-provisioned, so real usage stays far below the allocation). See
+    [prerequisites.md](prerequisites.md).
 
 > Note: env-var overrides (`BASE_DOMAIN`, the identity vars, `SKIP_IMAGES_LOADER`, …) are honored on the
 > current `main`. If an override seems ignored, update your checkout rather than editing the script.

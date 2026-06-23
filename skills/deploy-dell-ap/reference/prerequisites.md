@@ -19,6 +19,12 @@ everywhere.
 > expected; `scripts/preflight.sh` accepts a ~2 GiB tolerance so a correctly-sized node passes. If you have
 > the headroom, provisioning ~1 GB above the floor avoids any ambiguity.
 
+> **Multi-node disk:** prefer **≥1 TB/node**. At the 500–600 GB floor, DAP's large replica-3 Longhorn
+> volumes (OpenSearch, vmstorage) can hit `ReplicaSchedulingFailure: insufficient storage` because the tool
+> sets Longhorn over-provisioning to 200%. If you must run smaller disks, raise
+> `storage-over-provisioning-percentage` (e.g. to 400 — volumes are thin-provisioned, so real usage stays
+> low). See [troubleshooting.md](troubleshooting.md) #17.
+
 ## Multi-node also needs a free ingress VIP IP
 Beyond the per-node IPs, a multi-node cluster needs **one extra free IP** in the nodes' L2 subnet (outside
 any DHCP range, not a node IP) for the **MetalLB ingress VIP** (`LB_IP`). The `portal.`/`orchestrator.`/`mtls-*`

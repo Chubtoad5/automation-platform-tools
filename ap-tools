@@ -63,20 +63,20 @@ ENABLE_MONITORING="true"
 MON_CLUSTER_NAME=${MON_CLUSTER_NAME:-"edge-lab"}
 
 # Velero Backup Configuration
-VELERO_VERSION="v1.18.0"
-VELERO_AWS_PLUGIN_VERSION="v1.14.0"
+VELERO_VERSION=${VELERO_VERSION:-"v1.18.0"}
+VELERO_AWS_PLUGIN_VERSION=${VELERO_AWS_PLUGIN_VERSION:-"v1.14.0"}
 VELERO_BUCKET=${VELERO_BUCKET:-"velero"}
-VELERO_S3_URL=""                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
-VELERO_S3_ACCESS_KEY=""              # SeaweedFS S3 access key
-VELERO_S3_SECRET_KEY=""              # SeaweedFS S3 secret key
-VELERO_BACKUP_TTL="720h"             # Backup retention (30 days)
-VELERO_BACKUP_SCHEDULE="0 2 * * *"   # Daily at 2 AM
-VSC_NAME="longhorn-snapshot-vsc"     # VolumeSnapshotClass name for Longhorn CSI snapshots
-VSC_DRIVER="driver.longhorn.io"      # CSI driver name for the VolumeSnapshotClass
-VELERO_BACKUP_NAMESPACES="dell-portal,dell-orchestrator,haproxy-controller,metallb-system"
+VELERO_S3_URL=${VELERO_S3_URL:-""}                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
+VELERO_S3_ACCESS_KEY=${VELERO_S3_ACCESS_KEY:-""}       # SeaweedFS S3 access key
+VELERO_S3_SECRET_KEY=${VELERO_S3_SECRET_KEY:-""}       # SeaweedFS S3 secret key
+VELERO_BACKUP_TTL=${VELERO_BACKUP_TTL:-"720h"}         # Backup retention (30 days)
+VELERO_BACKUP_SCHEDULE=${VELERO_BACKUP_SCHEDULE:-"0 2 * * *"}   # Daily at 2 AM
+VSC_NAME=${VSC_NAME:-"longhorn-snapshot-vsc"}          # VolumeSnapshotClass name for Longhorn CSI snapshots
+VSC_DRIVER=${VSC_DRIVER:-"driver.longhorn.io"}         # CSI driver name for the VolumeSnapshotClass
+VELERO_BACKUP_NAMESPACES=${VELERO_BACKUP_NAMESPACES:-"dell-portal,dell-orchestrator,haproxy-controller,metallb-system"}
 
 # Monitoring Configuration
-MONITORING_HOST=""
+MONITORING_HOST=${MONITORING_HOST:-""}
 CLUSTER_NAME=${CLUSTER_NAME:-"edge-lab"}               # Cluster label for metrics and logs
 KUBE_PROMETHEUS_STACK_VERSION=84.5.0  # kube-prometheus-stack Helm chart version
 FLUENT_BIT_CHART_VERSION=0.57.3       # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)

@@ -17,7 +17,7 @@ ap-tools [COMMAND] [OPTIONS]
 | `install rke2` | RKE2 cluster + MetalLB + HAProxy ingress + Longhorn + k9s | none (optional `-tls-san`, `-registry`, `push`) |
 | `install harbor` | Harbor registry with self-signed certs + projects | none |
 | `install swfs` | Single-node SeaweedFS (S3 / Filer, optional SMB/NFS) | none (optional `-registry`, `push`) |
-| `install velero` | Velero backups to a SeaweedFS S3 bucket | `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, `VELERO_S3_SECRET_KEY` |
+| `install velero` | Velero backups to a SeaweedFS S3 bucket | `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, `VELERO_S3_SECRET_KEY` (multi-cluster: also `VELERO_BUCKET=<cluster-id>`) |
 | `install monitoring` | kube-prometheus-stack + Fluent Bit | `MONITORING_HOST` |
 | `install ap-bundle` | Stage the DAP bundle; emit `ap-install-upgrade-cmd.txt` | `-registry <host:port> <user> <pass>` |
 | `offline-prep` | Build `ap-offline.tar.gz` for air-gapped install | none (needs internet) |

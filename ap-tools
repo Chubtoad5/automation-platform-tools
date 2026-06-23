@@ -551,7 +551,11 @@ defaultSettings:
   defaultDataLocality: best-effort
   nodeDownPodDeletionPolicy: delete-statefulset-pod
   storageReservedPercentageForDefaultDisk: 10
-  storageOverProvisioningPercentage: 200
+  # 400, not 200: over-provisioning is a soft *scheduling* gate (virtual/requested capacity), not a fill
+  # cap. DAP's replica-3 footprint is ~1 TiB virtual/node; on 500-600 GiB-class disks 200% (~970 GiB
+  # allowance) is too low and large volumes hit ReplicaSchedulingFailure. 400% fits the whole supported
+  # disk range with margin; storageMinimalAvailablePercentage below is the real physical guard against fill.
+  storageOverProvisioningPercentage: 400
   storageMinimalAvailablePercentage: 10
 EOF
   fi

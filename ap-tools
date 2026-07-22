@@ -314,15 +314,7 @@ run_install_join_push () {
     run_debug configure_node_sysctl
     run_debug configure_node_ntp
   fi
-  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      longhorn_packages="nfs-common open-iscsi cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      longhorn_packages="nfs-client open-iscsi cryptsetup"
-    fi
-  fi
+  set_longhorn_packages
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
     if [[ ! -d $base_dir/ap-install ]]; then
       echo "Error: Air-gapped archive detected, but 'ap-install' directory not found. Extract with 'tar xzf ap-offline.tar.gz' first."
@@ -379,13 +371,9 @@ run_install_join_push () {
     fi
     echo "  Finished installing dependancy helm charts"
     if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      echo "  Downloading k9s..."
-      mkdir -p $WORKING_DIR/ap-utilities/k9s || true
-      curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
+      download_k9s
     fi
-    echo "  Installing k9s..."
-    tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
-    cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/bin/k9s || true
+    install_k9s
   fi
 }
 
@@ -411,8 +399,8 @@ run_install_swfs () {
     swfs_cmd_args="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
   fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs &>/dev/null || true
-    chmod +x install-seaweedfs
+    fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
+      "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
   else
     for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
       tar xzf $file
@@ -429,8 +417,8 @@ run_install_swfs () {
 run_install_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
-      chmod +x install_harbor.sh
+      fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
+        "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
   else
       for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
         tar xzf $file
@@ -744,8 +732,7 @@ extract_ap_bundle () {
 
 ap_host_config () {
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    echo "  Downloading support log collector tool..."
-    curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
+    download_support_tool
   fi
   configure_node_sysctl
 }
@@ -845,40 +832,29 @@ run_offline_prep () {
 }
 
 download_swfs () {
-  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
-  chmod +x $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
+    "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
   cd $WORKING_DIR/ap-utilities/swfs
   ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
   cd $base_dir
 }
 
 download_harbor () {
+  fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
+    "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
   cd $WORKING_DIR/ap-utilities/harbor
-  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
-  chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
 }
 
 download_ap_packages () {
-  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      longhorn_packages="nfs-common open-iscsi cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      longhorn_packages="nfs-client open-iscsi cryptsetup"
-    fi
-  fi
+  set_longhorn_packages
   install_packages_check
   cd $WORKING_DIR/ap-utilities/packages
   ./install_packages.sh save jq zip unzip hostname bc openssl $longhorn_packages
   cd $base_dir
-  echo "  Downloading support log collector tool..."
-  curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
-  echo "  Downloading k9s..."
-  mkdir -p $WORKING_DIR/ap-utilities/k9s || true
-  curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
+  download_support_tool
+  download_k9s
 }
 
 download_rke2 () {
@@ -1181,27 +1157,98 @@ os_check () {
     fi
 }
 
-install_packages_check () {
-    if [[ ! -f $WORKING_DIR/ap-utilities/packages/install_packages.sh ]]; then
-        echo "  Downloading install_packages.sh..."
-        curl -sfL https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh  -o $WORKING_DIR/ap-utilities/packages/install_packages.sh
-        chmod +x $WORKING_DIR/ap-utilities/packages/install_packages.sh
+fetch_subtool () {
+    # AP-7/AP-8/AP-23: single fetcher for every sub-installer script.
+    # $1 = destination path, $2 = raw URL, $3 = branch to record for cache invalidation.
+    # - curl -f: an HTTP error (404 on a bad branch, etc.) FAILS instead of saving an
+    #   HTML error page that would later be executed as a script (AP-7).
+    # - temp file + mv: an interrupted fetch never leaves a partial script behind.
+    # - The branch is recorded next to the cached file; requesting a different branch
+    #   triggers a refetch (AP-8). Cached files without a record are treated as 'main'.
+    local dest="$1" url="$2" branch="${3:-main}"
+    local branch_file
+    branch_file="$(dirname "$dest")/.$(basename "$dest").branch"
+    if [[ -f "$dest" ]]; then
+        local cached_branch="main"
+        [[ -f "$branch_file" ]] && cached_branch=$(cat "$branch_file")
+        if [[ "$cached_branch" == "$branch" ]]; then
+            return 0
+        fi
+        echo "  Cached $(basename "$dest") came from branch '$cached_branch' but '$branch' was requested; refetching..."
     fi
+    echo "  Downloading $(basename "$dest") (branch: $branch)..."
+    if ! curl -fsSL "$url" -o "$dest.tmp"; then
+        echo "Error: failed to download $url"
+        echo "  Check the branch name and internet connectivity, then retry."
+        rm -f "$dest.tmp"
+        exit 1
+    fi
+    mv "$dest.tmp" "$dest"
+    chmod +x "$dest"
+    echo "$branch" > "$branch_file"
+}
+
+install_packages_check () {
+    fetch_subtool "$WORKING_DIR/ap-utilities/packages/install_packages.sh" \
+      "https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh" main
 }
 
 image_pull_push_check () {
-    if [[ ! -f $WORKING_DIR/ap-utilities/images/image_pull_push.sh ]]; then
-        echo "  Downloading image_pull_push.sh..."
-        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/ap-utilities/images/image_pull_push.sh
-        chmod +x $WORKING_DIR/ap-utilities/images/image_pull_push.sh
-    fi
+    fetch_subtool "$WORKING_DIR/ap-utilities/images/image_pull_push.sh" \
+      "https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh" main
 }
 
 rke2_installer_check () {
-    if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
-        echo "  Downloading rke2_installer.sh..."
-        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
-        chmod +x $WORKING_DIR/rke2/rke2_installer.sh
+    fetch_subtool "$WORKING_DIR/rke2/rke2_installer.sh" \
+      "https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh" "$rke2_feature_branch"
+}
+
+set_longhorn_packages () {
+    # AP-23: single source for the per-distro Longhorn host package map (was duplicated
+    # in run_install_join_push and download_ap_packages and had started to drift).
+    if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
+        if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+            longhorn_packages="nfs-common open-iscsi cryptsetup"
+        elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
+            longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
+        elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
+            longhorn_packages="nfs-client open-iscsi cryptsetup"
+        fi
+    fi
+}
+
+download_k9s () {
+    # Best-effort: k9s is a convenience tool - a failed download must not abort installs.
+    echo "  Downloading k9s..."
+    mkdir -p $WORKING_DIR/ap-utilities/k9s
+    if ! curl -fkL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null; then
+        echo "  WARNING: k9s download failed; continuing without k9s."
+        rm -f $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz
+    fi
+}
+
+install_k9s () {
+    # Installs to /usr/local/bin (FHS location for non-packaged binaries; this is what
+    # the README/spec already document). Best-effort, mirroring download_k9s.
+    if [[ ! -f $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz ]]; then
+        echo "  WARNING: k9s archive not present; skipping k9s install."
+        return 0
+    fi
+    echo "  Installing k9s..."
+    if tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s \
+       && install -m 0755 $WORKING_DIR/ap-utilities/k9s/k9s /usr/local/bin/k9s; then
+        state_set AP_INSTALLED_K9S "/usr/local/bin/k9s"
+    else
+        echo "  WARNING: k9s install failed; continuing without k9s."
+    fi
+}
+
+download_support_tool () {
+    # Best-effort: the Dell support log collector is optional tooling.
+    echo "  Downloading support log collector tool..."
+    if ! curl -fkL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null; then
+        echo "  WARNING: support log collector download failed; continuing without it."
+        rm -f $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file)
     fi
 }
 

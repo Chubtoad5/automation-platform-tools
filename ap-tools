@@ -107,7 +107,8 @@ SERVICE_CIDR="10.43.0.0/16"
 INSTALL_DNS_UTILITY=true
 INSTALL_LOCAL_PATH_PROVISIONER=false    # If true, Longhorn is not installed
 LOCAL_PATH_PROVISIONER_VERSION=v0.0.35
-HELM_VERSION=4.0.5
+HELM_VERSION="${HELM_VERSION:-4.0.1}"     # Helm CLI version (AP-16: overridable; 4.0.1 default matches rke2-installer)
+RKE2_RECONFIGURE="${RKE2_RECONFIGURE:-false}"  # Forwarded to rke2_installer.sh: allow 'install rke2'/'join' on a RUNNING node to apply a CHANGED config and restart the service
 LONGHORN_VERSION=1.11.1
 LONGHORN_UI_PORT=31000
 METALLB_VERSION=0.15.3
@@ -310,9 +311,12 @@ run_install_join_push () {
   check_rke2_service_running
   # Apply DAP host kernel settings on every node being set up (install or join),
   # so joined nodes aren't left with default inotify limits.
+  # NTP is NO LONGER configured here: rke2_installer.sh now owns NTP for cluster
+  # nodes (same NTP_SERVERS semantics, same '# ap-tools NTP' marker and timesyncd
+  # drop-in name, so previously-configured hosts reconcile). ap-tools forwards
+  # NTP_SERVERS in the rke2_installer.sh invocations below.
   if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
     run_debug configure_node_sysctl
-    run_debug configure_node_ntp
   fi
   set_longhorn_packages
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
@@ -330,6 +334,7 @@ run_install_join_push () {
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    NTP_SERVERS=$NTP_SERVERS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
@@ -348,6 +353,7 @@ run_install_join_push () {
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    NTP_SERVERS=$NTP_SERVERS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
@@ -474,22 +480,38 @@ run_install_monitoring () {
   cd $base_dir
 }
 
+install_helm_binary () {
+  # AP-23/(b): shared helm binary installer for online install, air-gap install, and
+  # offline prep (the previous two copies had already drifted). Extracts under the
+  # working dir (never cwd) and installs to /usr/local/bin - the FHS location for
+  # non-packaged binaries and what the README/spec document.
+  echo "  Installing helm binary..."
+  rm -rf $WORKING_DIR/ap-utilities/helm/extract
+  mkdir -p $WORKING_DIR/ap-utilities/helm/extract
+  tar -xzf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz -C $WORKING_DIR/ap-utilities/helm/extract
+  install -m 0755 $WORKING_DIR/ap-utilities/helm/extract/linux-amd64/helm /usr/local/bin/helm
+  rm -rf $WORKING_DIR/ap-utilities/helm/extract
+  state_set AP_INSTALLED_HELM "/usr/local/bin/helm"
+}
+
+helm_repo_setup () {
+  echo "  Adding helm charts..."
+  /usr/local/bin/helm repo add metallb https://metallb.github.io/metallb
+  /usr/local/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
+  /usr/local/bin/helm repo add longhorn https://charts.longhorn.io
+  /usr/local/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  /usr/local/bin/helm repo add fluent https://fluent.github.io/helm-charts
+  /usr/local/bin/helm repo update
+}
+
 install_helm () {
   echo "  Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   fi
-  tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  mv linux-amd64/helm /usr/bin/helm
-  rm -rf linux-amd64
+  install_helm_binary
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    echo "  Adding helm charts..."
-    /usr/bin/helm repo add metallb https://metallb.github.io/metallb
-    /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
-    /usr/bin/helm repo add longhorn https://charts.longhorn.io
-    /usr/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-    /usr/bin/helm repo add fluent https://fluent.github.io/helm-charts
-    /usr/bin/helm repo update
+    helm_repo_setup
   fi
 }
 
@@ -508,10 +530,11 @@ controller:
   defaultTLSSecret:
      enabled: false
 EOF
+  # AP-1: 'upgrade --install' converges on re-runs instead of failing on an existing release
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
+    /usr/local/bin/helm upgrade --install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   else
-    /usr/bin/helm install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
+    /usr/local/bin/helm upgrade --install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   fi
   check_namespace_pods_ready "haproxy-controller"
 }
@@ -566,17 +589,23 @@ defaultSettings:
 EOF
   fi
   local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
+  # AP-1: 'upgrade --install' converges on re-runs instead of failing on an existing release
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
+    /usr/local/bin/helm upgrade --install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
     echo "  Installing longhornctl binary..."
-    curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
+    if ! curl -fL https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl; then
+      echo "Error: failed to download longhornctl v$LONGHORN_VERSION."
+      rm -f $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
+      exit 1
+    fi
+    # install (copy), not mv: keeps the cached copy so re-runs stay idempotent
+    install -m 0755 $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    state_set AP_INSTALLED_LONGHORNCTL "/usr/local/bin/longhornctl"
   else
-    /usr/bin/helm install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
+    /usr/local/bin/helm upgrade --install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
     echo "  Installing longhornctl binary..."
-    chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
+    install -m 0755 $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    state_set AP_INSTALLED_LONGHORNCTL "/usr/local/bin/longhornctl"
   fi
   check_namespace_pods_ready "longhorn-system"
   verify_longhorn_csi_registration
@@ -658,10 +687,11 @@ spec:
   interfaces:
     - $mgmt_if
 EOF
+  # AP-1: 'upgrade --install' converges on re-runs instead of failing on an existing release
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION
+    /usr/local/bin/helm upgrade --install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION
   else
-    /usr/bin/helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
+    /usr/local/bin/helm upgrade --install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
   fi
   check_namespace_pods_ready "metallb-system"
   kubectl apply -f $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
@@ -767,10 +797,15 @@ configure_node_sysctl () {
   echo "  multipathd disabled."
 }
 
-# Configure a user-defined NTP source on every node (install + join). Clock skew across nodes
-# breaks etcd, TLS, and DAP tokens. Only acts when NTP_SERVERS is set; otherwise the OS default
-# time source is left untouched. Auto-detects the time daemon: chrony if present, else
-# systemd-timesyncd (the Ubuntu/Debian default). Idempotent.
+# Configure a user-defined NTP source. Clock skew across nodes breaks etcd, TLS, and DAP
+# tokens. Only acts when NTP_SERVERS is set; otherwise the OS default time source is left
+# untouched. Auto-detects the time daemon: chrony if present, else systemd-timesyncd (the
+# Ubuntu/Debian default). Idempotent.
+# NOTE: rke2 cluster nodes are NO LONGER configured here - rke2_installer.sh owns NTP for
+# install/join (identical NTP_SERVERS semantics, identical '# ap-tools NTP' marker and
+# /etc/systemd/timesyncd.conf.d/10-ap-tools.conf drop-in, so hosts configured by either
+# tool reconcile). This function is retained for hosts outside the rke2 flows
+# (e.g. standalone harbor/swfs hosts) and for manual use.
 configure_node_ntp () {
   if [[ -z "${NTP_SERVERS// /}" ]]; then
     echo "  NTP_SERVERS not set; leaving the OS default time source unchanged."
@@ -792,12 +827,14 @@ configure_node_ntp () {
     systemctl enable chronyd 2>/dev/null || true
     systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null || true
     chronyc makestep >/dev/null 2>&1 || true
+    state_set AP_NTP_CONFIGURED "chrony"
   else
     # systemd-timesyncd path (Ubuntu/Debian default)
     mkdir -p /etc/systemd/timesyncd.conf.d
     printf '[Time]\nNTP=%s\n' "$ntp_list" > /etc/systemd/timesyncd.conf.d/10-ap-tools.conf
     systemctl enable systemd-timesyncd 2>/dev/null || true
     systemctl restart systemd-timesyncd 2>/dev/null || true
+    state_set AP_NTP_CONFIGURED "timesyncd"
   fi
   # Give the daemon a moment, then report
   sleep 2
@@ -872,27 +909,24 @@ download_rke2 () {
 download_helm_binaries () {
   echo "  Downloading helm binary..."
   curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  echo "  Installing helm binary..."
-  tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  mv linux-amd64/helm /usr/bin/helm
-  rm -rf linux-amd64
-  echo "  Adding helm charts..."
-  /usr/bin/helm repo add metallb https://metallb.github.io/metallb
-  /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
-  /usr/bin/helm repo add longhorn https://charts.longhorn.io
-  /usr/bin/helm repo update
+  install_helm_binary
+  helm_repo_setup
   echo "  Pulling helm charts..."
   # HAPROXY
   cd $WORKING_DIR/ap-utilities/helm/haproxy
-  /usr/bin/helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
+  /usr/local/bin/helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   # LONGHORN
   cd $WORKING_DIR/ap-utilities/helm/longhorn
-  /usr/bin/helm pull longhorn/longhorn --version $LONGHORN_VERSION
+  /usr/local/bin/helm pull longhorn/longhorn --version $LONGHORN_VERSION
   echo "  Downloading longhornctl binary..."
-  curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl
+  if ! curl -fL https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl; then
+    echo "Error: failed to download longhornctl v$LONGHORN_VERSION."
+    rm -f longhornctl
+    exit 1
+  fi
   # METALLB
   cd $WORKING_DIR/ap-utilities/helm/metallb
-  /usr/bin/helm pull metallb/metallb --version $METALLB_VERSION
+  /usr/local/bin/helm pull metallb/metallb --version $METALLB_VERSION
   # NOTE: monitoring charts (kube-prometheus-stack, fluent-bit) are downloaded by rke2_installer.sh
   # save workflow into rke2-install/monitoring/ and packaged into rke2-save.tar.gz. They do not
   # need to be downloaded here.
@@ -1288,15 +1322,45 @@ download_support_tool () {
 }
 
 check_rke2_service_running () {
-    # Check if rke2 service is running
+    # AP-1: an already-running RKE2 node is NO LONGER a hard stop. rke2_installer.sh
+    # now reconciles a running node itself: identical env -> no-op (exit 0); changed
+    # config -> requires RKE2_RECONFIGURE=true; version drift -> error directing to
+    # 'upgrade'. ap-tools proceeds and re-applies its add-ons idempotently
+    # (helm upgrade --install). The only remaining ap-tools-side hard error is a
+    # join to a DIFFERENT cluster, which always requires an uninstall first.
+    # AP-18: pure 'push' never blocks on the local rke2 service state.
+    if [[ $INSTALL_MODE -eq 0 && $JOIN_MODE -eq 0 ]]; then
+        return 0
+    fi
+    local active_svc=""
     if systemctl is-active --quiet rke2-server.service; then
-        echo "Error: rke2-server service is already runnnig, install cannot proceed."
-        exit 1
+        active_svc="rke2-server.service"
+    elif systemctl is-active --quiet rke2-agent.service; then
+        active_svc="rke2-agent.service"
     fi
-    if systemctl is-active --quiet rke2-agent.service; then
-        echo "Error: rke2-agent service is already runnnig, install cannot proceed."
-        exit 1
+    if [[ -z "$active_svc" ]]; then
+        return 0
     fi
+    if [[ $JOIN_MODE -eq 1 && -f /etc/rancher/rke2/config.yaml ]]; then
+        local existing_server=""
+        existing_server=$(awk -F'https://' '/^server:/ {print $2}' /etc/rancher/rke2/config.yaml | cut -d: -f1) || true
+        if [[ -n "$existing_server" && "$existing_server" != "$JOIN_SERVER_FQDN" ]]; then
+            echo "Error: this node is already joined to cluster server '$existing_server', but a join to"
+            echo "  '$JOIN_SERVER_FQDN' was requested. Joining a different cluster requires an uninstall first:"
+            echo "  sudo ./$SCRIPT_NAME uninstall rke2"
+            exit 1
+        fi
+    fi
+    echo "  $active_svc is already active: continuing in reconcile mode."
+    if [[ "$active_svc" == "rke2-server.service" ]]; then
+        if KUBECONFIG=/etc/rancher/rke2/rke2.yaml /var/lib/rancher/rke2/bin/kubectl get nodes >/dev/null 2>&1; then
+            echo "  Cluster is healthy ('kubectl get nodes' responds)."
+        else
+            echo "  WARNING: rke2-server is active but 'kubectl get nodes' is not responding yet."
+            echo "  Proceeding - rke2_installer.sh re-validates cluster readiness and fails hard if it does not converge."
+        fi
+    fi
+    echo "  rke2_installer.sh will reconcile: unchanged config is a no-op; a changed config requires RKE2_RECONFIGURE=true."
 }
 
 check_namespace_pods_ready() {

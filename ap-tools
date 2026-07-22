@@ -258,6 +258,20 @@ Commands:
     [server] [server-fqdn] [join-token-string]
     [agent]  [server-fqdn] [join-token-string]
 
+  config       : Host preparation helpers. Cannot be combined with other commands.
+    [hostname <fqdn>]
+                 Sets the hostname (hostnamectl) and reconciles a marker-tagged /etc/hosts entry
+                 (127.0.1.1 line on Debian-family; '<MGMT_IP> <fqdn> <short>' on Rocky/Leap).
+                 Refuses to run while an RKE2 service is active (hostname = node identity).
+    [static-ip -ip <addr>/<prefix> -gw <gateway> -dns <srv1[,srv2]> [-domain <search>] [-interface <if>] [--apply] [--force-ssh-interface]]
+                 Default is GENERATE+VALIDATE only: prints the netplan YAML (Ubuntu) or nmcli
+                 commands (Rocky/Leap) that would be applied. --apply activates it:
+                 Ubuntu uses 'netplan try' (120s auto-rollback); Rocky/Leap apply with a
+                 scheduled 120s auto-revert that must be confirmed with 'config static-ip commit'.
+                 Refuses the SSH-carrying interface without --force-ssh-interface.
+    [static-ip commit]
+                 Confirms a pending Rocky/Leap static-ip change (cancels the auto-revert).
+
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup.
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
         [server-fqdn-ip]
@@ -1072,6 +1086,238 @@ run_config_hostname () {
   echo "  /etc/hosts updated (marker-tagged; re-runs reconcile instead of duplicating)."
   echo "  hostname is now: $(hostname)"
   echo "  Note: already-open shells keep showing the old name until you log in again."
+}
+
+ip_to_int () {
+  # dotted-quad -> integer (for subnet sanity checks)
+  local IFS=.
+  # shellcheck disable=SC2206
+  local -a o=($1)
+  echo $(( (o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3] ))
+}
+
+detect_ssh_interfaces () {
+  # Prints the interface(s) carrying established inbound SSH sessions (best effort)
+  local locals sip ifc out=""
+  locals=$(ss -tnH '( sport = :22 )' 2>/dev/null | awk '$1 == "ESTAB" {print $4}' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u) || true
+  for sip in $locals; do
+    ifc=$(ip -o -4 addr show 2>/dev/null | awk -v ip="$sip" '$4 ~ "^"ip"/" {print $2; exit}') || true
+    [[ -n "$ifc" ]] && out="$out $ifc"
+  done
+  echo "$out" | tr ' ' '\n' | sort -u | xargs
+}
+
+static_ip_commit () {
+  # Rocky/RHEL/Leap NetworkManager apply path: cancel the scheduled auto-revert.
+  local pending=0
+  if systemctl list-units --all --no-legend 'ap-tools-staticip-revert.*' 2>/dev/null | grep -q 'ap-tools-staticip-revert'; then
+    pending=1
+  fi
+  systemctl stop ap-tools-staticip-revert.timer 2>/dev/null || true
+  systemctl stop ap-tools-staticip-revert.service 2>/dev/null || true
+  systemctl reset-failed ap-tools-staticip-revert.service 2>/dev/null || true
+  if [[ -f $STATE_DIR/static-ip-revert.sh ]]; then
+    rm -f "$STATE_DIR/static-ip-revert.sh"
+    pending=1
+  fi
+  if [[ $pending -eq 1 ]]; then
+    echo "  Static IP change committed - the scheduled auto-revert was cancelled."
+  else
+    echo "  Nothing to commit: no pending static-ip auto-revert found."
+    echo "  (Ubuntu applies use 'netplan try', which confirms interactively and needs no commit.)"
+  fi
+}
+
+run_config_static_ip () {
+  # W15 (limited scope by design): GENERATE + VALIDATE by default - print exactly what
+  # would be applied. APPLY only behind --apply:
+  #   Ubuntu/Debian     -> netplan file + 'netplan try' (120s auto-rollback on lost SSH)
+  #   Rocky/RHEL/Leap16 -> NetworkManager (nmcli) + scheduled 120s auto-revert; the
+  #                        change survives only after 'config static-ip commit'.
+  # Refuses to touch the SSH-carrying interface without --force-ssh-interface.
+  local ip_prefix="" gateway="" dns_list="" search_domain="" ifc="" apply=0 force_ssh=0
+  if [[ "${CONFIG_ARGS[0]:-}" == "commit" ]]; then
+    static_ip_commit
+    return 0
+  fi
+  local -a args=("${CONFIG_ARGS[@]}")
+  local i=0
+  while [[ $i -lt ${#args[@]} ]]; do
+    case "${args[$i]}" in
+      -ip)        ip_prefix="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -gw)        gateway="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -dns)       dns_list="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -domain)    search_domain="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -interface) ifc="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      --apply)    apply=1; i=$((i+1)) ;;
+      --force-ssh-interface) force_ssh=1; i=$((i+1)) ;;
+      *)
+        echo "Error: unknown 'config static-ip' argument '${args[$i]}'."
+        echo "Format: config static-ip -ip <addr>/<prefix> -gw <gateway> -dns <srv1[,srv2]> [-domain <search>] [-interface <if>] [--apply] [--force-ssh-interface]"
+        echo "        config static-ip commit"
+        exit 1
+        ;;
+    esac
+  done
+  # --- Validation --- #
+  if [[ -z "$ip_prefix" || -z "$gateway" || -z "$dns_list" ]]; then
+    echo "Error: 'config static-ip' requires -ip <addr>/<prefix>, -gw <gateway>, and -dns <server[,server]>."
+    echo "Type './$SCRIPT_NAME -h' for help."
+    exit 1
+  fi
+  local ip_addr="${ip_prefix%%/*}" prefix="${ip_prefix##*/}"
+  if [[ "$ip_prefix" != */* || ! "$ip_addr" =~ $ipv4_pattern || ! "$prefix" =~ ^[0-9]+$ || "$prefix" -lt 1 || "$prefix" -gt 32 ]]; then
+    echo "Error: '-ip' must be <IPv4>/<prefix 1-32>, e.g. 192.168.1.50/24."
+    exit 1
+  fi
+  if [[ ! "$gateway" =~ $ipv4_pattern ]]; then
+    echo "Error: '-gw' must be a valid IPv4 address."
+    exit 1
+  fi
+  local dns_clean dns_entry
+  dns_clean=$(echo "$dns_list" | tr ',' ' ' | xargs)
+  for dns_entry in $dns_clean; do
+    if [[ ! "$dns_entry" =~ $ipv4_pattern ]]; then
+      echo "Error: '-dns' entry '$dns_entry' is not a valid IPv4 address."
+      exit 1
+    fi
+  done
+  if [[ -n "$search_domain" && ! "$search_domain" =~ $fqdn_pattern ]]; then
+    echo "Error: '-domain' must be a valid domain name, e.g. edge.lab."
+    exit 1
+  fi
+  if [[ -z "$ifc" ]]; then
+    ifc="$mgmt_if"
+    echo "  No -interface given; using the management interface: $ifc"
+  fi
+  if [[ -z "$ifc" ]] || ! ip link show dev "$ifc" >/dev/null 2>&1; then
+    echo "Error: interface '${ifc:-<none detected>}' not found on this host. Pass -interface <name>."
+    exit 1
+  fi
+  # Subnet sanity: warn (not fail) when the gateway is outside the address's subnet
+  if [[ "$prefix" -le 30 ]]; then
+    local mask=$(( 0xffffffff ^ ((1 << (32 - prefix)) - 1) ))
+    if (( ($(ip_to_int "$ip_addr") & mask) != ($(ip_to_int "$gateway") & mask) )); then
+      echo "  WARNING: gateway $gateway is not inside $ip_prefix - double-check before applying."
+    fi
+  fi
+  # SSH-interface guard
+  local ssh_ifaces
+  ssh_ifaces=$(detect_ssh_interfaces)
+  if [[ " $ssh_ifaces " == *" $ifc "* && $force_ssh -eq 0 ]]; then
+    if [[ $apply -eq 1 ]]; then
+      echo "Error: interface '$ifc' carries your current SSH session(s). Changing it can cut you off."
+      echo "  Re-run with --force-ssh-interface to proceed anyway (the 120s auto-rollback is the safety net)."
+      exit 1
+    else
+      echo "  NOTE: interface '$ifc' carries your current SSH session(s); applying will require --force-ssh-interface."
+    fi
+  fi
+  local dns_csv
+  dns_csv=$(echo "$dns_clean" | tr ' ' ',')
+  # --- Render --- #
+  if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+    local np_file="/etc/netplan/99-ap-tools-static.yaml"
+    local np_yaml
+    np_yaml="network:
+  version: 2
+  ethernets:
+    $ifc:
+      dhcp4: false
+      addresses:
+        - $ip_prefix
+      routes:
+        - to: default
+          via: $gateway
+      nameservers:
+        addresses: [$dns_csv]"
+    if [[ -n "$search_domain" ]]; then
+      np_yaml="$np_yaml
+        search: [$search_domain]"
+    fi
+    echo ""
+    echo "--- netplan configuration that would be written to $np_file ---"
+    echo "$np_yaml"
+    echo "----------------------------------------------------------------"
+    if [[ $apply -eq 0 ]]; then
+      echo "  Generate-only mode: nothing was changed. Re-run with --apply to write the file and"
+      echo "  activate it via 'netplan try' (interactive confirm, auto-rollback after 120s)."
+      return 0
+    fi
+    echo "  Applying via netplan..."
+    ( umask 077; echo "$np_yaml" > "$np_file" )
+    if ! netplan generate; then
+      echo "Error: 'netplan generate' rejected the configuration; removing $np_file."
+      rm -f "$np_file"
+      exit 1
+    fi
+    echo "  Running 'netplan try' with a 120s timeout: confirm at the prompt to keep the new"
+    echo "  configuration. If the session is cut off, netplan auto-reverts after 120s."
+    if ! netplan try --timeout 120; then
+      echo "Error: 'netplan try' was not confirmed (or failed) - the previous configuration was restored."
+      rm -f "$np_file"
+      exit 1
+    fi
+    echo "  Static IP applied and confirmed: $ip_prefix on $ifc (gw $gateway, dns $dns_csv)."
+  else
+    # Rocky/RHEL/Leap 16: NetworkManager
+    if ! command -v nmcli >/dev/null 2>&1; then
+      echo "Error: nmcli not found - the static-ip helper requires NetworkManager on this OS family."
+      exit 1
+    fi
+    local con
+    con=$(nmcli -g GENERAL.CONNECTION device show "$ifc" 2>/dev/null | head -n 1) || true
+    if [[ -z "$con" || "$con" == "--" ]]; then
+      echo "Error: no active NetworkManager connection found on '$ifc'."
+      exit 1
+    fi
+    local mod_cmd="nmcli con mod \"$con\" ipv4.method manual ipv4.addresses $ip_prefix ipv4.gateway $gateway ipv4.dns \"$dns_csv\""
+    if [[ -n "$search_domain" ]]; then
+      mod_cmd="$mod_cmd ipv4.dns-search \"$search_domain\""
+    fi
+    echo ""
+    echo "--- nmcli commands that would be applied (connection: '$con', device: $ifc) ---"
+    echo "$mod_cmd"
+    echo "nmcli con up \"$con\""
+    echo "--------------------------------------------------------------------------------"
+    if [[ $apply -eq 0 ]]; then
+      echo "  Generate-only mode: nothing was changed. Re-run with --apply to apply with a scheduled"
+      echo "  120s auto-revert; then confirm with: $SCRIPT_NAME config static-ip commit"
+      return 0
+    fi
+    echo "  Applying via NetworkManager with a scheduled 120s auto-revert..."
+    # Snapshot current settings into a revert script BEFORE changing anything
+    local cur_method cur_addrs cur_gw cur_dns cur_search
+    cur_method=$(nmcli -g ipv4.method con show "$con" 2>/dev/null | head -n 1) || true
+    cur_addrs=$(nmcli -g ipv4.addresses con show "$con" 2>/dev/null | head -n 1) || true
+    cur_gw=$(nmcli -g ipv4.gateway con show "$con" 2>/dev/null | head -n 1) || true
+    cur_dns=$(nmcli -g ipv4.dns con show "$con" 2>/dev/null | head -n 1) || true
+    cur_search=$(nmcli -g ipv4.dns-search con show "$con" 2>/dev/null | head -n 1) || true
+    mkdir -p "$STATE_DIR"
+    cat > "$STATE_DIR/static-ip-revert.sh" << REVERT
+#!/bin/bash
+# Auto-generated by ap-tools 'config static-ip --apply' - restores the previous
+# NetworkManager settings unless 'ap-tools config static-ip commit' cancels it.
+nmcli con mod "$con" ipv4.method "${cur_method:-auto}" ipv4.addresses "${cur_addrs}" ipv4.gateway "${cur_gw}" ipv4.dns "${cur_dns}" ipv4.dns-search "${cur_search}"
+nmcli con up "$con"
+rm -f "$STATE_DIR/static-ip-revert.sh"
+REVERT
+    chmod 700 "$STATE_DIR/static-ip-revert.sh"
+    systemctl stop ap-tools-staticip-revert.timer 2>/dev/null || true
+    systemctl reset-failed ap-tools-staticip-revert.service 2>/dev/null || true
+    if ! systemd-run --unit=ap-tools-staticip-revert --on-active=120 \
+         --description="ap-tools static-ip auto-revert" /bin/bash "$STATE_DIR/static-ip-revert.sh"; then
+      echo "Error: could not schedule the auto-revert timer; refusing to apply without a safety net."
+      rm -f "$STATE_DIR/static-ip-revert.sh"
+      exit 1
+    fi
+    eval "$mod_cmd"
+    nmcli con up "$con" || true
+    echo ""
+    echo "  Applied: $ip_prefix on $ifc (gw $gateway, dns $dns_csv) via connection '$con'."
+    echo "  An auto-revert to the previous settings fires in 120 seconds unless you confirm with:"
+    echo "    sudo ./$SCRIPT_NAME config static-ip commit"
+  fi
 }
 
 # --- Uninstall Definitions (W5) --- #

@@ -122,6 +122,14 @@ INSTALL_INGRESS=false
 INSTALL_SERVICELB=false
 user_name=${SUDO_USER:-$(whoami)}
 SCRIPT_NAME=$(basename "$0")
+SCRIPT_PATH=$(readlink -f "$0")
+STATE_DIR="/var/lib/ap-tools"
+STATE_FILE="$STATE_DIR/state.env"
+OS_ID=""
+OS_ID_LIKE=""
+RUN_DEBUG_STEP=""
+RUN_DEBUG_LOG=$(mktemp /tmp/ap-tools-step.XXXXXX)
+ntp_message=""
 AIR_GAPPED_MODE=0
 OFFLINE_PREP_MODE=0
 PUSH_MODE=0
@@ -1208,38 +1216,81 @@ check_namespace_pods_ready() {
 }
 
 run_debug() {
-  # Use this to hide the output of functions or helper scripts when they are not needed.
+  # Runs a step while preserving 'set -e' semantics INSIDE the called function (AP-21).
+  # Wrapping "$@" in an if/&&/|| condition would suppress errexit for the whole call
+  # tree and let mid-function failures continue silently \u2014 the old failure branch here
+  # was dead code for the same reason. On failure, errexit aborts the script and the
+  # on_exit trap reports the failing step; with DEBUG=0 the step's captured output is
+  # replayed by the trap so failures are never silent.
+  RUN_DEBUG_STEP="$*"
   if [ "$DEBUG" = "1" ]; then
-    local GREEN=$(tput setaf 2)
-    local RED=$(tput setaf 1)
-    local NC=$(tput sgr0)
+    local GREEN NC
+    GREEN=$(tput setaf 2 2>/dev/null || true)
+    NC=$(tput sgr0 2>/dev/null || true)
     local CHECKMARK='\u2714'
-    local CROSSMARK='\u2717'
-    local SUCCESS_MSG=${2:-"Success"}
-    local ERROR_MSG=${3:-"Error"}
     echo "--- Running '$*' with DEBUG enabled---"
     "$@"
-    local status=$?
-    if [ "$status" -eq 0 ]; then
-        echo -e "--- DEBUG: Finished '$*' ${GREEN}${CHECKMARK} ${SUCCESS_MSG}${NC} ---"
-    else
-        echo -e "--- DEBUG: Finished '$*' ${RED}${CROSSMARK} ${ERROR_MSG}${NC} ---" >&2
-    fi
-    return $status
+    echo -e "--- DEBUG: Finished '$*' ${GREEN}${CHECKMARK} Success${NC} ---"
   else
-    # echo "Running '$*'..."
-    "$@" > /dev/null 2>&1
-    return $?
+    # DEBUG=0: capture output so the on_exit trap can replay it if the step fails.
+    : > "$RUN_DEBUG_LOG"
+    "$@" > "$RUN_DEBUG_LOG" 2>&1
   fi
+  RUN_DEBUG_STEP=""
 }
 
-cleanup () {
-    if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
-        echo "  Installation detected, no cleanup required..."
-    else
-        echo "  Cleaning up..."
-        rm -rf "$WORKING_DIR"
+on_exit () {
+  # EXIT trap: make failures visible (AP-21) \u2014 reports the failing run_debug step and,
+  # when DEBUG=0 swallowed its output, replays it so failures are never silent.
+  local rc=$?
+  if [[ $rc -ne 0 && -n "${RUN_DEBUG_STEP:-}" ]]; then
+    echo "Error: step '$RUN_DEBUG_STEP' failed (exit $rc)." >&2
+    if [[ "$DEBUG" != "1" && -s "${RUN_DEBUG_LOG:-/dev/null}" ]]; then
+      echo "--- output of failed step '$RUN_DEBUG_STEP' ---" >&2
+      cat "$RUN_DEBUG_LOG" >&2
+      echo "--- end of failed step output ---" >&2
     fi
+  fi
+  rm -f "${RUN_DEBUG_LOG:-}"
+  exit $rc
+}
+trap on_exit EXIT
+
+# --- Install-state file helpers (enabler for 'uninstall <component>') --- #
+# /var/lib/ap-tools/state.env records host state BEFORE ap-tools changes it, plus what
+# ap-tools itself installed, so uninstall reverts ONLY ap-tools' changes.
+
+state_set () {
+    # state_set KEY VALUE - idempotent key=value write to the install-state file
+    local key="$1" val="$2"
+    mkdir -p "$STATE_DIR"
+    if [[ -f "$STATE_FILE" ]]; then
+        sed -i "/^${key}=/d" "$STATE_FILE"
+    fi
+    echo "${key}=\"${val}\"" >> "$STATE_FILE"
+    chmod 600 "$STATE_FILE"
+}
+
+state_get () {
+    # state_get KEY - prints the recorded value, empty when absent
+    [[ -f "$STATE_FILE" ]] || return 0
+    sed -n "s/^${1}=\"\(.*\)\"$/\1/p" "$STATE_FILE" | head -n 1
+}
+
+state_record_once () {
+    # state_record_once KEY VALUE - like state_set but never overwrites an existing key.
+    # Used for pre-install host state so re-runs don't clobber the original record.
+    local key="$1" val="$2"
+    if [[ -f "$STATE_FILE" ]] && grep -q "^${key}=" "$STATE_FILE"; then
+        return 0
+    fi
+    state_set "$key" "$val"
+}
+
+state_unset () {
+    # state_unset KEY - removes a key after its recorded change has been reverted
+    [[ -f "$STATE_FILE" ]] || return 0
+    sed -i "/^${1}=/d" "$STATE_FILE"
 }
 
 runtime_outputs () {

@@ -1,9 +1,39 @@
 #!/bin/bash
 
+# --- OPTIONAL INPUTS FILE (inputs.env) --- #
+# If an inputs file exists it is sourced BEFORE the defaults below. The file itself
+# uses the same 'VAR="${VAR:-value}"' convention, so precedence is:
+#   CLI env  >  inputs.env  >  script defaults
+# with zero behavior change when the file is absent. Ship-with-repo template:
+# inputs.env.example. Override the location with AP_TOOLS_ENV_FILE=<path>.
+AP_TOOLS_ENV_FILE="${AP_TOOLS_ENV_FILE:-$PWD/inputs.env}"
+if [[ -f "$AP_TOOLS_ENV_FILE" ]]; then
+    env_file_perms=$(stat -c '%a' "$AP_TOOLS_ENV_FILE" 2>/dev/null || echo "")
+    if [[ -n "$env_file_perms" ]] && (( 8#$env_file_perms & 2 )); then
+        echo "Error: $AP_TOOLS_ENV_FILE is world-writable; refusing to source it."
+        echo "  Fix with: chmod o-w '$AP_TOOLS_ENV_FILE'"
+        exit 1
+    fi
+    echo "  Loading inputs from $AP_TOOLS_ENV_FILE (precedence: CLI env > inputs.env > script defaults)"
+    # shellcheck disable=SC1090
+    source "$AP_TOOLS_ENV_FILE"
+fi
+
+# Track which Harbor-scoped vars the user explicitly set (via CLI env or inputs.env).
+# 'uninstall harbor' forwards ONLY explicitly-set values so install_harbor.sh's own
+# recorded /opt/harbor/.install-env keeps authority over what was actually installed.
+user_set_harbor_cn="${HARBOR_COMMON_NAME+x}"
+user_set_harbor_port="${HARBOR_PORT+x}"
+user_set_harbor_version="${HARBOR_VERSION+x}"
+user_set_purge_data="${PURGE_DATA+x}"
+user_set_swfs_remove_images="${SWFS_REMOVE_IMAGES+x}"
+
 # --- USER DEFINED CONFIGURATION VARIABLES --- #
+# Every variable in this section is override-friendly (VAR="${VAR:-default}"): set it
+# in the environment or in inputs.env instead of editing the script.
 
 # Global Variables
-DEBUG=1                                                # Debug mode 1=enabled 0=disabled
+DEBUG="${DEBUG:-1}"                                    # Debug mode 1=enabled 0=disabled
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
 LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB pool) for portal/orchestrator. Single-node: defaults to MGMT_IP. Multi-node: set to a dedicated free L2 IP (not a node IP). NOT an API-server load balancer.
 LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
@@ -24,13 +54,13 @@ SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and
 AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir
 DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
-REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
-ORCHESTRATOR_NAMESPACE=dell-orchestrator               # Namespace to use for Dell Automation Platform orchestrator
-PORTAL_NAMESPACE=dell-portal                           # Namespace to use for Dell Automation Platform portal
+REGISTRY_PROJECT_NAME="${REGISTRY_PROJECT_NAME:-dell-automation}"  # Project name on the local registry for Dell Automation Platfor,
+ORCHESTRATOR_NAMESPACE="${ORCHESTRATOR_NAMESPACE:-dell-orchestrator}"  # Namespace to use for Dell Automation Platform orchestrator
+PORTAL_NAMESPACE="${PORTAL_NAMESPACE:-dell-portal}"    # Namespace to use for Dell Automation Platform portal
 PORTAL_COOKIE_DOMAIN="${PORTAL_COOKIE_DOMAIN:-$BASE_DOMAIN}"  # Base domain, i.e. 'acme.com' or IP address for IP based install
 ORCHESTRATOR_FQDN="${ORCHESTRATOR_FQDN:-orchestrator.$HOST_FQDN}"  # FQDN for orchestrator, or <IP> address for IP based install
 PORTAL_FQDN="${PORTAL_FQDN:-portal.$HOST_FQDN}"        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
-PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
+PORTAL_INGRESS_CLASS_NAME="${PORTAL_INGRESS_CLASS_NAME:-haproxy}"  # Ingress class used in the k8s instance, change if using non-default
 ORG_NAME="${ORG_NAME:-changeme}"                       # Organization name for Dell Automation Platform
 ORG_DESC="${ORG_DESC:-changeme}"                       # Organization description for Dell Automation Platform
 FIRST_NAME="${FIRST_NAME:-changeme}"                   # Admin user first name
@@ -39,34 +69,34 @@ USERNAME="${USERNAME:-administrator}"                  # Admin user name
 EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 
 # Harbor Configuration
-HARBOR_VERSION=2.15.0
-HARBOR_PORT=8443
-COUNTRY=US
-STATE=MA
-LOCATION=EDGE
-ORGANIZATION=LAB
-HARBOR_COMMON_NAME="registry.$HOST_FQDN"
-DURATION_DAYS=3650
-PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent"
+HARBOR_VERSION="${HARBOR_VERSION:-2.15.0}"
+HARBOR_PORT="${HARBOR_PORT:-8443}"
+COUNTRY="${COUNTRY:-US}"
+STATE="${STATE:-MA}"
+LOCATION="${LOCATION:-EDGE}"
+ORGANIZATION="${ORGANIZATION:-LAB}"
+HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-registry.$HOST_FQDN}"
+DURATION_DAYS="${DURATION_DAYS:-3650}"
+PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
 
 # SeaweedFS Configuration
-SWFS_IMAGE="chrislusf/seaweedfs:latest"
-CADDY_IMAGE="caddy:latest"
-SWFS_ADMIN_FQDN="admin.$HOST_FQDN"      # FQDN for SeaweedFS Admin UI and Caddy landing page
-SWFS_MASTER_FQDN="master.$HOST_FQDN"    # FQDN for SeaweedFS Master UI/API
-SWFS_FILER_FQDN="filer.$HOST_FQDN"      # FQDN for SeaweedFS Filer UI/API
-SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
-ENABLE_SMB="true"                       # Enable an SMB share with basic authentication
-ENABLE_NFS="true"                       # Enable an NFS export with NFSv3, no authentication
-SWFS_ADMIN_PORT=9443
-SWFS_MASTER_PORT=9333
-SWFS_FILER_PORT=8888
-SWFS_S3_PORT=8333
+SWFS_IMAGE="${SWFS_IMAGE:-chrislusf/seaweedfs:latest}"
+CADDY_IMAGE="${CADDY_IMAGE:-caddy:latest}"
+SWFS_ADMIN_FQDN="${SWFS_ADMIN_FQDN:-admin.$HOST_FQDN}"      # FQDN for SeaweedFS Admin UI and Caddy landing page
+SWFS_MASTER_FQDN="${SWFS_MASTER_FQDN:-master.$HOST_FQDN}"   # FQDN for SeaweedFS Master UI/API
+SWFS_FILER_FQDN="${SWFS_FILER_FQDN:-filer.$HOST_FQDN}"      # FQDN for SeaweedFS Filer UI/API
+SWFS_S3_FQDN="${SWFS_S3_FQDN:-s3.$HOST_FQDN}"               # FQDN for SeaweedFS S3 API
+ENABLE_SMB="${ENABLE_SMB:-true}"                            # Enable an SMB share with basic authentication
+ENABLE_NFS="${ENABLE_NFS:-true}"                            # Enable an NFS export with NFSv3, no authentication
+SWFS_ADMIN_PORT="${SWFS_ADMIN_PORT:-9443}"
+SWFS_MASTER_PORT="${SWFS_MASTER_PORT:-9333}"
+SWFS_FILER_PORT="${SWFS_FILER_PORT:-8888}"
+SWFS_S3_PORT="${SWFS_S3_PORT:-8333}"
 S3_BUCKET=${S3_BUCKET:-"velero"}
 EXTRA_BUCKETS=${EXTRA_BUCKETS:-""}             # Space-separated extra S3 buckets to pre-create on SWFS (e.g. per-cluster Velero buckets)
-DEFAULT_FILER_DIR_NAME="artifacts"
-ARTIFACTS_TO_DOWNLOAD="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
-ENABLE_MONITORING="true"
+DEFAULT_FILER_DIR_NAME="${DEFAULT_FILER_DIR_NAME:-artifacts}"
+ARTIFACTS_TO_DOWNLOAD="${ARTIFACTS_TO_DOWNLOAD:-https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img}"
+ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
 MON_CLUSTER_NAME=${MON_CLUSTER_NAME:-"edge-lab"}
 
 # Velero Backup Configuration
@@ -85,37 +115,37 @@ VELERO_BACKUP_NAMESPACES=${VELERO_BACKUP_NAMESPACES:-"dell-portal,dell-orchestra
 # Monitoring Configuration
 MONITORING_HOST=${MONITORING_HOST:-""}
 CLUSTER_NAME=${CLUSTER_NAME:-"edge-lab"}               # Cluster label for metrics and logs
-KUBE_PROMETHEUS_STACK_VERSION=84.5.0  # kube-prometheus-stack Helm chart version
-FLUENT_BIT_CHART_VERSION=0.57.3       # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
-FLUENT_BIT_VERSION=5.0.4              # Fluent Bit application/image version (appVersion in the chart above)
-PROMETHEUS_RETENTION="48h"            # In-cluster Prometheus retention (short; long-term on external host)
-PROMETHEUS_STORAGE_SIZE="50Gi"        # PVC size for in-cluster Prometheus
-PROMETHEUS_STORAGE_CLASS="longhorn"   # StorageClass for Prometheus PVCs
-MONITOR_CONFIGS_DIR=""                # Optional: path to directory of custom ServiceMonitor YAML files
-MONITORING_LOKI_PORT="3100"           # Loki HTTP port on the monitoring host
-MONITORING_PROMETHEUS_PORT="9090"     # Prometheus remote-write receiver port on the monitoring host
-MONITOR_EXCLUDE_NS="kube-system kube-public kube-node-lease default monitoring"  # Namespaces to skip during ServiceMonitor auto-discovery
-MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-port"     # Port names to include in ServiceMonitor auto-discovery
+KUBE_PROMETHEUS_STACK_VERSION="${KUBE_PROMETHEUS_STACK_VERSION:-84.5.0}"  # kube-prometheus-stack Helm chart version
+FLUENT_BIT_CHART_VERSION="${FLUENT_BIT_CHART_VERSION:-0.57.3}"  # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
+FLUENT_BIT_VERSION="${FLUENT_BIT_VERSION:-5.0.4}"     # Fluent Bit application/image version (appVersion in the chart above)
+PROMETHEUS_RETENTION="${PROMETHEUS_RETENTION:-48h}"   # In-cluster Prometheus retention (short; long-term on external host)
+PROMETHEUS_STORAGE_SIZE="${PROMETHEUS_STORAGE_SIZE:-50Gi}"  # PVC size for in-cluster Prometheus
+PROMETHEUS_STORAGE_CLASS="${PROMETHEUS_STORAGE_CLASS:-longhorn}"  # StorageClass for Prometheus PVCs
+MONITOR_CONFIGS_DIR="${MONITOR_CONFIGS_DIR:-}"        # Optional: path to directory of custom ServiceMonitor YAML files
+MONITORING_LOKI_PORT="${MONITORING_LOKI_PORT:-3100}"  # Loki HTTP port on the monitoring host
+MONITORING_PROMETHEUS_PORT="${MONITORING_PROMETHEUS_PORT:-9090}"  # Prometheus remote-write receiver port on the monitoring host
+MONITOR_EXCLUDE_NS="${MONITOR_EXCLUDE_NS:-kube-system kube-public kube-node-lease default monitoring}"  # Namespaces to skip during ServiceMonitor auto-discovery
+MONITOR_PORT_NAMES="${MONITOR_PORT_NAMES:-manager metrics http-metrics prometheus prom stat metrics-port}"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
-RKE2_VERSION=v1.34.5+rke2r1
+RKE2_VERSION="${RKE2_VERSION:-v1.34.5+rke2r1}"
 CLUSTER_TYPE="${CLUSTER_TYPE:-single-node}"
-MAX_PODS=250
-CNI_TYPE=calico
-CLUSTER_CIDR="10.42.0.0/16"
-SERVICE_CIDR="10.43.0.0/16"
-INSTALL_DNS_UTILITY=true
-INSTALL_LOCAL_PATH_PROVISIONER=false    # If true, Longhorn is not installed
-LOCAL_PATH_PROVISIONER_VERSION=v0.0.35
+MAX_PODS="${MAX_PODS:-250}"
+CNI_TYPE="${CNI_TYPE:-calico}"
+CLUSTER_CIDR="${CLUSTER_CIDR:-10.42.0.0/16}"
+SERVICE_CIDR="${SERVICE_CIDR:-10.43.0.0/16}"
+INSTALL_DNS_UTILITY="${INSTALL_DNS_UTILITY:-true}"
+INSTALL_LOCAL_PATH_PROVISIONER="${INSTALL_LOCAL_PATH_PROVISIONER:-false}"    # If true, Longhorn is not installed
+LOCAL_PATH_PROVISIONER_VERSION="${LOCAL_PATH_PROVISIONER_VERSION:-v0.0.35}"
 HELM_VERSION="${HELM_VERSION:-4.0.1}"     # Helm CLI version (AP-16: overridable; 4.0.1 default matches rke2-installer)
 RKE2_RECONFIGURE="${RKE2_RECONFIGURE:-false}"  # Forwarded to rke2_installer.sh: allow 'install rke2'/'join' on a RUNNING node to apply a CHANGED config and restart the service
-LONGHORN_VERSION=1.11.1
-LONGHORN_UI_PORT=31000
-METALLB_VERSION=0.15.3
-INSTALL_METALLB=true
-KUBERNETES_INGRESS_VERSION=1.49.0
-HAPROXY_APP_VERSION=3.2.6
-INSTALL_HAPROXY=true                      # Must be disabled if performing IP based install
+LONGHORN_VERSION="${LONGHORN_VERSION:-1.11.1}"
+LONGHORN_UI_PORT="${LONGHORN_UI_PORT:-31000}"
+METALLB_VERSION="${METALLB_VERSION:-0.15.3}"
+INSTALL_METALLB="${INSTALL_METALLB:-true}"
+KUBERNETES_INGRESS_VERSION="${KUBERNETES_INGRESS_VERSION:-1.49.0}"
+HAPROXY_APP_VERSION="${HAPROXY_APP_VERSION:-3.2.6}"
+INSTALL_HAPROXY="${INSTALL_HAPROXY:-true}"    # Must be disabled if performing IP based install
 LICENSE_OFFER_CONTACT=${LICENSE_OFFER_CONTACT:-"the Chubtoad5 project via https://github.com/Chubtoad5"}  # contact named in the air-gap bundle's GPL/AGPL written offer
 RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path

@@ -327,6 +327,11 @@ run_install_join_push () {
     echo "  Installing dependancy packages..."
     cd $WORKING_DIR/ap-utilities/packages
     ./install_packages.sh offline jq zip unzip hostname bc openssl $longhorn_packages
+    cd $base_dir
+    if [[ ($INSTALL_TYPE == "rke2" || $JOIN_MODE -eq 1) && $REGISTRY_MODE -eq 0 ]]; then
+      # No registry: add-on images must be importable by containerd on this node
+      run_debug stage_addon_images
+    fi
     echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
@@ -345,9 +350,6 @@ run_install_join_push () {
     ./install_packages.sh online jq zip unzip hostname bc openssl $longhorn_packages
     echo "  Running Kubernetes install with online mode"
     rke2_installer_check
-    if [[ $PUSH_MODE == "1" ]]; then
-      generate_images_file
-    fi
     cd $WORKING_DIR/rke2
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
@@ -357,6 +359,10 @@ run_install_join_push () {
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
+  fi
+  if [[ $PUSH_MODE -eq 1 ]]; then
+    # ap-tools owns pushing its add-on images (rke2's push covers only its own list)
+    run_debug push_addon_images
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
    echo "  Installing dependancy helm charts"
@@ -858,6 +864,8 @@ run_offline_prep () {
     echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy, Velero."
     echo "  This may take several minutes..."
     run_debug download_rke2
+    echo "  Saving HAProxy/Longhorn/MetalLB add-on images..."
+    run_debug save_addon_images
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle."
       echo "  Approximate download size is 20G. This may take several minutes..."
@@ -969,20 +977,88 @@ download_ap_bundle () {
 }
 
 generate_images_file () {
+  # AP-17: regenerate ap-tools' OWN add-on image list from scratch every run ('>' with
+  # dedup, never '>>' growth). rke2-installer now also regenerates its
+  # utility-images.txt from scratch, so appending into rke2's list (the old approach)
+  # would be wiped - the add-on images (HAProxy, Longhorn, MetalLB) are saved, pushed,
+  # and staged by ap-tools itself via image_pull_push.sh.
+  local list_dir="$WORKING_DIR/ap-utilities/images"
+  local addon_list="$list_dir/ap-addon-images.txt"
+  echo "  Generating add-on image list (HAProxy, Longhorn, MetalLB)..."
   # Haproxy images
-  cd $WORKING_DIR/ap-utilities/helm/haproxy
-  echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
-  cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > $list_dir/ap-addon-images.tmp
   # Longhorn images
-  cd $WORKING_DIR/ap-utilities/helm/longhorn
-  curl -sOL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
-  cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  if ! curl -sfL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt -o $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-images.txt; then
+    echo "Error: failed to download longhorn-images.txt for v$LONGHORN_VERSION."
+    rm -f $list_dir/ap-addon-images.tmp
+    exit 1
+  fi
+  cat $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-images.txt >> $list_dir/ap-addon-images.tmp
   # Metallb images
-  cd $WORKING_DIR/ap-utilities/helm/metallb
-  curl -sOL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
-  grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
-  cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  if ! curl -sfL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml -o $WORKING_DIR/ap-utilities/helm/metallb/metallb-frr.yaml; then
+    echo "Error: failed to download the metallb v$METALLB_VERSION manifest."
+    rm -f $list_dir/ap-addon-images.tmp
+    exit 1
+  fi
+  grep 'image:' $WORKING_DIR/ap-utilities/helm/metallb/metallb-frr.yaml | awk '{print $2}' >> $list_dir/ap-addon-images.tmp
+  sort -u $list_dir/ap-addon-images.tmp > "$addon_list"
+  rm -f $list_dir/ap-addon-images.tmp
+}
+
+save_addon_images () {
+  # Save the add-on images into ap-tools' own archive under ap-utilities/images/.
+  # Older archives are removed first so re-runs regenerate instead of accumulating.
+  image_pull_push_check
+  cd $WORKING_DIR/ap-utilities/images
+  rm -f container_images_*.tar.gz
+  ./image_pull_push.sh -f ap-addon-images.txt save
   cd $base_dir
+}
+
+push_addon_images () {
+  # Push the HAProxy/Longhorn/MetalLB images ap-tools deploys itself. rke2_installer's
+  # push covers only its own regenerated utility list, so ap-tools pushes its add-ons.
+  echo "  Pushing HAProxy/Longhorn/MetalLB add-on images to $REGISTRY_INFO..."
+  cd $WORKING_DIR/ap-utilities/images
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    local archive=""
+    archive=$(ls -1t container_images_*.tar.gz 2>/dev/null | head -n 1) || true
+    if [[ -z "$archive" ]]; then
+      echo "  WARNING: no add-on image archive found in ap-utilities/images."
+      echo "  (Archives built by older ap-tools carried the add-on images inside rke2's own"
+      echo "   utility archive, which rke2_installer.sh already pushed - continuing.)"
+      cd $base_dir
+      return 0
+    fi
+    ./image_pull_push.sh -f "$archive" push $REGISTRY_INFO $REG_USER $REG_PASS
+  else
+    image_pull_push_check
+    generate_images_file
+    ./image_pull_push.sh -f ap-addon-images.txt push $REGISTRY_INFO $REG_USER $REG_PASS
+  fi
+  cd $base_dir
+}
+
+stage_addon_images () {
+  # Air-gapped 'install rke2'/'join' WITHOUT a private registry: containerd must find
+  # the add-on images locally. Stage them into RKE2's agent image dir BEFORE the rke2
+  # service first starts (containerd auto-imports every archive in that dir).
+  local rke2_data_path="$RKE2_DATA"
+  [[ "$rke2_data_path" == "default" ]] && rke2_data_path="/var/lib/rancher/rke2"
+  local archive=""
+  archive=$(ls -1t $WORKING_DIR/ap-utilities/images/container_images_*.tar.gz 2>/dev/null | head -n 1) || true
+  if [[ -z "$archive" ]]; then
+    echo "  WARNING: no add-on image archive found in ap-utilities/images."
+    echo "  (Archives built by older ap-tools carried the add-on images inside rke2's own"
+    echo "   utility archive, which rke2_installer.sh already stages - continuing.)"
+    return 0
+  fi
+  echo "  Staging add-on images (HAProxy, Longhorn, MetalLB) for containerd import..."
+  rm -rf $WORKING_DIR/ap-utilities/images/extract
+  mkdir -p $WORKING_DIR/ap-utilities/images/extract "$rke2_data_path/agent/images"
+  tar -xzf "$archive" -C $WORKING_DIR/ap-utilities/images/extract
+  cp $WORKING_DIR/ap-utilities/images/extract/images/images.tar.gz "$rke2_data_path/agent/images/ap-addon-images.tar.gz"
+  rm -rf $WORKING_DIR/ap-utilities/images/extract
 }
 
 generate_bundle_licenses () {

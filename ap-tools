@@ -360,6 +360,10 @@ run_install_join_push () {
     cd $base_dir
     echo "  Kubernetes installation completed"
   fi
+  if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
+    # AP-5: longhorn packages are installed above; make iscsid survive reboots
+    run_debug enable_iscsid
+  fi
   if [[ $PUSH_MODE -eq 1 ]]; then
     # ap-tools owns pushing its add-on images (rke2's push covers only its own list)
     run_debug push_addon_images
@@ -713,23 +717,68 @@ ap_bundle_prep () {
   fi
 }
 
+reg_ca_checksum () {
+  # md5 of the registry CA currently in the system trust store, or 'absent'
+  local p
+  for p in "/usr/local/share/ca-certificates/$REG_FQDN.crt" "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" "/etc/pki/trust/anchors/$REG_FQDN.crt"; do
+    if [[ -f "$p" ]]; then
+      md5sum "$p" | awk '{print $1}'
+      return 0
+    fi
+  done
+  echo "absent"
+}
+
 install_reg_docker () {
   echo "  Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
   cp $WORKING_DIR/ap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
   cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
+  local docker_preexisted="false"
+  command -v docker >/dev/null 2>&1 && docker_preexisted="true"
+  state_record_once AP_DOCKER_PREEXISTED "$docker_preexisted"
+  # AP-10: capture the registry CA state around reg-cert so services are only bounced
+  # when the certificate actually changed (ap-bundle re-runs no longer restart docker
+  # and the whole control plane every time).
+  local cert_before cert_after
+  cert_before=$(reg_ca_checksum)
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
+  cert_after=$(reg_ca_checksum)
+  state_set AP_REG_FQDN "$REG_FQDN"
+  state_set AP_REG_CERTSD_DIR "/etc/docker/certs.d/$REGISTRY_INFO"
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     ./image_pull_push.sh docker
   else
-    for file in "$WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz"; do
-      ./image_pull_push.sh docker -f $file
+    # AP-6: the old quoted glob never expanded, so the air-gapped docker install ALWAYS
+    # failed here. Expand properly and load every archive oldest -> newest (newest tags
+    # win on overlap); images-pull-push save archives are timestamped.
+    local docker_archives=()
+    while IFS= read -r file; do docker_archives+=("$file"); done \
+      < <(ls -1tr $WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz 2>/dev/null || true)
+    if [[ ${#docker_archives[@]} -eq 0 ]]; then
+      echo "Error: no container_images_*.tar.gz archive found in rke2-install/rke2-utilities."
+      echo "  The air-gapped bundle is incomplete - re-run 'offline-prep' on a connected host."
+      exit 1
+    fi
+    local file
+    for file in "${docker_archives[@]}"; do
+      ./image_pull_push.sh docker -f "$file"
     done
   fi
-  echo "  restarting docker service..."
-  systemctl restart docker
-  echo "  restarting rke2-server.service..."
-  systemctl restart rke2-server.service
+  if [[ "$cert_before" != "$cert_after" ]] || ! systemctl is-active --quiet docker; then
+    echo "  restarting docker service..."
+    systemctl restart docker
+  else
+    echo "  Registry certificate unchanged and docker is running - skipping docker restart."
+  fi
+  if [[ "$cert_before" != "$cert_after" ]]; then
+    if systemctl is-active --quiet rke2-server.service; then
+      echo "  restarting rke2-server.service..."
+      systemctl restart rke2-server.service
+    fi
+  else
+    echo "  Registry certificate unchanged - skipping rke2-server restart."
+  fi
   cd $base_dir
 }
 
@@ -752,6 +801,12 @@ extract_ap_bundle () {
         fi
       done
     fi
+    if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
+      echo "Error: install-upgrade.sh not found after extracting the bundle. The downloaded"
+      echo "  zip may be corrupt or not a Dell Automation Platform bundle - remove"
+      echo "  $WORKING_DIR/$bundle_file and re-run."
+      exit 1
+    fi
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   fi
   if [[ -f "/usr/local/share/ca-certificates/$REG_FQDN.crt" ]]; then
@@ -764,6 +819,7 @@ extract_ap_bundle () {
     echo "Error: registry certificate not found."
     exit 1
   fi
+  state_set AP_REG_CA_PATH "$REG_CERT_FILE_PATH"
 }
 
 ap_host_config () {
@@ -771,6 +827,7 @@ ap_host_config () {
     download_support_tool
   fi
   configure_node_sysctl
+  enable_iscsid
 }
 
 # Apply DAP host kernel settings (inotify limits). Must run on EVERY cluster node
@@ -781,26 +838,125 @@ ap_host_config () {
 configure_node_sysctl () {
   echo "  Configuring host kernel settings (inotify limits) for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
-  systemctl restart systemd-sysctl
-  if [ $? -ne 0 ]; then
+  state_set AP_SYSCTL_FILE "/etc/sysctl.d/10-ap-orchestrator.conf"
+  # AP-21: the old '$?' check here was dead code under set -e
+  if ! systemctl restart systemd-sysctl; then
     echo "Error: systemd-sysctl.service failed to restart."
     exit 1
-  else
-    echo "  systemd-sysctl.service restarted successfully."
   fi
+  echo "  systemd-sysctl.service restarted successfully."
   # Disable multipathd and blacklist sd* so it never claims Longhorn iSCSI LUNs. The blacklist
   # is written first so the protection persists even if a package update re-enables multipathd.
-  # Idempotent: only writes the blacklist if one is not already present. On ap-tools nodes the OS
-  # root disk is NVMe, so excluding all sd* (Longhorn iSCSI LUNs) is safe.
+  # AP-12: written as a DROP-IN under /etc/multipath/conf.d (read by multipath-tools by
+  # default) instead of clobbering /etc/multipath.conf - a pre-existing site multipath.conf
+  # is preserved untouched. On ap-tools nodes the OS root disk is NVMe, so excluding all
+  # sd* (Longhorn iSCSI LUNs) is safe. Prior enablement is recorded for uninstall.
   echo "  Disabling multipathd to prevent Longhorn iSCSI volume mount conflicts..."
-  if ! grep -qs 'devnode' /etc/multipath.conf 2>/dev/null; then
-    printf 'defaults {\n    user_friendly_names yes\n}\n\nblacklist {\n    devnode "^sd[a-z0-9]+"\n}\n' \
-      > /etc/multipath.conf
-  fi
+  local mp_conf_preexisted="false" mp_svc_state mp_sock_state
+  [[ -f /etc/multipath.conf ]] && mp_conf_preexisted="true"
+  state_record_once AP_MULTIPATH_CONF_PREEXISTED "$mp_conf_preexisted"
+  mp_svc_state=$(systemctl is-enabled multipathd.service 2>/dev/null | head -n 1) || true
+  [[ -z "$mp_svc_state" ]] && mp_svc_state="not-found"
+  state_record_once AP_MULTIPATHD_SERVICE_WAS_ENABLED "$mp_svc_state"
+  mp_sock_state=$(systemctl is-enabled multipathd.socket 2>/dev/null | head -n 1) || true
+  [[ -z "$mp_sock_state" ]] && mp_sock_state="not-found"
+  state_record_once AP_MULTIPATHD_SOCKET_WAS_ENABLED "$mp_sock_state"
+  mkdir -p /etc/multipath/conf.d
+  printf '# Written by ap-tools - do not edit (removed by: ap-tools uninstall rke2)\n# Blacklist sd* so multipathd never claims Longhorn iSCSI LUNs (device-mapper\n# claims break every CSI mount). OS root disks on ap-tools nodes are NVMe.\nblacklist {\n    devnode "^sd[a-z0-9]+"\n}\n' \
+    > /etc/multipath/conf.d/99-ap-tools.conf
+  state_set AP_MULTIPATH_DROPIN "/etc/multipath/conf.d/99-ap-tools.conf"
   systemctl stop multipathd.service multipathd.socket 2>/dev/null || true
   systemctl disable multipathd.service multipathd.socket 2>/dev/null || true
   systemctl mask multipathd.service multipathd.socket 2>/dev/null || true
   echo "  multipathd disabled."
+}
+
+enable_iscsid () {
+  # AP-5: Ubuntu's open-iscsi debs enable iscsid automatically; the Rocky/Leap rpms do
+  # NOT, so Longhorn volume attach breaks after the first reboot. Enable at boot on
+  # every cluster node (install/join/ap-bundle prep). Prior state recorded for uninstall.
+  if [[ $INSTALL_LOCAL_PATH_PROVISIONER != "false" ]]; then
+    return 0
+  fi
+  local unit=""
+  if systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^iscsid\.service'; then
+    unit="iscsid.service"
+  elif systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^iscsid\.socket'; then
+    unit="iscsid.socket"
+  fi
+  if [[ -z "$unit" ]]; then
+    echo "  WARNING: no iscsid unit found (is open-iscsi/iscsi-initiator-utils installed?)."
+    echo "  Longhorn iSCSI volume attach will fail until iscsid is available."
+    return 0
+  fi
+  local prior
+  prior=$(systemctl is-enabled "$unit" 2>/dev/null | head -n 1) || true
+  [[ -z "$prior" ]] && prior="not-found"
+  state_record_once AP_ISCSID_UNIT "$unit"
+  state_record_once AP_ISCSID_WAS_ENABLED "$prior"
+  systemctl enable "$unit" >/dev/null 2>&1 || true
+  systemctl start "$unit" >/dev/null 2>&1 || true
+  echo "  iscsid enabled at boot ($unit)."
+}
+
+ensure_bundle_prereqs () {
+  # AP-20: the ap-bundle path needs jq/bc (pre-flight math) and unzip (bundle extract),
+  # but only 'install rke2' installed them - a standalone 'install ap-bundle' on a node
+  # prepared elsewhere failed. Install them on demand.
+  local missing=() c
+  for c in jq bc unzip; do
+    command -v "$c" >/dev/null 2>&1 || missing+=("$c")
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    return 0
+  fi
+  echo "  Installing missing prerequisite packages: ${missing[*]}..."
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    cd $WORKING_DIR/ap-utilities/packages
+    ./install_packages.sh offline "${missing[@]}"
+  else
+    install_packages_check
+    cd $WORKING_DIR/ap-utilities/packages
+    ./install_packages.sh online "${missing[@]}"
+  fi
+  cd $base_dir
+}
+
+firewalld_selinux_preflight () {
+  # AP-25: Rocky 9/10 and Leap 16 default to firewalld running and SELinux enforcing.
+  # Surface both LOUDLY before any heavy work instead of failing mysteriously later.
+  # ap-tools does not fight the sub-installers' own handling: rke2_installer.sh stops
+  # and disables firewalld on cluster nodes and verifies/installs the rke2-selinux
+  # policy itself; the harbor and seaweedfs installers manage their own firewall rules.
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    echo "  WARNING: firewalld is ACTIVE on this host."
+    case "$INSTALL_TYPE" in
+      rke2)
+        echo "  'install rke2' delegates to rke2_installer.sh, which stops and disables firewalld on"
+        echo "  cluster nodes (prior state is recorded and restored by its uninstall)."
+        ;;
+      harbor)
+        echo "  Harbor needs inbound TCP $HARBOR_PORT (plus 80/443) reachable from clients;"
+        echo "  install_harbor.sh manages its own firewall rules - verify remote access after install."
+        ;;
+      swfs)
+        echo "  SeaweedFS needs its service ports reachable (S3 $SWFS_S3_PORT, filer $SWFS_FILER_PORT,"
+        echo "  master $SWFS_MASTER_PORT, admin $SWFS_ADMIN_PORT, plus SMB/NFS when enabled);"
+        echo "  install-seaweedfs manages its own firewalld rules."
+        ;;
+      ap-bundle)
+        echo "  DAP ingress (80/443 via HAProxy) and the registry port must be reachable from clients."
+        ;;
+      *)
+        echo "  Cluster traffic (6443/9345, CNI, ingress 80/443) must not be blocked between nodes;"
+        echo "  rke2_installer.sh disables firewalld on cluster nodes during install/join."
+        ;;
+    esac
+  fi
+  if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]; then
+    echo "  NOTE: SELinux is Enforcing. rke2_installer.sh verifies/installs the rke2-selinux policy"
+    echo "  itself (and fails loudly if it cannot); ap-tools makes no SELinux changes."
+  fi
 }
 
 # Configure a user-defined NTP source. Clock skew across nodes breaks etcd, TLS, and DAP
@@ -1884,6 +2040,9 @@ if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INST
       dns_pre_flight_checks $REG_FQDN
     fi
   fi
+  if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" ]]; then
+    firewalld_selinux_preflight
+  fi
   run_install_join_push
 fi
 if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
@@ -1896,15 +2055,19 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   else
     dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $mtls_recovery_dns $REG_FQDN
   fi
+  firewalld_selinux_preflight
+  ensure_bundle_prereqs
   ap_preflight_checks
   ap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "swfs" ]]; then
   echo "  Installing SeaweedFS artifact server..."
+  firewalld_selinux_preflight
   run_install_swfs
 fi
 if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."
+  firewalld_selinux_preflight
   run_install_harbor
 fi
 if [[ $INSTALL_TYPE == "velero" ]]; then

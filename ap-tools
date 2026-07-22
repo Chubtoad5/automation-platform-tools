@@ -243,8 +243,23 @@ display_args() {
     echo "  REGISTRY_MODE: $REGISTRY_MODE"
     echo "  REGISTRY_INFO: $REGISTRY_INFO"
     echo "  REG_USER: $REG_USER"
-    echo "  REG_PASS: $REG_PASS"
+    # AP-11: never print the registry password (this output lands in install logs)
+    if [[ -n "$REG_PASS" ]]; then
+        echo "  REG_PASS: ********"
+    else
+        echo "  REG_PASS: "
+    fi
     echo "---"
+}
+
+mask_secret () {
+    # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11)
+    local text="$1"
+    if [[ -n "$REG_PASS" ]]; then
+        echo "${text//$REG_PASS/********}"
+    else
+        echo "$text"
+    fi
 }
 
 build_command_syntax() {
@@ -299,7 +314,7 @@ build_command_syntax() {
             return 1 # Return non-zero to indicate error
             ;;
     esac
-    echo "  parsed command args: $RKE2_CMD_ARGS"
+    echo "  parsed command args: $(mask_secret "$RKE2_CMD_ARGS")"
     return 0
 }
 # --- End of Argument Parsing --- #
@@ -1759,6 +1774,11 @@ runtime_outputs () {
     fi
   fi
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
+    # AP-11: the generated command file contains registry credentials - 0600 it and
+    # print only a masked rendering to stdout (stdout ends up in install logs).
+    rm -f $base_dir/ap-install-upgrade-cmd.txt
+    touch $base_dir/ap-install-upgrade-cmd.txt
+    chmod 600 $base_dir/ap-install-upgrade-cmd.txt
     cat << EOF > $base_dir/ap-install-upgrade-cmd.txt
 
 ### BUNDLE PREP FLOW COMPLETED ###
@@ -1789,7 +1809,9 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   EMAIL="$EMAIL"
 ----
 EOF
-    cat $base_dir/ap-install-upgrade-cmd.txt
+    state_set AP_CMD_FILE "$base_dir/ap-install-upgrade-cmd.txt"
+    mask_secret "$(cat $base_dir/ap-install-upgrade-cmd.txt)"
+    echo "  (The unmasked command block, including the registry password, is in $base_dir/ap-install-upgrade-cmd.txt - mode 0600.)"
   fi
 }
 

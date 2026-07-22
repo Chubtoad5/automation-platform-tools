@@ -9,7 +9,14 @@ LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB po
 LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
 NTP_SERVERS=${NTP_SERVERS:-}                           # Optional space/comma-separated NTP server list applied during 'install rke2'/'join' and verified during 'install ap-bundle'; empty = leave the OS default time source unchanged
 BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
-HOST_FQDN="${HOST_FQDN:-$(hostname).$BASE_DOMAIN}"     # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+# AP-22: when the hostname is already an FQDN (contains a dot), use it as-is instead of
+# appending BASE_DOMAIN again (node1.edge.lab -> node1.edge.lab.edge.lab).
+host_name_default=$(hostname)
+if [[ "$host_name_default" == *.* ]]; then
+  HOST_FQDN="${HOST_FQDN:-$host_name_default}"         # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+else
+  HOST_FQDN="${HOST_FQDN:-$host_name_default.$BASE_DOMAIN}"  # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+fi
 SWFS_HARBOR_USER="${SWFS_HARBOR_USER:-admin}"          # Username for Harbor and SeaweedFS basic auth
 SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and SeaweedFS basic auth
 
@@ -142,7 +149,9 @@ JOIN_TYPE=""
 JOIN_TOKEN=""
 JOIN_SERVER_FQDN=""
 base_dir=$(pwd)
-mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
+# AP-14: exact-match the interface that carries MGMT_IP (substring grep could match the
+# wrong NIC, e.g. 192.168.1.5 inside 192.168.1.50, and hand MetalLB the wrong interface).
+mgmt_if=$(ip -o -4 addr show | awk -v ip="$MGMT_IP" '$4 ~ "^"ip"/" {print $2; exit}')
 WORKING_DIR="$base_dir/ap-install"
 UPGRADE_MODE=0
 UPGRADE_TYPE=""
@@ -1016,22 +1025,41 @@ create_offline_prep_archive () {
 ap_preflight_checks () {
   # Check k8s for the required resources and NTP sync
   echo "  Running pre-flight resource checks..."
-  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c '{
-    cpu: ([.items[]?.status.allocatable.cpu | sub("m"; "")] | add),
-    memory: ([.items[]?.status.allocatable.memory | sub("Ki$"; "") | sub("Mi$"; "") | sub("Gi$"; "") | sub("Ti$"; "")] | add),
-    storage: ([.items[]?.status.allocatable."ephemeral-storage" | sub("Ki$"; "") | sub("Mi$"; "") | sub("Gi$"; "") | sub("Ti$"; "")] | add)}' || true)
+  # AP-2: normalise every quantity to a NUMBER inside jq before 'add'. The old
+  # sub()-only pipeline returned strings, so multi-node 'add' CONCATENATED them
+  # ("16"+"16"+"16" -> "161616") and the resource gate was silently disabled on
+  # exactly the clusters where it matters. Units: millicores -> cores; memory and
+  # ephemeral-storage -> GB (Ki/Mi/Gi/Ti binary suffixes, K/M/G/T decimal, bare = bytes).
+  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c '
+    def cpu_cores: if (type == "string" and test("m$")) then (sub("m$"; "") | tonumber) / 1000 else tonumber end;
+    def qty_gb:
+      if type != "string" then (tonumber / 1073741824)
+      elif test("Ki$") then (sub("Ki$"; "") | tonumber) / 1048576
+      elif test("Mi$") then (sub("Mi$"; "") | tonumber) / 1024
+      elif test("Gi$") then (sub("Gi$"; "") | tonumber)
+      elif test("Ti$") then (sub("Ti$"; "") | tonumber) * 1024
+      elif test("[Kk]$") then (sub("[Kk]$"; "") | tonumber) / 1000000
+      elif test("M$") then (sub("M$"; "") | tonumber) / 1000
+      elif test("G$") then (sub("G$"; "") | tonumber)
+      elif test("T$") then (sub("T$"; "") | tonumber) * 1000
+      else (tonumber / 1073741824) end;
+    {cpu: ([.items[]?.status.allocatable.cpu | cpu_cores] | add),
+     memory_gb: ([.items[]?.status.allocatable.memory | qty_gb] | add),
+     storage_gb: ([.items[]?.status.allocatable."ephemeral-storage" | qty_gb] | add)}' || true)
   if [ -z "$ALLOCATABLE_JSON" ] || [ "$ALLOCATABLE_JSON" = "null" ]; then
     echo "Error: Could not retrieve or parse allocatable resource data. Check kubectl connectivity and 'jq' installation."
     exit 1
   fi
   CURRENT_CPU=$(echo "$ALLOCATABLE_JSON" | jq -r '.cpu')
-  CURRENT_MEM_KIB=$(echo "$ALLOCATABLE_JSON" | jq -r '.memory')
-  CURRENT_STORAGE_B=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage')
+  CURRENT_MEM_GB=$(echo "$ALLOCATABLE_JSON" | jq -r '.memory_gb')
+  CURRENT_STORAGE_GB=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage_gb')
   if [ -z "$CURRENT_CPU" ] || [ "$CURRENT_CPU" = "null" ]; then CURRENT_CPU=0; fi
-  if [ -z "$CURRENT_MEM_KIB" ] || [ "$CURRENT_MEM_KIB" = "null" ]; then CURRENT_MEM_KIB=0; fi
-  if [ -z "$CURRENT_STORAGE_B" ] || [ "$CURRENT_STORAGE_B" = "null" ]; then CURRENT_STORAGE_B=0; fi
-  CURRENT_MEM_GB=$(echo "$CURRENT_MEM_KIB / 1024 / 1024" | bc)
-  CURRENT_STORAGE_GB=$(echo "$CURRENT_STORAGE_B / 1024 / 1024 /1024" | bc)
+  if [ -z "$CURRENT_MEM_GB" ] || [ "$CURRENT_MEM_GB" = "null" ]; then CURRENT_MEM_GB=0; fi
+  if [ -z "$CURRENT_STORAGE_GB" ] || [ "$CURRENT_STORAGE_GB" = "null" ]; then CURRENT_STORAGE_GB=0; fi
+  # Trim to one decimal for display/comparison; bc -l handles the fractions.
+  CURRENT_CPU=$(LC_ALL=C printf '%.2f' "$CURRENT_CPU")
+  CURRENT_MEM_GB=$(LC_ALL=C printf '%.1f' "$CURRENT_MEM_GB")
+  CURRENT_STORAGE_GB=$(LC_ALL=C printf '%.1f' "$CURRENT_STORAGE_GB")
   EXIT_CODE=0
   if (( $(echo "$CURRENT_CPU < $REQUIRED_CPU" | bc -l) )); then
     echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"
@@ -1100,7 +1128,9 @@ dns_pre_flight_checks () {
   done
   for entry in "${dns_to_check[@]}"; do
     echo "  Running pre-flight dns check for $entry"
-    resolved_dns=$(host -t A "$entry" 2>/dev/null | awk '/has address|is an alias/ { print $NF }' | head -n 1) || true
+    # AP-3: use getent (glibc, always present - incl. minimal images) instead of 'host'
+    # (bind-utils/dnsutils, absent on minimal images). Also honors /etc/hosts entries.
+    resolved_dns=$(getent hosts "$entry" 2>/dev/null | awk '{ print $1; exit }') || true
     if [ -z "$resolved_dns" ]; then
       failed_lookups+=("$entry")
       echo "  Failed to resolve $entry"
@@ -1141,11 +1171,12 @@ os_check () {
         OS_ID_LIKE="${ID_LIKE:-}"
         OS_ID="${ID:-}"
     else
-        echo "Error: Unknown or unsupported OS $OS_ID."
+        # AP-26: OS_ID is initialised empty; never reference it unguarded under set -u
+        echo "Error: Unknown or unsupported OS (${OS_ID:-no /etc/os-release})."
         exit 1
     fi
-    if [[ ! "$OS_ID" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
-        echo "Error: Unknown or unsupported OS $OS_ID."
+    if [[ ! "${OS_ID:-}" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
+        echo "Error: Unknown or unsupported OS ${OS_ID:-unknown}."
         exit 1
     fi
 }

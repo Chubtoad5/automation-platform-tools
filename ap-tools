@@ -49,6 +49,7 @@ else
 fi
 SWFS_HARBOR_USER="${SWFS_HARBOR_USER:-admin}"          # Username for Harbor and SeaweedFS basic auth
 SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and SeaweedFS basic auth
+AP_ASSUME_YES="${AP_ASSUME_YES:-false}"                # true = skip the typed 'yes-destroy' confirmation on destructive 'uninstall' commands (for automation)
 
 # Dell Automation Platform Variables
 AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir
@@ -179,6 +180,9 @@ JOIN_MODE=0
 JOIN_TYPE=""
 JOIN_TOKEN=""
 JOIN_SERVER_FQDN=""
+UNINSTALL_MODE=0
+UNINSTALL_TYPE=""
+PURGE_CACHE=0
 base_dir=$(pwd)
 # AP-14: exact-match the interface that carries MGMT_IP (substring grep could match the
 # wrong NIC, e.g. 192.168.1.5 inside 192.168.1.50, and hand MetalLB the wrong interface).
@@ -211,7 +215,7 @@ harbor_feature_branch="${harbor_feature_branch:-main}"
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -224,6 +228,21 @@ Commands:
     [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
                  Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
     [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster and configures ServiceMonitor auto-discovery.
+
+  uninstall    : Uninstalls the specified component, reverting only what ap-tools/its sub-installers changed
+                 (recorded in /var/lib/ap-tools/state.env and the sub-installers' own state files).
+                 Destructive targets (rke2, harbor, swfs) require typing 'yes-destroy' to confirm;
+                 set AP_ASSUME_YES=true to skip the prompt in automation.
+    [rke2]       Tears down this cluster node via rke2_installer.sh uninstall. DESTROYS Longhorn PVs.
+    [ap-bundle]  Removes the DAP staging: bundle tree, ap-install-upgrade-cmd.txt, registry CA trust and
+                 docker certs.d entry. Does NOT uninstall DAP itself (DAP lives in the cluster - remove it
+                 with 'uninstall rke2' or Dell's own procedure). Does NOT remove docker.
+    [harbor]     Delegates to install_harbor.sh uninstall-harbor.
+    [swfs]       Delegates to install-seaweedfs uninstall.
+    [velero]     Removes Velero from the cluster (S3 backups are kept).
+    [monitoring] Removes kube-prometheus-stack + Fluent Bit from the cluster.
+    [--purge-cache]  Also remove the ~20GB working cache (\$PWD/ap-install: bundle zip, cached
+                 sub-installers, helm charts). Valid with any uninstall target.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Includes Velero CLI and container images.
@@ -259,6 +278,9 @@ display_args() {
     echo "  AIR_GAPPED_MODE: $AIR_GAPPED_MODE"
     echo "  INSTALL_MODE: $INSTALL_MODE"
     echo "  INSTALL_TYPE: $INSTALL_TYPE"
+    echo "  UNINSTALL_MODE: $UNINSTALL_MODE"
+    echo "  UNINSTALL_TYPE: $UNINSTALL_TYPE"
+    echo "  PURGE_CACHE: $PURGE_CACHE"
     echo "  TLS_SAN_MODE: $TLS_SAN_MODE"
     echo "  TLS_SAN: $TLS_SAN"
     echo "  OFFLINE_PREP_MODE: $OFFLINE_PREP_MODE"
@@ -1001,6 +1023,277 @@ firewalld_selinux_preflight () {
   if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]; then
     echo "  NOTE: SELinux is Enforcing. rke2_installer.sh verifies/installs the rke2-selinux policy"
     echo "  itself (and fails loudly if it cannot); ap-tools makes no SELinux changes."
+  fi
+}
+
+# --- Uninstall Definitions (W5) --- #
+
+confirm_destructive () {
+  # Typed-confirmation gate for destructive uninstalls. First argument is the headline,
+  # remaining arguments are printed as detail lines. AP_ASSUME_YES=true skips the
+  # prompt for automation.
+  echo ""
+  echo "WARNING: $1"
+  shift
+  local line
+  for line in "$@"; do
+    echo "  $line"
+  done
+  if [[ "${AP_ASSUME_YES,,}" == "true" ]]; then
+    echo "  AP_ASSUME_YES=true - proceeding without interactive confirmation."
+    return 0
+  fi
+  printf "  Type 'yes-destroy' to continue (anything else aborts): "
+  local reply=""
+  if ! read -r reply; then
+    reply=""
+  fi
+  if [[ "$reply" != "yes-destroy" ]]; then
+    echo "  Aborted - nothing was changed."
+    exit 1
+  fi
+}
+
+remove_ap_host_changes () {
+  # Reverts ONLY what ap-tools itself changed on this host, using state.env records.
+  # rke2_installer.sh's uninstall restores its own recorded host state (swap, firewalls,
+  # its NTP config, its multipathd records) - no double handling here.
+  echo "  Reverting ap-tools host changes recorded in $STATE_FILE..."
+  local bin
+  for bin in "$(state_get AP_INSTALLED_HELM)" "$(state_get AP_INSTALLED_K9S)" "$(state_get AP_INSTALLED_LONGHORNCTL)"; do
+    if [[ -n "$bin" && -f "$bin" ]]; then
+      echo "  Removing $bin"
+      rm -f "$bin"
+    fi
+  done
+  state_unset AP_INSTALLED_HELM
+  state_unset AP_INSTALLED_K9S
+  state_unset AP_INSTALLED_LONGHORNCTL
+  # Sysctl file (fall back to the well-known name for pre-state-file installs)
+  local sysctl_file
+  sysctl_file=$(state_get AP_SYSCTL_FILE)
+  [[ -z "$sysctl_file" ]] && sysctl_file="/etc/sysctl.d/10-ap-orchestrator.conf"
+  if [[ -f "$sysctl_file" ]]; then
+    echo "  Removing $sysctl_file"
+    rm -f "$sysctl_file"
+    systemctl restart systemd-sysctl 2>/dev/null || true
+  fi
+  state_unset AP_SYSCTL_FILE
+  # multipath drop-in + multipathd restoration. A pre-existing site /etc/multipath.conf
+  # is never touched (AP-12); a legacy ap-tools-written /etc/multipath.conf (pre drop-in
+  # versions) is also left in place - it is only a harmless sd* blacklist.
+  rm -f /etc/multipath/conf.d/99-ap-tools.conf
+  state_unset AP_MULTIPATH_DROPIN
+  systemctl unmask multipathd.service multipathd.socket 2>/dev/null || true
+  if [[ "$(state_get AP_MULTIPATHD_SERVICE_WAS_ENABLED)" == "enabled" ]]; then
+    echo "  Restoring multipathd.service (was enabled before install)..."
+    systemctl enable --now multipathd.service 2>/dev/null || true
+  fi
+  if [[ "$(state_get AP_MULTIPATHD_SOCKET_WAS_ENABLED)" == "enabled" ]]; then
+    systemctl enable --now multipathd.socket 2>/dev/null || true
+  fi
+  state_unset AP_MULTIPATHD_SERVICE_WAS_ENABLED
+  state_unset AP_MULTIPATHD_SOCKET_WAS_ENABLED
+  state_unset AP_MULTIPATH_CONF_PREEXISTED
+  # iscsid: disable again only if ap-tools enabled it (recorded prior state != enabled)
+  local iscsid_unit iscsid_prior
+  iscsid_unit=$(state_get AP_ISCSID_UNIT)
+  iscsid_prior=$(state_get AP_ISCSID_WAS_ENABLED)
+  if [[ -n "$iscsid_unit" && -n "$iscsid_prior" && "$iscsid_prior" != "enabled" ]]; then
+    echo "  Restoring iscsid ($iscsid_unit) to its pre-install state ($iscsid_prior)..."
+    systemctl disable "$iscsid_unit" 2>/dev/null || true
+  fi
+  state_unset AP_ISCSID_UNIT
+  state_unset AP_ISCSID_WAS_ENABLED
+  # NTP: only when ap-tools' own configure_node_ntp did the configuring (rke2-managed
+  # NTP is reverted by rke2_installer.sh uninstall via its own state records)
+  local ntp_mode
+  ntp_mode=$(state_get AP_NTP_CONFIGURED)
+  if [[ "$ntp_mode" == "timesyncd" ]]; then
+    echo "  Removing ap-tools timesyncd NTP drop-in..."
+    rm -f /etc/systemd/timesyncd.conf.d/10-ap-tools.conf
+    systemctl restart systemd-timesyncd 2>/dev/null || true
+  elif [[ "$ntp_mode" == "chrony" ]]; then
+    echo "  Removing ap-tools chrony NTP entries..."
+    sed -i '/# ap-tools NTP$/d' /etc/chrony/chrony.conf 2>/dev/null || true
+    sed -i '/# ap-tools NTP$/d' /etc/chrony.conf 2>/dev/null || true
+    systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null || true
+  fi
+  state_unset AP_NTP_CONFIGURED
+  state_unset AP_DOCKER_PREEXISTED
+}
+
+run_uninstall_rke2 () {
+  confirm_destructive "'uninstall rke2' DESTROYS this cluster node. On the last/only server node this deletes ALL Longhorn persistent volumes - every PVC, including Dell Automation Platform's data." \
+    "Velero backups stored on external S3 survive; everything in-cluster is lost." \
+    "Harbor and SeaweedFS hosts are NOT touched - use 'uninstall harbor' / 'uninstall swfs' on those hosts."
+  if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" ]]; then
+      echo "Error: cached rke2_installer.sh not found under $WORKING_DIR/rke2 and this host is air-gapped."
+      echo "  Run uninstall from the directory the install ran in (where the ap-install cache lives)."
+      exit 1
+    fi
+    rke2_installer_check
+  fi
+  cd $WORKING_DIR/rke2
+  RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA \
+  INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER DEBUG=$DEBUG ./rke2_installer.sh uninstall
+  cd $base_dir
+  remove_ap_host_changes
+  echo "  rke2 uninstall complete."
+}
+
+run_uninstall_harbor () {
+  confirm_destructive "'uninstall harbor' removes the Harbor registry from this host, including its stored container images." \
+    "install_harbor.sh removes only Harbor's own /data subpaths by default; set PURGE_DATA=true to remove /data entirely."
+  if [[ ! -f $WORKING_DIR/ap-utilities/harbor/install_harbor.sh ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" && -f $WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz ]]; then
+      cd $WORKING_DIR/ap-utilities/harbor
+      tar xzf harbor-offline-package.tar.gz
+      cd $base_dir
+    else
+      fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
+        "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
+    fi
+  fi
+  cd $WORKING_DIR/ap-utilities/harbor
+  # Forward ONLY user-set values: install_harbor.sh's recorded /opt/harbor/.install-env
+  # (explicit env > .install-env > default) must stay authoritative for what was
+  # actually installed - unconditionally forwarding ap-tools defaults would defeat it.
+  local fwd=("DEBUG=$DEBUG")
+  [[ -n "$user_set_harbor_cn" ]] && fwd+=("REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME")
+  [[ -n "$user_set_harbor_port" ]] && fwd+=("HARBOR_PORT=$HARBOR_PORT")
+  [[ -n "$user_set_harbor_version" ]] && fwd+=("HARBOR_VERSION=$HARBOR_VERSION")
+  [[ -n "$user_set_purge_data" ]] && fwd+=("PURGE_DATA=$PURGE_DATA")
+  env "${fwd[@]}" ./install_harbor.sh uninstall-harbor
+  cd $base_dir
+  echo "  harbor uninstall complete."
+}
+
+run_uninstall_swfs () {
+  confirm_destructive "'uninstall swfs' removes the SeaweedFS containers, configuration, and locally stored artifact/S3 data on this host." \
+    "SMB/NFS host configuration is reverted per install-seaweedfs's recorded install state."
+  if [[ ! -f $WORKING_DIR/ap-utilities/swfs/install-seaweedfs ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" && -f $WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz ]]; then
+      cd $WORKING_DIR/ap-utilities/swfs
+      tar xzf swfs-save.tar.gz
+      cd $base_dir
+    else
+      fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
+        "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
+    fi
+  fi
+  cd $WORKING_DIR/ap-utilities/swfs
+  # ENABLE_*/DEFAULT_FILER_DIR_NAME are only install-seaweedfs's legacy fallback for
+  # pre-state-file installs; its own state file governs cleanup when present.
+  local fwd=("DEBUG=$DEBUG" "ENABLE_SMB=$ENABLE_SMB" "ENABLE_NFS=$ENABLE_NFS" "DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME")
+  [[ -n "$user_set_swfs_remove_images" ]] && fwd+=("SWFS_REMOVE_IMAGES=$SWFS_REMOVE_IMAGES")
+  env "${fwd[@]}" ./install-seaweedfs uninstall
+  cd $base_dir
+  echo "  swfs uninstall complete."
+}
+
+run_uninstall_velero () {
+  echo "  Uninstalling Velero from the cluster (backups stored on S3 are NOT deleted)..."
+  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  export PATH=$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin
+  if ! kubectl get namespace velero >/dev/null 2>&1; then
+    echo "  velero namespace not found - nothing to uninstall."
+    return 0
+  fi
+  if command -v velero >/dev/null 2>&1; then
+    velero uninstall --force
+  else
+    kubectl delete namespace velero --ignore-not-found
+    kubectl delete crds -l component=velero --ignore-not-found
+  fi
+  kubectl delete volumesnapshotclass "$VSC_NAME" --ignore-not-found 2>/dev/null || true
+  rm -f /usr/local/bin/velero
+  echo "  Velero uninstalled. S3 bucket '$VELERO_BUCKET' and its backups were left untouched."
+}
+
+run_uninstall_monitoring () {
+  echo "  Uninstalling the monitoring stack (kube-prometheus-stack + Fluent Bit) from the cluster..."
+  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  export PATH=$PATH:/var/lib/rancher/rke2/bin
+  if ! kubectl get namespace monitoring >/dev/null 2>&1; then
+    echo "  monitoring namespace not found - nothing to uninstall."
+    return 0
+  fi
+  local helm_bin="/usr/local/bin/helm"
+  [[ -x "$helm_bin" ]] || helm_bin="/usr/bin/helm"   # pre-phase2 installs placed helm in /usr/bin
+  if [[ -x "$helm_bin" ]]; then
+    $helm_bin uninstall fluent-bit -n monitoring 2>/dev/null || true
+    $helm_bin uninstall kube-prometheus-stack -n monitoring 2>/dev/null || true
+  fi
+  kubectl delete namespace monitoring --ignore-not-found
+  echo "  Monitoring stack removed. The external monitoring host (Loki/Grafana on the swfs host) is NOT touched."
+}
+
+run_uninstall_ap_bundle () {
+  echo "  Removing Dell Automation Platform staging artifacts (bundle tree, cmd file, registry trust)..."
+  echo "  NOTE: this does NOT uninstall DAP itself - DAP runs inside the RKE2 cluster and is removed"
+  echo "  with the cluster ('uninstall rke2') or via Dell's own uninstall procedure. Docker is kept."
+  local ca_path reg_fqdn certsd_dir
+  ca_path=$(state_get AP_REG_CA_PATH)
+  reg_fqdn=$(state_get AP_REG_FQDN)
+  certsd_dir=$(state_get AP_REG_CERTSD_DIR)
+  if [[ -z "$ca_path" && -n "$REG_FQDN" ]]; then
+    # Fallback for pre-state-file installs: derive from the -registry argument
+    local p
+    for p in "/usr/local/share/ca-certificates/$REG_FQDN.crt" "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" "/etc/pki/trust/anchors/$REG_FQDN.crt"; do
+      [[ -f "$p" ]] && ca_path="$p"
+    done
+    certsd_dir="/etc/docker/certs.d/$REGISTRY_INFO"
+  fi
+  if [[ -n "$ca_path" && -f "$ca_path" ]]; then
+    echo "  Removing registry CA from the system trust store: $ca_path"
+    rm -f "$ca_path"
+    if command -v update-ca-certificates >/dev/null 2>&1; then
+      update-ca-certificates >/dev/null 2>&1 || true
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+      update-ca-trust extract 2>/dev/null || true
+    fi
+  else
+    echo "  No registry CA recorded/found to remove. (On hosts installed before state tracking,"
+    echo "  pass '-registry <host:port> <user> <pass>' so the CA file can be located.)"
+  fi
+  if [[ -n "$certsd_dir" && -d "$certsd_dir" ]]; then
+    echo "  Removing docker registry cert dir: $certsd_dir"
+    rm -rf "$certsd_dir"
+  fi
+  rm -rf "$WORKING_DIR/bundle"
+  local cmd_file
+  cmd_file=$(state_get AP_CMD_FILE)
+  [[ -z "$cmd_file" ]] && cmd_file="$base_dir/ap-install-upgrade-cmd.txt"
+  rm -f "$cmd_file"
+  state_unset AP_REG_CA_PATH
+  state_unset AP_REG_FQDN
+  state_unset AP_REG_CERTSD_DIR
+  state_unset AP_CMD_FILE
+  echo "  ap-bundle staging removed. The bundle zip and cached sub-installers are kept -"
+  echo "  re-run with --purge-cache to remove the whole $WORKING_DIR tree (~20GB)."
+}
+
+purge_cache_tree () {
+  echo "  --purge-cache: removing the ap-tools working cache..."
+  rm -rf "${WORKING_DIR:?}"
+  rm -rf "${base_dir:?}/LICENSES"
+  echo "  Removed $WORKING_DIR (bundle zip, cached sub-installers, helm charts, staged images)."
+  echo "  A local ap-offline.tar.gz archive, if present, was intentionally kept."
+}
+
+run_uninstall () {
+  case "$UNINSTALL_TYPE" in
+    rke2)       run_uninstall_rke2 ;;
+    harbor)     run_uninstall_harbor ;;
+    swfs)       run_uninstall_swfs ;;
+    velero)     run_uninstall_velero ;;
+    monitoring) run_uninstall_monitoring ;;
+    ap-bundle)  run_uninstall_ap_bundle ;;
+  esac
+  if [[ $PURGE_CACHE -eq 1 ]]; then
+    purge_cache_tree
   fi
 }
 
@@ -1879,6 +2172,21 @@ while [[ "$#" -gt 0 ]]; do
             shift
             shift
             ;;
+        uninstall)
+            UNINSTALL_MODE=1
+            UNINSTALL_TYPE="${2:-}"
+            if [[ -z "$UNINSTALL_TYPE" || "$UNINSTALL_TYPE" != "ap-bundle" && "$UNINSTALL_TYPE" != "rke2" && "$UNINSTALL_TYPE" != "harbor" && "$UNINSTALL_TYPE" != "swfs" && "$UNINSTALL_TYPE" != "velero" && "$UNINSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'uninstall' command requires a type. Format: uninstall [rke2|ap-bundle|harbor|swfs|velero|monitoring] [--purge-cache]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            ;;
+        --purge-cache)
+            PURGE_CACHE=1
+            shift
+            ;;
         upgrade)
             UPGRADE_MODE=1
             UPGRADE_TYPE_ARG="${2:-}"
@@ -2039,6 +2347,25 @@ if [[ "$INSTALL_TYPE" == "velero" ]]; then
     fi
 fi
 
+# Verify UNINSTALL_MODE is not combined with other commands
+if [[ "$UNINSTALL_MODE" == "1" ]]; then
+    if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $UPGRADE_MODE == "1" ]]; then
+        echo "Error: 'uninstall' command cannot be used with 'install, join, push, upgrade, or offline-prep'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ $TLS_SAN_MODE == "1" ]]; then
+        echo "Error: 'uninstall' command cannot be used with '-tls-san'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+if [[ "$PURGE_CACHE" == "1" && "$UNINSTALL_MODE" == "0" ]]; then
+    echo "Error: '--purge-cache' is only valid with the 'uninstall' command."
+    echo "Type './$SCRIPT_NAME -h' for help."
+    exit 1
+fi
+
 # Verify UPGRADE_MODE is not combined with other commands
 if [[ "$UPGRADE_MODE" == "1" ]]; then
     if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" ]]; then
@@ -2081,6 +2408,11 @@ fi
 os_check
 display_args
 create_working_dir
+if [[ $UNINSTALL_MODE == "1" ]]; then
+  run_uninstall
+  echo "### Automation Tools Finished on $(date) ###"
+  exit 0
+fi
 if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"

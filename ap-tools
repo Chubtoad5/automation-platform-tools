@@ -183,6 +183,9 @@ JOIN_SERVER_FQDN=""
 UNINSTALL_MODE=0
 UNINSTALL_TYPE=""
 PURGE_CACHE=0
+CONFIG_MODE=0
+CONFIG_TYPE=""
+CONFIG_ARGS=()
 base_dir=$(pwd)
 # AP-14: exact-match the interface that carries MGMT_IP (substring grep could match the
 # wrong NIC, e.g. 192.168.1.5 inside 192.168.1.50, and hand MetalLB the wrong interface).
@@ -281,6 +284,8 @@ display_args() {
     echo "  UNINSTALL_MODE: $UNINSTALL_MODE"
     echo "  UNINSTALL_TYPE: $UNINSTALL_TYPE"
     echo "  PURGE_CACHE: $PURGE_CACHE"
+    echo "  CONFIG_MODE: $CONFIG_MODE"
+    echo "  CONFIG_TYPE: $CONFIG_TYPE"
     echo "  TLS_SAN_MODE: $TLS_SAN_MODE"
     echo "  TLS_SAN: $TLS_SAN"
     echo "  OFFLINE_PREP_MODE: $OFFLINE_PREP_MODE"
@@ -1024,6 +1029,49 @@ firewalld_selinux_preflight () {
     echo "  NOTE: SELinux is Enforcing. rke2_installer.sh verifies/installs the rke2-selinux policy"
     echo "  itself (and fails loudly if it cannot); ap-tools makes no SELinux changes."
   fi
+}
+
+# --- Host Config Helpers (W14/W15) --- #
+
+run_config_hostname () {
+  # 'config hostname <fqdn>': hostnamectl + marker-tagged /etc/hosts fixup. Run this
+  # BEFORE 'install rke2'/'join' - the hostname is the node's identity (node object,
+  # certificates, etcd membership) and must never change under a live cluster node.
+  local fqdn="${CONFIG_ARGS[0]:-}"
+  if [[ -z "$fqdn" || ${#CONFIG_ARGS[@]} -ne 1 ]]; then
+    echo "Error: 'config hostname' requires exactly one argument. Format: config hostname <host.example.com>"
+    echo "Type './$SCRIPT_NAME -h' for help."
+    exit 1
+  fi
+  if [[ ! "$fqdn" =~ $fqdn_pattern ]]; then
+    echo "Error: '$fqdn' is not a valid FQDN (lowercase letters, digits, hyphens and dots, e.g. node1.edge.lab)."
+    exit 1
+  fi
+  if systemctl is-active --quiet rke2-server.service || systemctl is-active --quiet rke2-agent.service; then
+    echo "Error: an RKE2 service is active on this host. Changing the hostname of a live cluster node"
+    echo "  breaks its node identity. Run 'config hostname' BEFORE 'install rke2'/'join', or run"
+    echo "  'uninstall rke2' first."
+    exit 1
+  fi
+  local short="${fqdn%%.*}"
+  echo "  Setting hostname to '$fqdn' (short: '$short')..."
+  hostnamectl set-hostname "$fqdn"
+  # Marker-tagged /etc/hosts entry - re-runs replace the previous ap-tools line
+  sed -i '/# ap-tools hostname$/d' /etc/hosts
+  if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+    # Debian family resolves the local hostname via a 127.0.1.1 line
+    if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+      sed -i -E "s|^127\.0\.1\.1[[:space:]].*|127.0.1.1 $fqdn $short # ap-tools hostname|" /etc/hosts
+    else
+      echo "127.0.1.1 $fqdn $short # ap-tools hostname" >> /etc/hosts
+    fi
+  else
+    # Rocky/RHEL/Leap convention: map the management IP to the FQDN
+    echo "$MGMT_IP $fqdn $short # ap-tools hostname" >> /etc/hosts
+  fi
+  echo "  /etc/hosts updated (marker-tagged; re-runs reconcile instead of duplicating)."
+  echo "  hostname is now: $(hostname)"
+  echo "  Note: already-open shells keep showing the old name until you log in again."
 }
 
 # --- Uninstall Definitions (W5) --- #
@@ -2172,6 +2220,20 @@ while [[ "$#" -gt 0 ]]; do
             shift
             shift
             ;;
+        config)
+            CONFIG_MODE=1
+            CONFIG_TYPE="${2:-}"
+            if [[ "$CONFIG_TYPE" != "hostname" && "$CONFIG_TYPE" != "static-ip" ]]; then
+                echo "Error: 'config' command requires a type. Format: config hostname <fqdn> | config static-ip <options>"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            # 'config' consumes all remaining arguments; its own sub-parser validates them
+            CONFIG_ARGS=("$@")
+            set --
+            ;;
         uninstall)
             UNINSTALL_MODE=1
             UNINSTALL_TYPE="${2:-}"
@@ -2347,6 +2409,15 @@ if [[ "$INSTALL_TYPE" == "velero" ]]; then
     fi
 fi
 
+# Verify CONFIG_MODE is not combined with other commands or options
+if [[ "$CONFIG_MODE" == "1" ]]; then
+    if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $UPGRADE_MODE == "1" || $UNINSTALL_MODE == "1" || $TLS_SAN_MODE == "1" || $REGISTRY_MODE == "1" ]]; then
+        echo "Error: 'config' cannot be combined with other commands or options."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
 # Verify UNINSTALL_MODE is not combined with other commands
 if [[ "$UNINSTALL_MODE" == "1" ]]; then
     if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $UPGRADE_MODE == "1" ]]; then
@@ -2407,6 +2478,16 @@ fi
 
 os_check
 display_args
+if [[ $CONFIG_MODE == "1" ]]; then
+  # 'config' subcommands are host-preparation helpers: no working dir, no downloads.
+  if [[ $CONFIG_TYPE == "hostname" ]]; then
+    run_config_hostname
+  else
+    run_config_static_ip
+  fi
+  echo "### Automation Tools Finished on $(date) ###"
+  exit 0
+fi
 create_working_dir
 if [[ $UNINSTALL_MODE == "1" ]]; then
   run_uninstall

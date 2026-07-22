@@ -899,23 +899,36 @@ download_helm_binaries () {
 }
 
 download_ap_bundle () {
+  # AP-4: wget is absent on minimal images; use curl (-fL) and download to a .partial
+  # file so an interrupted ~19GB fetch never masquerades as a complete bundle. A
+  # leftover .partial is resumed with 'curl -C -' before falling back to a fresh fetch.
   user_agent_string="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
   url_check=$(echo $AP_BUNDLE_URL | cut -d "/" -f3)
+  local curl_opts=(-fkL --retry 3)
+  if [[ "$url_check" == "dl.dell.com" ]]; then
+    curl_opts+=(--user-agent "$user_agent_string")
+  fi
   if [[ ! -f $WORKING_DIR/$bundle_file ]]; then
     echo "  Downloading on-premise installation bundle..."
-    if [[ "$url_check" == "dl.dell.com" ]]; then
-      if ! wget --no-check-certificate --user-agent="$user_agent_string" -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
-        echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
-        echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
-        exit 1
+    local dl_ok=0
+    if [[ -f $WORKING_DIR/$bundle_file.partial ]]; then
+      echo "  Partial download found; attempting to resume..."
+      if curl "${curl_opts[@]}" -C - -o $WORKING_DIR/$bundle_file.partial $AP_BUNDLE_URL; then
+        dl_ok=1
+      else
+        echo "  Resume failed; restarting the download from scratch..."
+        rm -f $WORKING_DIR/$bundle_file.partial
       fi
-    else
-      if ! wget --no-check-certificate -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
+    fi
+    if [[ $dl_ok -eq 0 ]]; then
+      if ! curl "${curl_opts[@]}" -o $WORKING_DIR/$bundle_file.partial $AP_BUNDLE_URL; then
+        rm -f $WORKING_DIR/$bundle_file.partial
         echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
         echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
         exit 1
       fi
     fi
+    mv $WORKING_DIR/$bundle_file.partial $WORKING_DIR/$bundle_file
   else
     echo "  Automation Platform bundle already downloaded."
   fi
@@ -943,7 +956,7 @@ generate_bundle_licenses () {
     # written offer for the bundled copyleft components (Grafana, AGPL-3.0; and HAProxy,
     # GPL-2.0+, which ships inside the haproxytech ingress image). Satisfies the GPL/AGPL
     # "corresponding source or written offer" requirement.
-    local dir="$base_dir/LICENSES"
+    local dir="${base_dir:?}/LICENSES"
     rm -rf "$dir"; mkdir -p "$dir"
     {
         echo "Third-party components redistributed in this Dell AP (ap-tools) air-gap bundle"
@@ -993,7 +1006,29 @@ create_offline_prep_archive () {
     # saves downloaded files into ap-offline.tar.gz
     echo "  Creating offline archive 'ap-offline.tar.gz'"
     generate_bundle_licenses
-    tar -czf ap-offline.tar.gz ap-install ap-tools LICENSES
+    # AP-13: tar with -C $base_dir and stage a copy of this script (plus
+    # inputs.env.example when shipped alongside it) into $base_dir first, so
+    # offline-prep works when ap-tools is invoked by absolute path from another cwd.
+    if [[ "$SCRIPT_PATH" != "$base_dir/ap-tools" ]]; then
+        cp "$SCRIPT_PATH" "$base_dir/ap-tools"
+        chmod +x "$base_dir/ap-tools"
+    fi
+    local extra_files=""
+    if [[ -f "$(dirname "$SCRIPT_PATH")/inputs.env.example" ]]; then
+        if [[ "$(dirname "$SCRIPT_PATH")" != "$base_dir" ]]; then
+            cp "$(dirname "$SCRIPT_PATH")/inputs.env.example" "$base_dir/inputs.env.example"
+        fi
+        extra_files="inputs.env.example"
+    fi
+    # AP-9: write to a temp name + mv. The archive IS the air-gap sentinel - a partial
+    # tar left by an interrupted run would flip every later invocation in this
+    # directory into air-gapped mode. tar can never leave a half-written sentinel now.
+    if ! tar -czf "$base_dir/ap-offline.tar.gz.partial" -C "$base_dir" ap-install ap-tools LICENSES $extra_files; then
+        rm -f "$base_dir/ap-offline.tar.gz.partial"
+        echo "Error: failed to create ap-offline.tar.gz (disk space?). No archive was left behind."
+        exit 1
+    fi
+    mv "$base_dir/ap-offline.tar.gz.partial" "$base_dir/ap-offline.tar.gz"
 }
 
 # --- Helper Functions --- #
@@ -1605,9 +1640,12 @@ if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then
         exit 1
     fi
     if [[ $AIR_GAPPED_MODE == "1" ]]; then
-        echo "Error: Air-gapped mode detected,'offline-prep' requires an internet connection."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
+        # AP-9: the archive is the sentinel - its presence means offline prep already
+        # completed here (or this is an air-gapped host, where offline-prep can't run).
+        echo "ap-offline.tar.gz already exists in $base_dir - offline preparation has already completed."
+        echo "  Nothing to do. To force a rebuild, move or delete ap-offline.tar.gz and re-run 'offline-prep'"
+        echo "  (offline-prep requires an internet connection)."
+        exit 0
     fi
 fi
 

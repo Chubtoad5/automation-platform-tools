@@ -2700,13 +2700,13 @@ fi
 # Verify REGISTRY_MODE is an FQDN/IP and port
 if [[ "$REGISTRY_MODE" == "1" ]]; then
     if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
-        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com:443'."
+        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.registry.com:443'."
         exit 1
     fi
     REG_FQDN=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
     REG_PORT=$(echo "$REGISTRY_INFO" | cut -d':' -f2)
     if [[ ! ( "$REG_FQDN" =~ $fqdn_pattern || "$REG_FQDN" =~ $ipv4_pattern ) ]]; then
-        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com' or '192.168.1.50'."
+        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.registry.com' or '192.168.1.50'."
         exit 1
     fi
     if [[ "$REG_PORT" =~ ^[0-9]+$ ]]; then

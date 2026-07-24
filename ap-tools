@@ -1921,7 +1921,11 @@ create_offline_prep_archive () {
     # AP-9: write to a temp name + mv. The archive IS the air-gap sentinel - a partial
     # tar left by an interrupted run would flip every later invocation in this
     # directory into air-gapped mode. tar can never leave a half-written sentinel now.
-    if ! tar -czf "$base_dir/ap-offline.tar.gz.partial" -C "$base_dir" ap-install ap-tools LICENSES $extra_files; then
+    # ap-install/bundle is the install-time EXTRACTION of the DAP zip: when
+    # offline-prep runs on a host that already did 'install ap-bundle', shipping
+    # it alongside the zip doubles the archive (~38G tree + ~19G zip carrying the
+    # same payload). The air-gapped target re-extracts from the zip anyway.
+    if ! tar -czf "$base_dir/ap-offline.tar.gz.partial" -C "$base_dir" --exclude='ap-install/bundle' ap-install ap-tools LICENSES $extra_files; then
         rm -f "$base_dir/ap-offline.tar.gz.partial"
         echo "Error: failed to create ap-offline.tar.gz (disk space?). No archive was left behind."
         exit 1

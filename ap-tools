@@ -228,7 +228,7 @@ harbor_feature_branch="${harbor_feature_branch:-main}"
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.

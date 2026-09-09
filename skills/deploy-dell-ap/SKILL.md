@@ -40,8 +40,8 @@ key you don't need it.
 
 | Topology | Build | Per-node size | Extra |
 |:--|:--|:--|:--|
-| Single-node | 1 VM, static IP | **18 vCPU / 34 GB / 1 TB** (16/34/500 floor) | 4 DNS records → host IP |
-| Multi-node (3) | 3 VMs, static IPs | **16 vCPU / 20 GB / 500 GB+** each | + **1 free ingress VIP IP** (not a node IP); DNS split (see below) |
+| Single-node | 1 VM, static IP | **18 vCPU / 36 GB / 1 TB** (18/34/850 allocatable floor) | 4 DNS records → host IP |
+| Multi-node (3) | 3 VMs, static IPs | **16 vCPU / 20 GB / 850 GB+** each | + **1 free ingress VIP IP** (not a node IP); DNS split (see below). DAP applies its 850 GB storage gate **per node**. |
 | All-in-one | 1 VM | **20 vCPU / 40 GB / 1 TB** | co-locates Harbor+SeaweedFS |
 
 ## Run this skill in three phases — never install before intake is confirmed
@@ -109,9 +109,12 @@ Then: phase 1 `install rke2 -tls-san <cluster>` with `CLUSTER_TYPE=multi-node LB
    `HOST_FQDN=<cluster-name>` (step 4 above). See [reference/dns-and-certs.md](reference/dns-and-certs.md).
 5. **The VIP is for ingress, not the API.** `LB_IP` fronts only the portal/orchestrator. The `-tls-san`
    cluster name must resolve to node IPs and you **join via a node IP** — see the multi-node box above.
-6. **34 GB RAM single-node, 20 GB/node multi-node — not 32 / not 16.** RKE2 reserves ~2 GB; a 32 GB single
-   host fails the bundle's allocatable check, and 16 GB/node wedges the Orchestrator. A node provisioned at
-   exactly the floor reports ~1 GB less (firmware/kernel reserve); the preflight tolerates that. See
+6. **36 GB RAM single-node, 20 GB/node multi-node — and 850 GB disk per node.** RKE2 reserves ~2 GB, so a
+   34 GB single host fails the bundle's allocatable check (`ap-tools` gates on 34 GB allocatable); 16 GB/node
+   wedges the Orchestrator. DAP 2.1.1.0 also enforces **850 GB of allocatable ephemeral-storage per node** —
+   provision 1 TB, since allocatable sits below the raw filesystem size and a 500 GB host passes the older
+   docs and then fails Dell's own check mid-install. A node provisioned at exactly the floor reports ~1 GB
+   less (firmware/kernel reserve); the preflight tolerates that. See
    [reference/prerequisites.md](reference/prerequisites.md).
 
 ## Reference material (read on demand)

@@ -14,7 +14,7 @@ Walk this tree top-down; most failures match the early branches.
    ([registry.md](registry.md)).
 6. **Ports already in use** — RKE2 6443 / 9345 / 10250; Harbor 443 / 8443; SeaweedFS 9333 / 8888 / 8333.
    Don't co-locate a registry or storage service on the RKE2 host.
-7. **Insufficient capacity** — DAP needs ~16 vCPU and ~34 GB *allocatable*. A 32 GB host fails the
+7. **Insufficient capacity** — DAP needs ~18 vCPU, ~34 GB *allocatable*. A 32 GB host fails the
    pre-check because RKE2 reserves ~2 GB. Multi-node: ensure disk is large enough for Longhorn replica-3.
 8. **"Succeeded" but not working** — fail-soft readiness checks return 0 even when pods crash. Run the
    smoke checks in SKILL.md ("Verify, don't trust exit codes").

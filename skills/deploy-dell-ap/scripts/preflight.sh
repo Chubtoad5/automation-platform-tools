@@ -16,12 +16,17 @@
 
 set -u
 
-MIN_CPU=16
-MIN_RAM_GB=34          # single-node floor. 34, not 32: RKE2 reserves ~2GB; the bundle pre-check measures allocatable.
+MIN_CPU=18
+MIN_RAM_GB=36          # single-node floor. The bundle pre-check measures ALLOCATABLE memory and RKE2 + the OS
+                       # reserve ~2 GB, so provision 36 to leave ~34 allocatable.
 MIN_RAM_GB_MULTI=20    # per-node floor for a 3-node cluster (16 GB/node wedges the Orchestrator install).
 RAM_TOLERANCE_GB=2     # a VM "allocated" N GiB presents MemTotal a bit under N (firmware/kernel reserve);
                        # accept mem >= floor - tolerance so a real 20 GB node (shows ~19) passes while 16 still fails.
-MIN_DISK_GB=500
+# 850 GB, raised from 500: DAP 2.1.1.0's own pre_install_check enforces REQUIRED_DISK_SPACE=850Gi against each
+# node's ALLOCATABLE ephemeral-storage. Allocatable is always below the raw filesystem size, so a host with
+# exactly 850 GB free can still fail Dell's gate - 1 TB is the safe provisioning target. A 500 GB host used to
+# pass this script and then fail Dell's check partway through the install.
+MIN_DISK_GB=850
 DISK_PATH="/"
 DNS_NAMES=""
 MULTI_NODE=0

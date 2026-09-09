@@ -29,9 +29,10 @@ the job.
   nodes (etcd/TLS/tokens). If none supplied, confirm the hosts are already time-synced.
 - Identity: organization name and description; admin first name, last name, username, email.
 - Mode: online or air-gapped.
-- Confirmation of sizing + supported OS: single-node 16 vCPU / 34 GB RAM / 500 GB+ disk; multi-node
-  16 vCPU / **≥ 20 GB RAM per node (3-node)** / 500 GB+ disk (16 GB/node wedges the Orchestrator install).
-  A node at exactly the floor reports ~1 GB less than allocated — expected; the preflight tolerates it.
+- Confirmation of sizing + supported OS: single-node 18 vCPU / 36 GB RAM / 850 GB+ disk (1 TB preferred);
+  multi-node 16 vCPU / **≥ 20 GB RAM per node (3-node)** / 850 GB+ disk per node (16 GB/node wedges the
+  Orchestrator install). A node at exactly the floor reports ~1 GB less than allocated — expected; the
+  preflight tolerates it.
 
 ## Procedure
 - Collect every item in "What's Needed From User" and echo it back to the user as a plan.
@@ -62,8 +63,9 @@ the job.
 ## Advice and Pointers
 - `install ap-bundle` stages the bundle and writes `ap-install-upgrade-cmd.txt`; it does not deploy DAP
   on its own — you must run the `install-upgrade.sh` command from that file.
-- Single-node 34 GB (not 32), multi-node 20 GB/node (not 16) — RKE2 reserves ~2 GB and the bundle
-  pre-check measures Kubernetes allocatable capacity.
+- Single-node 36 GB (not 34), multi-node 20 GB/node (not 16) — RKE2 reserves ~2 GB and the bundle
+  pre-check measures Kubernetes allocatable capacity. DAP 2.1.1.0 additionally requires **850 GB of
+  allocatable ephemeral-storage per node**; provision 1 TB.
 - **Multi-node DNS split:** `portal.`/`orchestrator.`/`mtls-*` → the ingress VIP (`LB_IP`); the bare
   cluster/`-tls-san` name → the node IPs. A `*.<cluster>` wildcard → VIP covers the four service records and
   leaves the bare `<cluster>` name free for the node IPs. The VIP is ingress-only, not the API server.

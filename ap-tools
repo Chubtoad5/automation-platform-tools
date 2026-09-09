@@ -52,9 +52,10 @@ SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and
 AP_ASSUME_YES="${AP_ASSUME_YES:-false}"                # true = skip the typed 'yes-destroy' confirmation on destructive 'uninstall' commands (for automation)
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir
+AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14962193M/1/Dell_Automation_Platform_Linux_2.1.1.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir. NOTE: the dl.dell.com FOLDER path changes per release - replace the whole URL, not just the version.
 DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
+IMAGE_LOADER_THREAD_COUNT="${IMAGE_LOADER_THREAD_COUNT:-5}"  # parallel image-push threads for install-upgrade.sh (DAP default 5, max 20). The image push dominates install time; raise it to shorten that phase.
 REGISTRY_PROJECT_NAME="${REGISTRY_PROJECT_NAME:-dell-automation}"  # Project name on the local registry for Dell Automation Platfor,
 ORCHESTRATOR_NAMESPACE="${ORCHESTRATOR_NAMESPACE:-dell-orchestrator}"  # Namespace to use for Dell Automation Platform orchestrator
 PORTAL_NAMESPACE="${PORTAL_NAMESPACE:-dell-portal}"    # Namespace to use for Dell Automation Platform portal
@@ -206,9 +207,18 @@ ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]
 RKE2_CMD_ARGS=""
 longhorn_packages=""
 bundle_file=$(basename $AP_BUNDLE_URL)
-REQUIRED_CPU=16
-REQUIRED_MEM_GB=32
-REQUIRED_STORAGE_GB=500
+# Cluster resource gates, measured against ALLOCATABLE resources (not provisioned) after the
+# cluster is up. Aligned to DAP 2.1.1.0, whose own pre_install_check enforces
+# REQUIRED_CPU=12000m / REQUIRED_MEMORY=24Gi / REQUIRED_DISK_SPACE=850Gi against each node's
+# allocatable ephemeral-storage. We keep CPU/memory above Dell's floor as the supported spec.
+REQUIRED_CPU=18
+# 34, not 36: the documented host spec is 36 GB provisioned, but the kubelet + OS reserve ~2 GB,
+# so a correctly-provisioned 36 GB node reports ~35 GB allocatable. Same 2 GB relationship the
+# previous 34-provisioned / 32-allocatable pair used.
+REQUIRED_MEM_GB=34
+# 850 GB matches DAP 2.1.1.0's ephemeral-storage gate exactly. A 500 GB host used to pass here
+# and then fail Dell's own check mid-install.
+REQUIRED_STORAGE_GB=850
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
 swfs_feature_branch="${swfs_feature_branch:-main}"
 rke2_feature_branch="${rke2_feature_branch:-main}"
@@ -2419,6 +2429,7 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   IMAGE_REG_PASSWORD="$REG_PASS" \\
   REGISTRY_CERT_FILE_PATH="$REG_CERT_FILE_PATH" \\
   SKIP_IMAGES_LOADER="$SKIP_IMAGES_LOADER" \\
+  IMAGE_LOADER_THREAD_COUNT="$IMAGE_LOADER_THREAD_COUNT" \\
   NAMESPACE="$ORCHESTRATOR_NAMESPACE" \\
   PORTAL_NAMESPACE="$PORTAL_NAMESPACE" \\
   PORTAL_INGRESS_CLASS_NAME="$PORTAL_INGRESS_CLASS_NAME" \\

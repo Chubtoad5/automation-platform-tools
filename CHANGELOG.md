@@ -1,5 +1,45 @@
 # Changelog — automation-platform-tools
 
+## 2026-09-09 — DAP 2.1.1.0 support: resource requirements, bundle default, image-loader threads
+
+Validated end-to-end against a live DAP **2.1.1.0** single-node install. No change was needed to make
+2.1.1.0 work — all parameters `ap-tools` emits are still valid — but its resource requirements and one
+new tunable are now reflected here.
+
+### Changed
+- **`AP_BUNDLE_URL` now defaults to DAP 2.1.1.0** (was 2.0.0.0). The `dl.dell.com` `FOLDER…` path
+  changes with every release, so overriding this means replacing the whole URL, not just the version.
+- **Resource requirements raised for DAP 2.1.1.0** — single-node is now **18 vCPU / 36 GB / 1 TB**:
+  - `ap-tools` cluster gate (measured against **allocatable** capacity during `install ap-bundle`):
+    `REQUIRED_CPU` 16 → **18**, `REQUIRED_MEM_GB` 32 → **34**, `REQUIRED_STORAGE_GB` 500 → **850**.
+  - `skills/deploy-dell-ap/scripts/preflight.sh` (measured on the bare host): `MIN_CPU` 16 → **18**,
+    `MIN_RAM_GB` 34 → **36**, `MIN_DISK_GB` 500 → **850**.
+  - The memory pair stays 2 GB apart on purpose: RKE2 and the OS reserve ~2 GB, so a host
+    **provisioned** with 36 GB reports ~34 GB **allocatable**. Provision 36, the gate checks 34.
+  - **The storage change is the important one.** DAP 2.1.1.0's own `pre_install_check` enforces
+    `REQUIRED_DISK_SPACE=850Gi` against each node's allocatable *ephemeral-storage*. At the old 500 GB
+    floor a host passed both of our checks and then failed Dell's partway through the install.
+    Allocatable sits below the raw filesystem size, so **1 TB is the safe provisioning target** —
+    exactly 850 GB will not reliably pass.
+
+### Added
+- **`IMAGE_LOADER_THREAD_COUNT`** (default `5`, Dell's own default; maximum 20) — parallel image-push
+  threads, now passed through to `install-upgrade.sh`. The image push dominates install time
+  (~35 of 56 minutes in the validated run), so this is the most direct lever on total duration. Values
+  outside 1–20 are rejected by Dell's installer, which already validates the range.
+  **Not new in 2.1.1.0** — DAP 2.0.0.0 accepts it too; `ap-tools` simply never passed it. Pinning
+  `AP_BUNDLE_URL` back to 2.0.0.0 therefore stays safe.
+
+### Documentation
+- The bundled `skills/deploy-dell-ap/` package and the `devin/` playbook were swept to the same figures,
+  so the skill no longer tells an operator to size a host that its own `preflight.sh` rejects:
+  `reference/prerequisites.md`, `SKILL.md`, `intake.md`, `reference/troubleshooting.md`,
+  `dap-deploy-template.env` and `devin/deploy-dell-ap.devin.md`.
+- **Multi-node storage:** `ap-tools` sums allocatable capacity across the cluster, but Dell applies the
+  850 GB ephemeral-storage requirement **per node** — so the per-node disk figure is now 850 GB+
+  everywhere. A 3-node cluster of 500 GB nodes passes our gate and fails Dell's. Multi-node CPU/RAM
+  figures are unchanged: they predate 2.1.1.0 and have not been re-validated against it.
+
 ## 2026-09-09 — Idempotence release (feature/idempotence-phase2)
 
 `ap-tools` gains the three capabilities it was missing — **uninstall**, **host-config

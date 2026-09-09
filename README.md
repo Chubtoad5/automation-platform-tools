@@ -42,9 +42,9 @@ meets:
 
 | Requirement | Value |
 |:--|:--|
-| CPU | 16 vCPU |
-| RAM | **34 GB** — the `install ap-bundle` pre-flight requires **32 GB allocatable**; RKE2 + the OS reserve ~2 GB, so a host provisioned with exactly 32 GB fails the check. Provision 34 GB. |
-| Disk | 1 TB SSD minimum |
+| CPU | **18 vCPU** |
+| RAM | **36 GB** — the `install ap-bundle` pre-flight measures **allocatable** memory and requires **34 GB**; RKE2 + the OS reserve ~2 GB, so provision 36 GB. A host provisioned with exactly 34 GB fails the check. |
+| Disk | **1 TB SSD minimum.** DAP 2.1.1.0 enforces **850 GB of allocatable *ephemeral-storage*** on every node. Allocatable is always below the raw filesystem size, so a host with exactly 850 GB will not reliably pass — 1 TB is the safe target. |
 | OS | Ubuntu 22.04+, RHEL 9.2+, or SLES 15 SP7 (x86_64) |
 | Network | A **static IP** (or DHCP reservation) |
 | Hostname | Lowercase letters, numbers, and hyphens only (DNS-1123) |
@@ -402,9 +402,10 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `AP_BUNDLE_URL` | Dell download URL (v2.0.0.0) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. |
+| `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.0**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
 | `DOWNLOAD_AP_BUNDLE` | `false` | When `true`, the bundle is downloaded during `offline-prep` or `install rke2`. |
 | `SKIP_IMAGES_LOADER` | `false` | When `true`, skips pushing AP images to the registry during `install-upgrade.sh`. |
+| `IMAGE_LOADER_THREAD_COUNT` | `5` | Parallel image-push threads used by `install-upgrade.sh`. Dell's default is 5 and the maximum is 20 (values outside `1-20` are rejected by the installer itself). The image push is typically the longest phase of a DAP install — roughly 35 of 56 minutes in a validated single-node run — so raising this is the most direct way to shorten it. Supported by DAP 2.0.0.0 as well as 2.1.1.0 - `ap-tools` simply did not pass it before. |
 | `REGISTRY_PROJECT_NAME` | `dell-automation` | Project/namespace on the registry for AP container images. |
 | `ORCHESTRATOR_NAMESPACE` | `dell-orchestrator` | Kubernetes namespace for the Orchestrator. |
 | `PORTAL_NAMESPACE` | `dell-portal` | Kubernetes namespace for the Portal. |
@@ -646,11 +647,21 @@ Sizing depends on the deployment model — per host (validated guidance):
 
 | Deployment model | Per host | Notes |
 |:-----------------|:---------|:------|
-| **Single-node** | 16 vCPU / 34 GB / 1 TB SSD | All platform services on one node. Pre-flight enforces 16 CPU / 32 GB / 500 GB *allocatable* — provision 34 GB so 32 GB remain allocatable. |
-| **Multi-node (3-node)** | 16 vCPU / **20 GB** / 500 GB+ SSD per node | Each node holds a replica of the HA services, so per-node RAM stays high even though the load is spread. Below ~20 GB/node the Orchestrator install wedges. |
+| **Single-node** | **18 vCPU / 36 GB / 1 TB SSD** | All platform services on one node. Pre-flight enforces 18 CPU / 34 GB / 850 GB *allocatable* — provision 36 GB so 34 GB remain allocatable, and 1 TB so 850 GB of ephemeral-storage remains allocatable. |
+| **Multi-node (3-node)** | 16 vCPU / **20 GB** / **850 GB+** SSD per node | Each node holds a replica of the HA services, so per-node RAM stays high even though the load is spread. Below ~20 GB/node the Orchestrator install wedges. |
 | **All-in-one single-node** (local Harbor + SeaweedFS + RKE2/DAP co-located) | 20 vCPU / **40 GB** / 1 TB SSD | The extra CPU/RAM covers Harbor + SeaweedFS alongside DAP; the larger disk holds the locally-pushed image set when installing with `SKIP_IMAGES_LOADER=false`. |
 
 Resource checks are performed against Kubernetes allocatable capacity (`kubectl get nodes`) during `install ap-bundle`.
+
+> **Storage caution for multi-node.** `ap-tools` sums allocatable capacity across the cluster, but DAP's own
+> `pre_install_check` applies its **850 GB ephemeral-storage requirement to every node individually**. A 3-node
+> cluster of 500 GB nodes therefore passes the `ap-tools` gate and still fails Dell's. The per-node figures above
+> predate DAP 2.1.1.0 and have not been re-validated against it — size multi-node nodes for 850 GB allocatable
+> ephemeral-storage each until they are.
+
+> **DAP version note.** These figures target **DAP 2.1.1.0**, the version pinned in `AP_BUNDLE_URL`. Requirements
+> move between releases — 2.1.1.0's own floor is `12000m` CPU / `24Gi` memory / `850Gi` ephemeral-storage, i.e.
+> *less* RAM but far more storage than 2.0.0.0. The values above stay above Dell's floor as the supported spec.
 
 #### SeaweedFS host
 

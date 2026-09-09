@@ -60,10 +60,12 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
 - Admin first name, last name, username, and email.
 
 ## 6. Resource confirmation
-- **Single-node:** confirm the host meets **16 vCPU / 34 GB RAM / 500 GB+ disk** (34, not 32).
-- **Multi-node:** confirm each node meets **16 vCPU / ≥ 20 GB RAM (3-node) / 500 GB+ disk**. 16 GB/node is
-  **not** enough — a 16 GB × 3 cluster wedges the Orchestrator install at 90-99% memory. See
-  [reference/prerequisites.md](reference/prerequisites.md).
+- **Single-node:** confirm the host meets **18 vCPU / 36 GB RAM / 850 GB+ disk** (36, not 34 — the check
+  measures *allocatable*). Prefer 1 TB of disk.
+- **Multi-node:** confirm each node meets **16 vCPU / ≥ 20 GB RAM (3-node) / 850 GB+ disk**. 16 GB/node is
+  **not** enough — a 16 GB × 3 cluster wedges the Orchestrator install at 90-99% memory. DAP applies its
+  **850 GB ephemeral-storage requirement per node**, so every node needs it, not the cluster in aggregate.
+  See [reference/prerequisites.md](reference/prerequisites.md).
 - Either way, confirm a supported OS.
 
 ## 7. Time synchronization (NTP)

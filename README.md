@@ -43,7 +43,7 @@ meets:
 | Requirement | Value |
 |:--|:--|
 | CPU | 16 vCPU |
-| RAM | **34 GB** — use 34, not 32: RKE2 + services reserve ~2 GB, and a 32 GB host fails the bundle's capacity pre-check |
+| RAM | **34 GB** — the `install ap-bundle` pre-flight requires **32 GB allocatable**; RKE2 + the OS reserve ~2 GB, so a host provisioned with exactly 32 GB fails the check. Provision 34 GB. |
 | Disk | 1 TB SSD minimum |
 | OS | Ubuntu 22.04+, RHEL 9.2+, or SLES 15 SP7 (x86_64) |
 | Network | A **static IP** (or DHCP reservation) |
@@ -190,6 +190,10 @@ preflight script — it does **not** modify `ap-tools` itself.
 | **Registry Push** | Pulls all required container images and pushes them to a user-specified registry. |
 | **RKE2 Upgrade** | Upgrades RKE2 cluster nodes (server, agent, or both) to a target version using system-upgrade-controller. |
 | **Cluster Join** | Joins additional server or agent nodes to an existing RKE2 cluster. |
+| **Uninstall** | Per-component `uninstall` flows that revert only what ap-tools and its sub-installers changed, driven by recorded install state (`/var/lib/ap-tools/state.env`). |
+| **Host Config Helpers** | `config hostname` (FQDN + marker-tagged `/etc/hosts`) and `config static-ip` (generate-first; apply with `netplan try` / NetworkManager auto-revert). |
+| **inputs.env** | Optional sourced inputs file with `CLI env > inputs.env > defaults` precedence; template in `inputs.env.example`. |
+| **Re-run / Reconcile** | `install rke2` on an already-running node reconciles instead of failing: unchanged config no-ops, changed config applies with `RKE2_RECONFIGURE=true`, and add-ons re-apply via `helm upgrade --install`. |
 
 ---
 
@@ -251,6 +255,59 @@ Joins the current host to an existing RKE2 cluster.
 | `server` | Joins as a control-plane node. Supports `-tls-san` and `-registry`. |
 | `agent` | Joins as a worker-only node. Supports `-registry`. |
 
+#### `uninstall <component> [--purge-cache]`
+
+Mirrors `install`: removes the component while reverting **only** what ap-tools and its
+sub-installers changed. ap-tools records host state at install time in
+`/var/lib/ap-tools/state.env` (mode 0600): prior multipathd/iscsid enablement, whether
+docker/`/etc/multipath.conf` pre-existed, and what ap-tools itself installed (helm, k9s,
+longhornctl, registry CA trust, sysctl file, NTP config). The sub-installers keep their
+own state files for the same purpose.
+
+| Component | Behavior |
+|:----------|:---------|
+| `rke2` | **Destructive.** Delegates to `rke2_installer.sh uninstall` (tears down the node; on the last server this destroys ALL Longhorn PVs, i.e. all of DAP's data), then reverts ap-tools' own host changes per the state file. |
+| `harbor` | **Destructive.** Delegates to `install_harbor.sh uninstall-harbor`. Only explicitly-set env values are forwarded so Harbor's own recorded `.install-env` stays authoritative. `PURGE_DATA=true` passes through. |
+| `swfs` | **Destructive.** Delegates to `install-seaweedfs uninstall` (its recorded install state governs SMB/NFS/user cleanup). `SWFS_REMOVE_IMAGES=true` passes through. |
+| `velero` | Removes Velero from the cluster (namespace, CRDs, VolumeSnapshotClass, CLI). **S3 backups are kept.** |
+| `monitoring` | `helm uninstall` of kube-prometheus-stack + Fluent Bit and removal of the `monitoring` namespace. The external monitoring host is not touched. |
+| `ap-bundle` | Removes the DAP **staging**: registry CA from the system trust store, the docker `certs.d` entry, the extracted `bundle/` tree, and `ap-install-upgrade-cmd.txt`. It does **not** uninstall DAP itself — DAP runs inside the cluster and is removed with `uninstall rke2` (or Dell's own procedure) — and does **not** remove docker. |
+
+Destructive targets (`rke2`, `harbor`, `swfs`) require typing `yes-destroy` at a prompt.
+Set `AP_ASSUME_YES=true` to skip the prompt in automation.
+
+`--purge-cache` additionally deletes the ~20 GB working cache (`$PWD/ap-install`: bundle
+zip, cached sub-installers, Helm charts, staged images). Valid with any uninstall target.
+
+#### `config hostname <fqdn>`
+
+Host-preparation helper: sets the hostname via `hostnamectl` and reconciles a
+marker-tagged `/etc/hosts` entry (the `127.0.1.1` line on Debian-family systems;
+`<MGMT_IP> <fqdn> <short>` on Rocky/RHEL/Leap). Validates the FQDN and **refuses to run
+while an RKE2 service is active** — the hostname is the node's identity. Run it before
+`install rke2`/`join`.
+
+#### `config static-ip ...`
+
+```
+config static-ip -ip <addr>/<prefix> -gw <gateway> -dns <srv1[,srv2]> [-domain <search>] [-interface <if>] [--apply] [--force-ssh-interface]
+config static-ip commit
+```
+
+By default this **generates and validates only** — it prints exactly what would be
+applied (netplan YAML on Ubuntu/Debian; `nmcli` commands on Rocky/RHEL/Leap 16) and
+changes nothing. Add `--apply` to activate it:
+
+- **Ubuntu/Debian:** writes `/etc/netplan/99-ap-tools-static.yaml` and runs
+  `netplan try --timeout 120` — confirm interactively to keep it; a lost session
+  auto-reverts after 120 s.
+- **Rocky/RHEL/Leap 16:** applies via NetworkManager after scheduling a 120 s
+  auto-revert to the previous settings; confirm the change with
+  `config static-ip commit` before the timer fires.
+
+The interface defaults to the detected management interface. The helper **refuses to
+modify the interface carrying your SSH session** unless `--force-ssh-interface` is given.
+
 ### Options
 
 #### `-tls-san <fqdn-or-ip>`
@@ -298,12 +355,33 @@ The script validates argument combinations at startup. The following table shows
 | `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` |
 | `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin pass` |
 | `offline-prep` | `./ap-tools offline-prep` |
+| `uninstall <component>` | `./ap-tools uninstall rke2` |
+| `uninstall <component> --purge-cache` | `./ap-tools uninstall ap-bundle --purge-cache` |
+| `config hostname <fqdn>` | `./ap-tools config hostname node1.edge.lab` |
+| `config static-ip ...` | `./ap-tools config static-ip -ip 10.0.0.50/24 -gw 10.0.0.1 -dns 10.0.0.2` |
+| `config static-ip commit` | `./ap-tools config static-ip commit` |
 
 ---
 
 ## Configuration Variables
 
-All user-configurable variables are defined at the top of the `ap-tools` script. Edit them before running, or override select variables via environment export (e.g., `sudo MGMT_IP=10.0.0.5 ./ap-tools install rke2`).
+All user-configurable variables are defined at the top of the `ap-tools` script using the
+override-friendly `VAR="${VAR:-default}"` form — **every** variable below can be set via
+the environment (e.g., `sudo MGMT_IP=10.0.0.5 ./ap-tools install rke2`) without editing
+the script.
+
+**inputs.env:** ap-tools also sources an optional inputs file before applying defaults.
+Copy `inputs.env.example` (shipped in the repo and inside `ap-offline.tar.gz`) to
+`inputs.env` in the directory you run ap-tools from — or point `AP_TOOLS_ENV_FILE=<path>`
+at it — and uncomment the variables you want. Because the file keeps the same
+`VAR="${VAR:-value}"` form, precedence is always:
+
+```
+CLI environment  >  inputs.env  >  script defaults
+```
+
+There is zero behavior change when the file is absent. ap-tools refuses to source a
+world-writable inputs file; keep it `chmod 600` if it holds credentials.
 
 ### Global
 
@@ -313,11 +391,12 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 | `MGMT_IP` | Auto-detected (`hostname -I`) | Primary management IP. Used as the RKE2 node-ip and service bind address. Override for multi-homed hosts. |
 | `LB_IP` | `$MGMT_IP` | **Ingress** VIP for the portal/orchestrator (MetalLB pool) — *not* an API-server load balancer. Single-node: defaults to the node's own IP (leave it). **Multi-node:** set to a dedicated free IP in the nodes' L2 subnet (outside DHCP, not a node IP) so the portal/orchestrator stay reachable if the owning node fails (MetalLB re-elects a speaker). Point `portal.*`/`orchestrator.*`/`mtls-*` DNS at it. |
 | `LB_VIP` | _(empty)_ | **Deprecated alias for `LB_IP`** — still honored if set (it overrides `LB_IP`), but prefer `LB_IP`. |
-| `NTP_SERVERS` | _(empty)_ | Optional space/comma-separated NTP server list. When set, it is applied during `install rke2` and every `join` (chrony if present, else systemd-timesyncd) and re-verified during `install ap-bundle`. Clock skew across nodes breaks etcd, TLS, and DAP tokens. When empty, the OS default time source is left unchanged. |
+| `NTP_SERVERS` | _(empty)_ | Optional space/comma-separated NTP server list. Forwarded to `rke2_installer.sh`, which now owns NTP configuration on cluster nodes during `install rke2` and every `join` (chrony if present, else systemd-timesyncd; same `# ap-tools NTP` marker, so hosts configured by earlier ap-tools versions reconcile). Re-verified during `install ap-bundle`. Clock skew across nodes breaks etcd, TLS, and DAP tokens. When empty, the OS default time source is left unchanged. |
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain appended to hostnames. |
 | `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` | Base FQDN the portal/orchestrator/`mtls-*` names derive from. **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (otherwise the pre-flight checks `portal.<hostname>` and aborts). |
 | `SWFS_HARBOR_USER` | `admin` | Shared username for Harbor and SeaweedFS basic auth. |
 | `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. |
+| `AP_ASSUME_YES` | `false` | Set `true` to skip the typed `yes-destroy` confirmation on destructive `uninstall` commands (for automation). |
 
 ### Dell Automation Platform
 
@@ -352,15 +431,16 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 | `SERVICE_CIDR` | `10.43.0.0/16` | Service CIDR range. |
 | `INSTALL_DNS_UTILITY` | `true` | Deploy the `dnsutils` pod in the default namespace for DNS troubleshooting. |
 | `INSTALL_LOCAL_PATH_PROVISIONER` | `false` | When `true`, uses Local Path Provisioner instead of Longhorn. |
-| `LOCAL_PATH_PROVISIONER_VERSION` | `v0.0.32` | Local Path Provisioner version (only relevant when enabled). |
-| `LONGHORN_VERSION` | `1.9.2` | Longhorn Helm chart version. |
+| `LOCAL_PATH_PROVISIONER_VERSION` | `v0.0.35` | Local Path Provisioner version (only relevant when enabled). |
+| `LONGHORN_VERSION` | `1.11.1` | Longhorn Helm chart version. |
 | `LONGHORN_UI_PORT` | `31000` | NodePort for the Longhorn UI. |
-| `METALLB_VERSION` | `0.15.2` | MetalLB Helm chart version. |
+| `METALLB_VERSION` | `0.15.3` | MetalLB Helm chart version. |
 | `INSTALL_METALLB` | `true` | Install MetalLB load balancer. |
-| `KUBERNETES_INGRESS_VERSION` | `1.45.0` | HAProxy kubernetes-ingress Helm chart version. |
-| `HAPROXY_APP_VERSION` | `3.1.12` | HAProxy application/image version. |
+| `KUBERNETES_INGRESS_VERSION` | `1.49.0` | HAProxy kubernetes-ingress Helm chart version. |
+| `HAPROXY_APP_VERSION` | `3.2.6` | HAProxy application/image version. |
 | `INSTALL_HAPROXY` | `true` | Install HAProxy ingress controller. Must be `false` for IP-based installs. |
-| `HELM_VERSION` | `3.12.0` | Helm CLI version to download. |
+| `HELM_VERSION` | `4.0.1` | Helm CLI version to download (overridable; same default as rke2-installer). |
+| `RKE2_RECONFIGURE` | `false` | Forwarded to `rke2_installer.sh`: set `true` to let `install rke2`/`join` apply a **changed** config to an already-running node (service restart). With unchanged config, re-runs reconcile as a no-op. |
 | `RKE2_DATA` | `default` | Custom path for etcd, containerd, and RKE2 data. Set to a valid local path or leave as `default`. |
 | `KUBELET_DATA` | `default` | Custom path for kubelet data. |
 | `PVC_DATA` | `default` | Custom path for Longhorn PVC storage. |
@@ -406,8 +486,8 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `VELERO_VERSION` | `v1.17.1` | Velero release version. |
-| `VELERO_AWS_PLUGIN_VERSION` | `v1.13.0` | Velero AWS S3 plugin version. |
+| `VELERO_VERSION` | `v1.18.0` | Velero release version. |
+| `VELERO_AWS_PLUGIN_VERSION` | `v1.14.0` | Velero AWS S3 plugin version. |
 | `VELERO_BUCKET` | `velero` | S3 bucket for backup storage. In a multi-cluster environment set this per cluster (e.g. to match `CLUSTER_NAME`) to avoid backup collision. `install velero` warns if left at the default `velero` while `CLUSTER_NAME` is customised. |
 | `VELERO_S3_URL` | *(empty)* | **Required.** SeaweedFS S3 endpoint (e.g., `https://s3.example.com:8333`). |
 | `VELERO_S3_ACCESS_KEY` | *(empty)* | **Required.** S3 access key for the Velero bucket. |
@@ -424,9 +504,9 @@ All user-configurable variables are defined at the top of the `ap-tools` script.
 |:---------|:--------|:------------|
 | `MONITORING_HOST` | *(empty)* | **Required for `install monitoring`.** FQDN or IP of the external monitoring host running Prometheus and Loki. |
 | `CLUSTER_NAME` | `edge-lab` | Label attached to all metrics and logs for multi-cluster identification. |
-| `KUBE_PROMETHEUS_STACK_VERSION` | `69.8.0` | kube-prometheus-stack Helm chart version. |
-| `FLUENT_BIT_CHART_VERSION` | `0.55.0` | Fluent Bit Helm chart version (fluent/fluent-bit, `0.x.x` scheme). |
-| `FLUENT_BIT_VERSION` | `4.2.2` | Fluent Bit application/image version. |
+| `KUBE_PROMETHEUS_STACK_VERSION` | `84.5.0` | kube-prometheus-stack Helm chart version. |
+| `FLUENT_BIT_CHART_VERSION` | `0.57.3` | Fluent Bit Helm chart version (fluent/fluent-bit, `0.x.x` scheme). |
+| `FLUENT_BIT_VERSION` | `5.0.4` | Fluent Bit application/image version. |
 | `PROMETHEUS_RETENTION` | `48h` | In-cluster Prometheus data retention (short; long-term storage is on the external host). |
 | `PROMETHEUS_STORAGE_SIZE` | `50Gi` | PVC size for in-cluster Prometheus. |
 | `PROMETHEUS_STORAGE_CLASS` | `longhorn` | StorageClass for Prometheus PVCs. |
@@ -566,7 +646,7 @@ Sizing depends on the deployment model — per host (validated guidance):
 
 | Deployment model | Per host | Notes |
 |:-----------------|:---------|:------|
-| **Single-node** | 16 vCPU / 34 GB / 500 1 TB SSD | All platform services on one node. Use 34 GB, not 32. |
+| **Single-node** | 16 vCPU / 34 GB / 1 TB SSD | All platform services on one node. Pre-flight enforces 16 CPU / 32 GB / 500 GB *allocatable* — provision 34 GB so 32 GB remain allocatable. |
 | **Multi-node (3-node)** | 16 vCPU / **20 GB** / 500 GB+ SSD per node | Each node holds a replica of the HA services, so per-node RAM stays high even though the load is spread. Below ~20 GB/node the Orchestrator install wedges. |
 | **All-in-one single-node** (local Harbor + SeaweedFS + RKE2/DAP co-located) | 20 vCPU / **40 GB** / 1 TB SSD | The extra CPU/RAM covers Harbor + SeaweedFS alongside DAP; the larger disk holds the locally-pushed image set when installing with `SKIP_IMAGES_LOADER=false`. |
 
@@ -741,11 +821,11 @@ For a cluster that tolerates a single node failure without manual recovery:
 
 ### Time Synchronization (NTP)
 
-Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set `NTP_SERVERS` (e.g. `NTP_SERVERS="time.example.com 10.0.0.1"`) so a known time source is configured on **every** node during `install rke2` and `join` (chrony if present, otherwise systemd-timesyncd) and re-verified during `install ap-bundle`. Leave empty to keep the OS default. The `install ap-bundle` pre-flight always reports the current sync state regardless.
+Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set `NTP_SERVERS` (e.g. `NTP_SERVERS="time.example.com 10.0.0.1"`) so a known time source is configured on **every** node during `install rke2` and `join` and re-verified during `install ap-bundle`. ap-tools forwards the variable to `rke2_installer.sh`, which performs the configuration (chrony if present, otherwise systemd-timesyncd) using the same `# ap-tools NTP` marker as earlier ap-tools versions, so previously-configured hosts reconcile instead of accumulating entries. Leave empty to keep the OS default. The `install ap-bundle` pre-flight always reports the current sync state regardless.
 
 ### Storage — multipathd
 
-`multipathd` claims Longhorn's iSCSI `sd*` block devices via device-mapper and breaks every CSI mount (`exit status 32` / `Can't open blockdev`, pods stuck in `Init:`). The node preparation step disables and masks `multipathd` and writes an `/etc/multipath.conf` `sd*` blacklist on every node so the protection persists even if a package update re-enables it. On these nodes the OS root disk is NVMe, so excluding all `sd*` devices is safe. No manual action is required for new deployments.
+`multipathd` claims Longhorn's iSCSI `sd*` block devices via device-mapper and breaks every CSI mount (`exit status 32` / `Can't open blockdev`, pods stuck in `Init:`). The node preparation step disables and masks `multipathd` and writes an `sd*` blacklist drop-in at `/etc/multipath/conf.d/99-ap-tools.conf` on every node (a pre-existing site `/etc/multipath.conf` is preserved untouched) so the protection persists even if a package update re-enables it. Prior enablement is recorded in `/var/lib/ap-tools/state.env` and restored by `uninstall rke2`. On these nodes the OS root disk is NVMe, so excluding all `sd*` devices is safe. No manual action is required for new deployments.
 
 ### Co-location Constraints
 

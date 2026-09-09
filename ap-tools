@@ -1,29 +1,67 @@
 #!/bin/bash
 
+# --- OPTIONAL INPUTS FILE (inputs.env) --- #
+# If an inputs file exists it is sourced BEFORE the defaults below. The file itself
+# uses the same 'VAR="${VAR:-value}"' convention, so precedence is:
+#   CLI env  >  inputs.env  >  script defaults
+# with zero behavior change when the file is absent. Ship-with-repo template:
+# inputs.env.example. Override the location with AP_TOOLS_ENV_FILE=<path>.
+AP_TOOLS_ENV_FILE="${AP_TOOLS_ENV_FILE:-$PWD/inputs.env}"
+if [[ -f "$AP_TOOLS_ENV_FILE" ]]; then
+    env_file_perms=$(stat -c '%a' "$AP_TOOLS_ENV_FILE" 2>/dev/null || echo "")
+    if [[ -n "$env_file_perms" ]] && (( 8#$env_file_perms & 2 )); then
+        echo "Error: $AP_TOOLS_ENV_FILE is world-writable; refusing to source it."
+        echo "  Fix with: chmod o-w '$AP_TOOLS_ENV_FILE'"
+        exit 1
+    fi
+    echo "  Loading inputs from $AP_TOOLS_ENV_FILE (precedence: CLI env > inputs.env > script defaults)"
+    # shellcheck disable=SC1090
+    source "$AP_TOOLS_ENV_FILE"
+fi
+
+# Track which Harbor-scoped vars the user explicitly set (via CLI env or inputs.env).
+# 'uninstall harbor' forwards ONLY explicitly-set values so install_harbor.sh's own
+# recorded /opt/harbor/.install-env keeps authority over what was actually installed.
+user_set_harbor_cn="${HARBOR_COMMON_NAME+x}"
+user_set_harbor_port="${HARBOR_PORT+x}"
+user_set_harbor_version="${HARBOR_VERSION+x}"
+user_set_purge_data="${PURGE_DATA+x}"
+user_set_swfs_remove_images="${SWFS_REMOVE_IMAGES+x}"
+
 # --- USER DEFINED CONFIGURATION VARIABLES --- #
+# Every variable in this section is override-friendly (VAR="${VAR:-default}"): set it
+# in the environment or in inputs.env instead of editing the script.
 
 # Global Variables
-DEBUG=1                                                # Debug mode 1=enabled 0=disabled
+DEBUG="${DEBUG:-1}"                                    # Debug mode 1=enabled 0=disabled
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
 LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB pool) for portal/orchestrator. Single-node: defaults to MGMT_IP. Multi-node: set to a dedicated free L2 IP (not a node IP). NOT an API-server load balancer.
 LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
 NTP_SERVERS=${NTP_SERVERS:-}                           # Optional space/comma-separated NTP server list applied during 'install rke2'/'join' and verified during 'install ap-bundle'; empty = leave the OS default time source unchanged
 BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
-HOST_FQDN="${HOST_FQDN:-$(hostname).$BASE_DOMAIN}"     # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+# AP-22: when the hostname is already an FQDN (contains a dot), use it as-is instead of
+# appending BASE_DOMAIN again (node1.edge.lab -> node1.edge.lab.edge.lab).
+host_name_default=$(hostname)
+if [[ "$host_name_default" == *.* ]]; then
+  HOST_FQDN="${HOST_FQDN:-$host_name_default}"         # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+else
+  HOST_FQDN="${HOST_FQDN:-$host_name_default.$BASE_DOMAIN}"  # Host FQDN for Automation Platform, Harbor, and SeaweedFS
+fi
 SWFS_HARBOR_USER="${SWFS_HARBOR_USER:-admin}"          # Username for Harbor and SeaweedFS basic auth
 SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and SeaweedFS basic auth
+AP_ASSUME_YES="${AP_ASSUME_YES:-false}"                # true = skip the typed 'yes-destroy' confirmation on destructive 'uninstall' commands (for automation)
 
 # Dell Automation Platform Variables
 AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14455834M/1/DellAutomationPlatform_v2.0.0.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir
 DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
-REGISTRY_PROJECT_NAME=dell-automation                  # Project name on the local registry for Dell Automation Platfor,
-ORCHESTRATOR_NAMESPACE=dell-orchestrator               # Namespace to use for Dell Automation Platform orchestrator
-PORTAL_NAMESPACE=dell-portal                           # Namespace to use for Dell Automation Platform portal
+REGISTRY_PROJECT_NAME="${REGISTRY_PROJECT_NAME:-dell-automation}"  # Project name on the local registry for Dell Automation Platfor,
+ORCHESTRATOR_NAMESPACE="${ORCHESTRATOR_NAMESPACE:-dell-orchestrator}"  # Namespace to use for Dell Automation Platform orchestrator
+PORTAL_NAMESPACE="${PORTAL_NAMESPACE:-dell-portal}"    # Namespace to use for Dell Automation Platform portal
 PORTAL_COOKIE_DOMAIN="${PORTAL_COOKIE_DOMAIN:-$BASE_DOMAIN}"  # Base domain, i.e. 'acme.com' or IP address for IP based install
 ORCHESTRATOR_FQDN="${ORCHESTRATOR_FQDN:-orchestrator.$HOST_FQDN}"  # FQDN for orchestrator, or <IP> address for IP based install
 PORTAL_FQDN="${PORTAL_FQDN:-portal.$HOST_FQDN}"        # FQDN for portal, or <IP:Port> for IP based install, port must be greater than 30000
-PORTAL_INGRESS_CLASS_NAME=haproxy                      # Ingress class used in the k8s instance, change if using non-default
+PORTAL_INGRESS_CLASS_NAME="${PORTAL_INGRESS_CLASS_NAME:-haproxy}"  # Ingress class used in the k8s instance, change if using non-default
 ORG_NAME="${ORG_NAME:-changeme}"                       # Organization name for Dell Automation Platform
 ORG_DESC="${ORG_DESC:-changeme}"                       # Organization description for Dell Automation Platform
 FIRST_NAME="${FIRST_NAME:-changeme}"                   # Admin user first name
@@ -32,34 +70,34 @@ USERNAME="${USERNAME:-administrator}"                  # Admin user name
 EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 
 # Harbor Configuration
-HARBOR_VERSION=2.15.0
-HARBOR_PORT=8443
-COUNTRY=US
-STATE=MA
-LOCATION=EDGE
-ORGANIZATION=LAB
-HARBOR_COMMON_NAME="registry.$HOST_FQDN"
-DURATION_DAYS=3650
-PROJECTS="$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent"
+HARBOR_VERSION="${HARBOR_VERSION:-2.15.0}"
+HARBOR_PORT="${HARBOR_PORT:-8443}"
+COUNTRY="${COUNTRY:-US}"
+STATE="${STATE:-MA}"
+LOCATION="${LOCATION:-EDGE}"
+ORGANIZATION="${ORGANIZATION:-LAB}"
+HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-registry.$HOST_FQDN}"
+DURATION_DAYS="${DURATION_DAYS:-3650}"
+PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
 
 # SeaweedFS Configuration
-SWFS_IMAGE="chrislusf/seaweedfs:latest"
-CADDY_IMAGE="caddy:latest"
-SWFS_ADMIN_FQDN="admin.$HOST_FQDN"      # FQDN for SeaweedFS Admin UI and Caddy landing page
-SWFS_MASTER_FQDN="master.$HOST_FQDN"    # FQDN for SeaweedFS Master UI/API
-SWFS_FILER_FQDN="filer.$HOST_FQDN"      # FQDN for SeaweedFS Filer UI/API
-SWFS_S3_FQDN="s3.$HOST_FQDN"            # FQDN for SeaweedFS S3 API
-ENABLE_SMB="true"                       # Enable an SMB share with basic authentication
-ENABLE_NFS="true"                       # Enable an NFS export with NFSv3, no authentication
-SWFS_ADMIN_PORT=9443
-SWFS_MASTER_PORT=9333
-SWFS_FILER_PORT=8888
-SWFS_S3_PORT=8333
+SWFS_IMAGE="${SWFS_IMAGE:-chrislusf/seaweedfs:latest}"
+CADDY_IMAGE="${CADDY_IMAGE:-caddy:latest}"
+SWFS_ADMIN_FQDN="${SWFS_ADMIN_FQDN:-admin.$HOST_FQDN}"      # FQDN for SeaweedFS Admin UI and Caddy landing page
+SWFS_MASTER_FQDN="${SWFS_MASTER_FQDN:-master.$HOST_FQDN}"   # FQDN for SeaweedFS Master UI/API
+SWFS_FILER_FQDN="${SWFS_FILER_FQDN:-filer.$HOST_FQDN}"      # FQDN for SeaweedFS Filer UI/API
+SWFS_S3_FQDN="${SWFS_S3_FQDN:-s3.$HOST_FQDN}"               # FQDN for SeaweedFS S3 API
+ENABLE_SMB="${ENABLE_SMB:-true}"                            # Enable an SMB share with basic authentication
+ENABLE_NFS="${ENABLE_NFS:-true}"                            # Enable an NFS export with NFSv3, no authentication
+SWFS_ADMIN_PORT="${SWFS_ADMIN_PORT:-9443}"
+SWFS_MASTER_PORT="${SWFS_MASTER_PORT:-9333}"
+SWFS_FILER_PORT="${SWFS_FILER_PORT:-8888}"
+SWFS_S3_PORT="${SWFS_S3_PORT:-8333}"
 S3_BUCKET=${S3_BUCKET:-"velero"}
 EXTRA_BUCKETS=${EXTRA_BUCKETS:-""}             # Space-separated extra S3 buckets to pre-create on SWFS (e.g. per-cluster Velero buckets)
-DEFAULT_FILER_DIR_NAME="artifacts"
-ARTIFACTS_TO_DOWNLOAD="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
-ENABLE_MONITORING="true"
+DEFAULT_FILER_DIR_NAME="${DEFAULT_FILER_DIR_NAME:-artifacts}"
+ARTIFACTS_TO_DOWNLOAD="${ARTIFACTS_TO_DOWNLOAD:-https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img}"
+ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
 MON_CLUSTER_NAME=${MON_CLUSTER_NAME:-"edge-lab"}
 
 # Velero Backup Configuration
@@ -78,36 +116,37 @@ VELERO_BACKUP_NAMESPACES=${VELERO_BACKUP_NAMESPACES:-"dell-portal,dell-orchestra
 # Monitoring Configuration
 MONITORING_HOST=${MONITORING_HOST:-""}
 CLUSTER_NAME=${CLUSTER_NAME:-"edge-lab"}               # Cluster label for metrics and logs
-KUBE_PROMETHEUS_STACK_VERSION=84.5.0  # kube-prometheus-stack Helm chart version
-FLUENT_BIT_CHART_VERSION=0.57.3       # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
-FLUENT_BIT_VERSION=5.0.4              # Fluent Bit application/image version (appVersion in the chart above)
-PROMETHEUS_RETENTION="48h"            # In-cluster Prometheus retention (short; long-term on external host)
-PROMETHEUS_STORAGE_SIZE="50Gi"        # PVC size for in-cluster Prometheus
-PROMETHEUS_STORAGE_CLASS="longhorn"   # StorageClass for Prometheus PVCs
-MONITOR_CONFIGS_DIR=""                # Optional: path to directory of custom ServiceMonitor YAML files
-MONITORING_LOKI_PORT="3100"           # Loki HTTP port on the monitoring host
-MONITORING_PROMETHEUS_PORT="9090"     # Prometheus remote-write receiver port on the monitoring host
-MONITOR_EXCLUDE_NS="kube-system kube-public kube-node-lease default monitoring"  # Namespaces to skip during ServiceMonitor auto-discovery
-MONITOR_PORT_NAMES="manager metrics http-metrics prometheus prom stat metrics-port"     # Port names to include in ServiceMonitor auto-discovery
+KUBE_PROMETHEUS_STACK_VERSION="${KUBE_PROMETHEUS_STACK_VERSION:-84.5.0}"  # kube-prometheus-stack Helm chart version
+FLUENT_BIT_CHART_VERSION="${FLUENT_BIT_CHART_VERSION:-0.57.3}"  # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
+FLUENT_BIT_VERSION="${FLUENT_BIT_VERSION:-5.0.4}"     # Fluent Bit application/image version (appVersion in the chart above)
+PROMETHEUS_RETENTION="${PROMETHEUS_RETENTION:-48h}"   # In-cluster Prometheus retention (short; long-term on external host)
+PROMETHEUS_STORAGE_SIZE="${PROMETHEUS_STORAGE_SIZE:-50Gi}"  # PVC size for in-cluster Prometheus
+PROMETHEUS_STORAGE_CLASS="${PROMETHEUS_STORAGE_CLASS:-longhorn}"  # StorageClass for Prometheus PVCs
+MONITOR_CONFIGS_DIR="${MONITOR_CONFIGS_DIR:-}"        # Optional: path to directory of custom ServiceMonitor YAML files
+MONITORING_LOKI_PORT="${MONITORING_LOKI_PORT:-3100}"  # Loki HTTP port on the monitoring host
+MONITORING_PROMETHEUS_PORT="${MONITORING_PROMETHEUS_PORT:-9090}"  # Prometheus remote-write receiver port on the monitoring host
+MONITOR_EXCLUDE_NS="${MONITOR_EXCLUDE_NS:-kube-system kube-public kube-node-lease default monitoring}"  # Namespaces to skip during ServiceMonitor auto-discovery
+MONITOR_PORT_NAMES="${MONITOR_PORT_NAMES:-manager metrics http-metrics prometheus prom stat metrics-port}"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
-RKE2_VERSION=v1.34.5+rke2r1
+RKE2_VERSION="${RKE2_VERSION:-v1.34.5+rke2r1}"
 CLUSTER_TYPE="${CLUSTER_TYPE:-single-node}"
-MAX_PODS=250
-CNI_TYPE=calico
-CLUSTER_CIDR="10.42.0.0/16"
-SERVICE_CIDR="10.43.0.0/16"
-INSTALL_DNS_UTILITY=true
-INSTALL_LOCAL_PATH_PROVISIONER=false    # If true, Longhorn is not installed
-LOCAL_PATH_PROVISIONER_VERSION=v0.0.35
-HELM_VERSION=4.0.5
-LONGHORN_VERSION=1.11.1
-LONGHORN_UI_PORT=31000
-METALLB_VERSION=0.15.3
-INSTALL_METALLB=true
-KUBERNETES_INGRESS_VERSION=1.49.0
-HAPROXY_APP_VERSION=3.2.6
-INSTALL_HAPROXY=true                      # Must be disabled if performing IP based install
+MAX_PODS="${MAX_PODS:-250}"
+CNI_TYPE="${CNI_TYPE:-calico}"
+CLUSTER_CIDR="${CLUSTER_CIDR:-10.42.0.0/16}"
+SERVICE_CIDR="${SERVICE_CIDR:-10.43.0.0/16}"
+INSTALL_DNS_UTILITY="${INSTALL_DNS_UTILITY:-true}"
+INSTALL_LOCAL_PATH_PROVISIONER="${INSTALL_LOCAL_PATH_PROVISIONER:-false}"    # If true, Longhorn is not installed
+LOCAL_PATH_PROVISIONER_VERSION="${LOCAL_PATH_PROVISIONER_VERSION:-v0.0.35}"
+HELM_VERSION="${HELM_VERSION:-4.0.1}"     # Helm CLI version (AP-16: overridable; 4.0.1 default matches rke2-installer)
+RKE2_RECONFIGURE="${RKE2_RECONFIGURE:-false}"  # Forwarded to rke2_installer.sh: allow 'install rke2'/'join' on a RUNNING node to apply a CHANGED config and restart the service
+LONGHORN_VERSION="${LONGHORN_VERSION:-1.11.1}"
+LONGHORN_UI_PORT="${LONGHORN_UI_PORT:-31000}"
+METALLB_VERSION="${METALLB_VERSION:-0.15.3}"
+INSTALL_METALLB="${INSTALL_METALLB:-true}"
+KUBERNETES_INGRESS_VERSION="${KUBERNETES_INGRESS_VERSION:-1.49.0}"
+HAPROXY_APP_VERSION="${HAPROXY_APP_VERSION:-3.2.6}"
+INSTALL_HAPROXY="${INSTALL_HAPROXY:-true}"    # Must be disabled if performing IP based install
 LICENSE_OFFER_CONTACT=${LICENSE_OFFER_CONTACT:-"the Chubtoad5 project via https://github.com/Chubtoad5"}  # contact named in the air-gap bundle's GPL/AGPL written offer
 RKE2_DATA=${RKE2_DATA:-"default"}         # Path where etcd, containerd and RKE2 data is stored, update with valid local path
 KUBELET_DATA=${KUBELET_DATA:-"default"}   # Path where kubelet data is stored, update with valid local path
@@ -122,6 +161,14 @@ INSTALL_INGRESS=false
 INSTALL_SERVICELB=false
 user_name=${SUDO_USER:-$(whoami)}
 SCRIPT_NAME=$(basename "$0")
+SCRIPT_PATH=$(readlink -f "$0")
+STATE_DIR="/var/lib/ap-tools"
+STATE_FILE="$STATE_DIR/state.env"
+OS_ID=""
+OS_ID_LIKE=""
+RUN_DEBUG_STEP=""
+RUN_DEBUG_LOG=$(mktemp /tmp/ap-tools-step.XXXXXX)
+ntp_message=""
 AIR_GAPPED_MODE=0
 OFFLINE_PREP_MODE=0
 PUSH_MODE=0
@@ -133,8 +180,16 @@ JOIN_MODE=0
 JOIN_TYPE=""
 JOIN_TOKEN=""
 JOIN_SERVER_FQDN=""
+UNINSTALL_MODE=0
+UNINSTALL_TYPE=""
+PURGE_CACHE=0
+CONFIG_MODE=0
+CONFIG_TYPE=""
+CONFIG_ARGS=()
 base_dir=$(pwd)
-mgmt_if=$(ip a |grep "$(hostname -I |awk '{print $1}')" | awk '{print $NF}')
+# AP-14: exact-match the interface that carries MGMT_IP (substring grep could match the
+# wrong NIC, e.g. 192.168.1.5 inside 192.168.1.50, and hand MetalLB the wrong interface).
+mgmt_if=$(ip -o -4 addr show | awk -v ip="$MGMT_IP" '$4 ~ "^"ip"/" {print $2; exit}')
 WORKING_DIR="$base_dir/ap-install"
 UPGRADE_MODE=0
 UPGRADE_TYPE=""
@@ -163,7 +218,7 @@ harbor_feature_branch="${harbor_feature_branch:-main}"
 
 usage() {
     cat << EOF
-Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: \$SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -177,6 +232,21 @@ Commands:
                  Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
     [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster and configures ServiceMonitor auto-discovery.
 
+  uninstall    : Uninstalls the specified component, reverting only what ap-tools/its sub-installers changed
+                 (recorded in /var/lib/ap-tools/state.env and the sub-installers' own state files).
+                 Destructive targets (rke2, harbor, swfs) require typing 'yes-destroy' to confirm;
+                 set AP_ASSUME_YES=true to skip the prompt in automation.
+    [rke2]       Tears down this cluster node via rke2_installer.sh uninstall. DESTROYS Longhorn PVs.
+    [ap-bundle]  Removes the DAP staging: bundle tree, ap-install-upgrade-cmd.txt, registry CA trust and
+                 docker certs.d entry. Does NOT uninstall DAP itself (DAP lives in the cluster - remove it
+                 with 'uninstall rke2' or Dell's own procedure). Does NOT remove docker.
+    [harbor]     Delegates to install_harbor.sh uninstall-harbor.
+    [swfs]       Delegates to install-seaweedfs uninstall.
+    [velero]     Removes Velero from the cluster (S3 backups are kept).
+    [monitoring] Removes kube-prometheus-stack + Fluent Bit from the cluster.
+    [--purge-cache]  Also remove the ~20GB working cache (\$PWD/ap-install: bundle zip, cached
+                 sub-installers, helm charts). Valid with any uninstall target.
+
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
                  Includes Velero CLI and container images.
                  Cannot be used with [install] [push] [join].
@@ -187,6 +257,20 @@ Commands:
   join         : Joins the host to an existing cluster as a [server] or [agent].
     [server] [server-fqdn] [join-token-string]
     [agent]  [server-fqdn] [join-token-string]
+
+  config       : Host preparation helpers. Cannot be combined with other commands.
+    [hostname <fqdn>]
+                 Sets the hostname (hostnamectl) and reconciles a marker-tagged /etc/hosts entry
+                 (127.0.1.1 line on Debian-family; '<MGMT_IP> <fqdn> <short>' on Rocky/Leap).
+                 Refuses to run while an RKE2 service is active (hostname = node identity).
+    [static-ip -ip <addr>/<prefix> -gw <gateway> -dns <srv1[,srv2]> [-domain <search>] [-interface <if>] [--apply] [--force-ssh-interface]]
+                 Default is GENERATE+VALIDATE only: prints the netplan YAML (Ubuntu) or nmcli
+                 commands (Rocky/Leap) that would be applied. --apply activates it:
+                 Ubuntu uses 'netplan try' (120s auto-rollback); Rocky/Leap apply with a
+                 scheduled 120s auto-revert that must be confirmed with 'config static-ip commit'.
+                 Refuses the SSH-carrying interface without --force-ssh-interface.
+    [static-ip commit]
+                 Confirms a pending Rocky/Leap static-ip change (cancels the auto-revert).
 
   -tls-san     : When provided,adds specified FQDN to rke2 tls-san configuration for multi-node setup.
                  Used with [install rke2] or [join server]. [server-fqdn-ip] must be a valid IP or FQDN.
@@ -211,6 +295,11 @@ display_args() {
     echo "  AIR_GAPPED_MODE: $AIR_GAPPED_MODE"
     echo "  INSTALL_MODE: $INSTALL_MODE"
     echo "  INSTALL_TYPE: $INSTALL_TYPE"
+    echo "  UNINSTALL_MODE: $UNINSTALL_MODE"
+    echo "  UNINSTALL_TYPE: $UNINSTALL_TYPE"
+    echo "  PURGE_CACHE: $PURGE_CACHE"
+    echo "  CONFIG_MODE: $CONFIG_MODE"
+    echo "  CONFIG_TYPE: $CONFIG_TYPE"
     echo "  TLS_SAN_MODE: $TLS_SAN_MODE"
     echo "  TLS_SAN: $TLS_SAN"
     echo "  OFFLINE_PREP_MODE: $OFFLINE_PREP_MODE"
@@ -225,8 +314,23 @@ display_args() {
     echo "  REGISTRY_MODE: $REGISTRY_MODE"
     echo "  REGISTRY_INFO: $REGISTRY_INFO"
     echo "  REG_USER: $REG_USER"
-    echo "  REG_PASS: $REG_PASS"
+    # AP-11: never print the registry password (this output lands in install logs)
+    if [[ -n "$REG_PASS" ]]; then
+        echo "  REG_PASS: ********"
+    else
+        echo "  REG_PASS: "
+    fi
     echo "---"
+}
+
+mask_secret () {
+    # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11)
+    local text="$1"
+    if [[ -n "$REG_PASS" ]]; then
+        echo "${text//$REG_PASS/********}"
+    else
+        echo "$text"
+    fi
 }
 
 build_command_syntax() {
@@ -281,7 +385,7 @@ build_command_syntax() {
             return 1 # Return non-zero to indicate error
             ;;
     esac
-    echo "  parsed command args: $RKE2_CMD_ARGS"
+    echo "  parsed command args: $(mask_secret "$RKE2_CMD_ARGS")"
     return 0
 }
 # --- End of Argument Parsing --- #
@@ -293,19 +397,14 @@ run_install_join_push () {
   check_rke2_service_running
   # Apply DAP host kernel settings on every node being set up (install or join),
   # so joined nodes aren't left with default inotify limits.
+  # NTP is NO LONGER configured here: rke2_installer.sh now owns NTP for cluster
+  # nodes (same NTP_SERVERS semantics, same '# ap-tools NTP' marker and timesyncd
+  # drop-in name, so previously-configured hosts reconcile). ap-tools forwards
+  # NTP_SERVERS in the rke2_installer.sh invocations below.
   if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
     run_debug configure_node_sysctl
-    run_debug configure_node_ntp
   fi
-  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      longhorn_packages="nfs-common open-iscsi cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      longhorn_packages="nfs-client open-iscsi cryptsetup"
-    fi
-  fi
+  set_longhorn_packages
   if [[ $AIR_GAPPED_MODE == "1" ]]; then
     if [[ ! -d $base_dir/ap-install ]]; then
       echo "Error: Air-gapped archive detected, but 'ap-install' directory not found. Extract with 'tar xzf ap-offline.tar.gz' first."
@@ -314,6 +413,11 @@ run_install_join_push () {
     echo "  Installing dependancy packages..."
     cd $WORKING_DIR/ap-utilities/packages
     ./install_packages.sh offline jq zip unzip hostname bc openssl $longhorn_packages
+    cd $base_dir
+    if [[ ($INSTALL_TYPE == "rke2" || $JOIN_MODE -eq 1) && $REGISTRY_MODE -eq 0 ]]; then
+      # No registry: add-on images must be importable by containerd on this node
+      run_debug stage_addon_images
+    fi
     echo "  Running Kubernetes install in air-gapped mode"
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
@@ -321,6 +425,7 @@ run_install_join_push () {
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    NTP_SERVERS=$NTP_SERVERS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
@@ -331,17 +436,23 @@ run_install_join_push () {
     ./install_packages.sh online jq zip unzip hostname bc openssl $longhorn_packages
     echo "  Running Kubernetes install with online mode"
     rke2_installer_check
-    if [[ $PUSH_MODE == "1" ]]; then
-      generate_images_file
-    fi
     cd $WORKING_DIR/rke2
     RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
+    NTP_SERVERS=$NTP_SERVERS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
+  fi
+  if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
+    # AP-5: longhorn packages are installed above; make iscsid survive reboots
+    run_debug enable_iscsid
+  fi
+  if [[ $PUSH_MODE -eq 1 ]]; then
+    # ap-tools owns pushing its add-on images (rke2's push covers only its own list)
+    run_debug push_addon_images
   fi
   if [[ $INSTALL_TYPE == "rke2" ]]; then
    echo "  Installing dependancy helm charts"
@@ -362,13 +473,9 @@ run_install_join_push () {
     fi
     echo "  Finished installing dependancy helm charts"
     if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      echo "  Downloading k9s..."
-      mkdir -p $WORKING_DIR/ap-utilities/k9s || true
-      curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
+      download_k9s
     fi
-    echo "  Installing k9s..."
-    tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s || true
-    cp $WORKING_DIR/ap-utilities/k9s/k9s /usr/bin/k9s || true
+    install_k9s
   fi
 }
 
@@ -394,8 +501,8 @@ run_install_swfs () {
     swfs_cmd_args="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
   fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    curl -kOL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs &>/dev/null || true
-    chmod +x install-seaweedfs
+    fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
+      "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
   else
     for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
       tar xzf $file
@@ -412,8 +519,8 @@ run_install_swfs () {
 run_install_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-      curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
-      chmod +x install_harbor.sh
+      fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
+        "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
   else
       for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
         tar xzf $file
@@ -469,22 +576,38 @@ run_install_monitoring () {
   cd $base_dir
 }
 
+install_helm_binary () {
+  # AP-23/(b): shared helm binary installer for online install, air-gap install, and
+  # offline prep (the previous two copies had already drifted). Extracts under the
+  # working dir (never cwd) and installs to /usr/local/bin - the FHS location for
+  # non-packaged binaries and what the README/spec document.
+  echo "  Installing helm binary..."
+  rm -rf $WORKING_DIR/ap-utilities/helm/extract
+  mkdir -p $WORKING_DIR/ap-utilities/helm/extract
+  tar -xzf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz -C $WORKING_DIR/ap-utilities/helm/extract
+  install -m 0755 $WORKING_DIR/ap-utilities/helm/extract/linux-amd64/helm /usr/local/bin/helm
+  rm -rf $WORKING_DIR/ap-utilities/helm/extract
+  state_set AP_INSTALLED_HELM "/usr/local/bin/helm"
+}
+
+helm_repo_setup () {
+  echo "  Adding helm charts..."
+  /usr/local/bin/helm repo add metallb https://metallb.github.io/metallb
+  /usr/local/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
+  /usr/local/bin/helm repo add longhorn https://charts.longhorn.io
+  /usr/local/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  /usr/local/bin/helm repo add fluent https://fluent.github.io/helm-charts
+  /usr/local/bin/helm repo update
+}
+
 install_helm () {
   echo "  Installing helm..."
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
   fi
-  tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  mv linux-amd64/helm /usr/bin/helm
-  rm -rf linux-amd64
+  install_helm_binary
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    echo "  Adding helm charts..."
-    /usr/bin/helm repo add metallb https://metallb.github.io/metallb
-    /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
-    /usr/bin/helm repo add longhorn https://charts.longhorn.io
-    /usr/bin/helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-    /usr/bin/helm repo add fluent https://fluent.github.io/helm-charts
-    /usr/bin/helm repo update
+    helm_repo_setup
   fi
 }
 
@@ -503,10 +626,11 @@ controller:
   defaultTLSSecret:
      enabled: false
 EOF
+  # AP-1: 'upgrade --install' converges on re-runs instead of failing on an existing release
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
+    /usr/local/bin/helm upgrade --install haproxy-ingress haproxytech/kubernetes-ingress --create-namespace --namespace haproxy-controller --version $KUBERNETES_INGRESS_VERSION --set controller.image.tag=$HAPROXY_APP_VERSION -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   else
-    /usr/bin/helm install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
+    /usr/local/bin/helm upgrade --install haproxy-ingress $WORKING_DIR/ap-utilities/helm/haproxy/kubernetes-ingress-$KUBERNETES_INGRESS_VERSION.tgz --namespace haproxy-controller --create-namespace -f $WORKING_DIR/ap-utilities/helm/haproxy/haproxy-values.yaml
   fi
   check_namespace_pods_ready "haproxy-controller"
 }
@@ -561,17 +685,23 @@ defaultSettings:
 EOF
   fi
   local values_yaml="-f $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-values.yaml"
+  # AP-1: 'upgrade --install' converges on re-runs instead of failing on an existing release
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
+    /usr/local/bin/helm upgrade --install longhorn longhorn/longhorn --namespace longhorn-system --create-namespace --version $LONGHORN_VERSION $values_yaml
     echo "  Installing longhornctl binary..."
-    curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
+    if ! curl -fL https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl; then
+      echo "Error: failed to download longhornctl v$LONGHORN_VERSION."
+      rm -f $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
+      exit 1
+    fi
+    # install (copy), not mv: keeps the cached copy so re-runs stay idempotent
+    install -m 0755 $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    state_set AP_INSTALLED_LONGHORNCTL "/usr/local/bin/longhornctl"
   else
-    /usr/bin/helm install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
+    /usr/local/bin/helm upgrade --install longhorn $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-$LONGHORN_VERSION.tgz --namespace longhorn-system --create-namespace $values_yaml
     echo "  Installing longhornctl binary..."
-    chmod +x $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl
-    mv $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/bin/longhornctl
+    install -m 0755 $WORKING_DIR/ap-utilities/helm/longhorn/longhornctl /usr/local/bin/longhornctl
+    state_set AP_INSTALLED_LONGHORNCTL "/usr/local/bin/longhornctl"
   fi
   check_namespace_pods_ready "longhorn-system"
   verify_longhorn_csi_registration
@@ -653,10 +783,11 @@ spec:
   interfaces:
     - $mgmt_if
 EOF
+  # AP-1: 'upgrade --install' converges on re-runs instead of failing on an existing release
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    /usr/bin/helm install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION
+    /usr/local/bin/helm upgrade --install metallb metallb/metallb --namespace metallb-system --create-namespace --version $METALLB_VERSION
   else
-    /usr/bin/helm install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
+    /usr/local/bin/helm upgrade --install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
   fi
   check_namespace_pods_ready "metallb-system"
   kubectl apply -f $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
@@ -672,23 +803,68 @@ ap_bundle_prep () {
   fi
 }
 
+reg_ca_checksum () {
+  # md5 of the registry CA currently in the system trust store, or 'absent'
+  local p
+  for p in "/usr/local/share/ca-certificates/$REG_FQDN.crt" "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" "/etc/pki/trust/anchors/$REG_FQDN.crt"; do
+    if [[ -f "$p" ]]; then
+      md5sum "$p" | awk '{print $1}'
+      return 0
+    fi
+  done
+  echo "absent"
+}
+
 install_reg_docker () {
   echo "  Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
   cp $WORKING_DIR/ap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
   cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
+  local docker_preexisted="false"
+  command -v docker >/dev/null 2>&1 && docker_preexisted="true"
+  state_record_once AP_DOCKER_PREEXISTED "$docker_preexisted"
+  # AP-10: capture the registry CA state around reg-cert so services are only bounced
+  # when the certificate actually changed (ap-bundle re-runs no longer restart docker
+  # and the whole control plane every time).
+  local cert_before cert_after
+  cert_before=$(reg_ca_checksum)
   ./image_pull_push.sh reg-cert $REGISTRY_INFO
+  cert_after=$(reg_ca_checksum)
+  state_set AP_REG_FQDN "$REG_FQDN"
+  state_set AP_REG_CERTSD_DIR "/etc/docker/certs.d/$REGISTRY_INFO"
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     ./image_pull_push.sh docker
   else
-    for file in "$WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz"; do
-      ./image_pull_push.sh docker -f $file
+    # AP-6: the old quoted glob never expanded, so the air-gapped docker install ALWAYS
+    # failed here. Expand properly and load every archive oldest -> newest (newest tags
+    # win on overlap); images-pull-push save archives are timestamped.
+    local docker_archives=()
+    while IFS= read -r file; do docker_archives+=("$file"); done \
+      < <(ls -1tr $WORKING_DIR/rke2/rke2-install/rke2-utilities/container_images_*.tar.gz 2>/dev/null || true)
+    if [[ ${#docker_archives[@]} -eq 0 ]]; then
+      echo "Error: no container_images_*.tar.gz archive found in rke2-install/rke2-utilities."
+      echo "  The air-gapped bundle is incomplete - re-run 'offline-prep' on a connected host."
+      exit 1
+    fi
+    local file
+    for file in "${docker_archives[@]}"; do
+      ./image_pull_push.sh docker -f "$file"
     done
   fi
-  echo "  restarting docker service..."
-  systemctl restart docker
-  echo "  restarting rke2-server.service..."
-  systemctl restart rke2-server.service
+  if [[ "$cert_before" != "$cert_after" ]] || ! systemctl is-active --quiet docker; then
+    echo "  restarting docker service..."
+    systemctl restart docker
+  else
+    echo "  Registry certificate unchanged and docker is running - skipping docker restart."
+  fi
+  if [[ "$cert_before" != "$cert_after" ]]; then
+    if systemctl is-active --quiet rke2-server.service; then
+      echo "  restarting rke2-server.service..."
+      systemctl restart rke2-server.service
+    fi
+  else
+    echo "  Registry certificate unchanged - skipping rke2-server restart."
+  fi
   cd $base_dir
 }
 
@@ -711,6 +887,12 @@ extract_ap_bundle () {
         fi
       done
     fi
+    if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
+      echo "Error: install-upgrade.sh not found after extracting the bundle. The downloaded"
+      echo "  zip may be corrupt or not a Dell Automation Platform bundle - remove"
+      echo "  $WORKING_DIR/$bundle_file and re-run."
+      exit 1
+    fi
     chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   fi
   if [[ -f "/usr/local/share/ca-certificates/$REG_FQDN.crt" ]]; then
@@ -723,14 +905,15 @@ extract_ap_bundle () {
     echo "Error: registry certificate not found."
     exit 1
   fi
+  state_set AP_REG_CA_PATH "$REG_CERT_FILE_PATH"
 }
 
 ap_host_config () {
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
-    echo "  Downloading support log collector tool..."
-    curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
+    download_support_tool
   fi
   configure_node_sysctl
+  enable_iscsid
 }
 
 # Apply DAP host kernel settings (inotify limits). Must run on EVERY cluster node
@@ -741,32 +924,682 @@ ap_host_config () {
 configure_node_sysctl () {
   echo "  Configuring host kernel settings (inotify limits) for Dell Automation Platform..."
   echo -e "fs.inotify.max_user_watches = 1048576\nfs.inotify.max_user_instances = 1024" | tee /etc/sysctl.d/10-ap-orchestrator.conf
-  systemctl restart systemd-sysctl
-  if [ $? -ne 0 ]; then
+  state_set AP_SYSCTL_FILE "/etc/sysctl.d/10-ap-orchestrator.conf"
+  # AP-21: the old '$?' check here was dead code under set -e
+  if ! systemctl restart systemd-sysctl; then
     echo "Error: systemd-sysctl.service failed to restart."
     exit 1
-  else
-    echo "  systemd-sysctl.service restarted successfully."
   fi
+  echo "  systemd-sysctl.service restarted successfully."
   # Disable multipathd and blacklist sd* so it never claims Longhorn iSCSI LUNs. The blacklist
   # is written first so the protection persists even if a package update re-enables multipathd.
-  # Idempotent: only writes the blacklist if one is not already present. On ap-tools nodes the OS
-  # root disk is NVMe, so excluding all sd* (Longhorn iSCSI LUNs) is safe.
+  # AP-12: written as a DROP-IN under /etc/multipath/conf.d (read by multipath-tools by
+  # default) instead of clobbering /etc/multipath.conf - a pre-existing site multipath.conf
+  # is preserved untouched. On ap-tools nodes the OS root disk is NVMe, so excluding all
+  # sd* (Longhorn iSCSI LUNs) is safe. Prior enablement is recorded for uninstall.
   echo "  Disabling multipathd to prevent Longhorn iSCSI volume mount conflicts..."
-  if ! grep -qs 'devnode' /etc/multipath.conf 2>/dev/null; then
-    printf 'defaults {\n    user_friendly_names yes\n}\n\nblacklist {\n    devnode "^sd[a-z0-9]+"\n}\n' \
-      > /etc/multipath.conf
-  fi
+  local mp_conf_preexisted="false" mp_svc_state mp_sock_state
+  [[ -f /etc/multipath.conf ]] && mp_conf_preexisted="true"
+  state_record_once AP_MULTIPATH_CONF_PREEXISTED "$mp_conf_preexisted"
+  mp_svc_state=$(systemctl is-enabled multipathd.service 2>/dev/null | head -n 1) || true
+  [[ -z "$mp_svc_state" ]] && mp_svc_state="not-found"
+  state_record_once AP_MULTIPATHD_SERVICE_WAS_ENABLED "$mp_svc_state"
+  mp_sock_state=$(systemctl is-enabled multipathd.socket 2>/dev/null | head -n 1) || true
+  [[ -z "$mp_sock_state" ]] && mp_sock_state="not-found"
+  state_record_once AP_MULTIPATHD_SOCKET_WAS_ENABLED "$mp_sock_state"
+  mkdir -p /etc/multipath/conf.d
+  printf '# Written by ap-tools - do not edit (removed by: ap-tools uninstall rke2)\n# Blacklist sd* so multipathd never claims Longhorn iSCSI LUNs (device-mapper\n# claims break every CSI mount). OS root disks on ap-tools nodes are NVMe.\nblacklist {\n    devnode "^sd[a-z0-9]+"\n}\n' \
+    > /etc/multipath/conf.d/99-ap-tools.conf
+  state_set AP_MULTIPATH_DROPIN "/etc/multipath/conf.d/99-ap-tools.conf"
   systemctl stop multipathd.service multipathd.socket 2>/dev/null || true
   systemctl disable multipathd.service multipathd.socket 2>/dev/null || true
   systemctl mask multipathd.service multipathd.socket 2>/dev/null || true
   echo "  multipathd disabled."
 }
 
-# Configure a user-defined NTP source on every node (install + join). Clock skew across nodes
-# breaks etcd, TLS, and DAP tokens. Only acts when NTP_SERVERS is set; otherwise the OS default
-# time source is left untouched. Auto-detects the time daemon: chrony if present, else
-# systemd-timesyncd (the Ubuntu/Debian default). Idempotent.
+enable_iscsid () {
+  # AP-5: Ubuntu's open-iscsi debs enable iscsid automatically; the Rocky/Leap rpms do
+  # NOT, so Longhorn volume attach breaks after the first reboot. Enable at boot on
+  # every cluster node (install/join/ap-bundle prep). Prior state recorded for uninstall.
+  if [[ $INSTALL_LOCAL_PATH_PROVISIONER != "false" ]]; then
+    return 0
+  fi
+  local unit=""
+  if systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^iscsid\.service'; then
+    unit="iscsid.service"
+  elif systemctl list-unit-files --no-legend 2>/dev/null | grep -q '^iscsid\.socket'; then
+    unit="iscsid.socket"
+  fi
+  if [[ -z "$unit" ]]; then
+    echo "  WARNING: no iscsid unit found (is open-iscsi/iscsi-initiator-utils installed?)."
+    echo "  Longhorn iSCSI volume attach will fail until iscsid is available."
+    return 0
+  fi
+  local prior
+  prior=$(systemctl is-enabled "$unit" 2>/dev/null | head -n 1) || true
+  [[ -z "$prior" ]] && prior="not-found"
+  state_record_once AP_ISCSID_UNIT "$unit"
+  state_record_once AP_ISCSID_WAS_ENABLED "$prior"
+  systemctl enable "$unit" >/dev/null 2>&1 || true
+  systemctl start "$unit" >/dev/null 2>&1 || true
+  echo "  iscsid enabled at boot ($unit)."
+}
+
+ensure_bundle_prereqs () {
+  # AP-20: the ap-bundle path needs jq/bc (pre-flight math) and unzip (bundle extract),
+  # but only 'install rke2' installed them - a standalone 'install ap-bundle' on a node
+  # prepared elsewhere failed. Install them on demand.
+  local missing=() c
+  for c in jq bc unzip; do
+    command -v "$c" >/dev/null 2>&1 || missing+=("$c")
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    return 0
+  fi
+  echo "  Installing missing prerequisite packages: ${missing[*]}..."
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    cd $WORKING_DIR/ap-utilities/packages
+    ./install_packages.sh offline "${missing[@]}"
+  else
+    install_packages_check
+    cd $WORKING_DIR/ap-utilities/packages
+    ./install_packages.sh online "${missing[@]}"
+  fi
+  cd $base_dir
+}
+
+firewalld_selinux_preflight () {
+  # AP-25: Rocky 9/10 and Leap 16 default to firewalld running and SELinux enforcing.
+  # Surface both LOUDLY before any heavy work instead of failing mysteriously later.
+  # ap-tools does not fight the sub-installers' own handling: rke2_installer.sh stops
+  # and disables firewalld on cluster nodes and verifies/installs the rke2-selinux
+  # policy itself; the harbor and seaweedfs installers manage their own firewall rules.
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    echo "  WARNING: firewalld is ACTIVE on this host."
+    case "$INSTALL_TYPE" in
+      rke2)
+        echo "  'install rke2' delegates to rke2_installer.sh, which stops and disables firewalld on"
+        echo "  cluster nodes (prior state is recorded and restored by its uninstall)."
+        ;;
+      harbor)
+        echo "  Harbor needs inbound TCP $HARBOR_PORT (plus 80/443) reachable from clients;"
+        echo "  install_harbor.sh manages its own firewall rules - verify remote access after install."
+        ;;
+      swfs)
+        echo "  SeaweedFS needs its service ports reachable (S3 $SWFS_S3_PORT, filer $SWFS_FILER_PORT,"
+        echo "  master $SWFS_MASTER_PORT, admin $SWFS_ADMIN_PORT, plus SMB/NFS when enabled);"
+        echo "  install-seaweedfs manages its own firewalld rules."
+        ;;
+      ap-bundle)
+        echo "  DAP ingress (80/443 via HAProxy) and the registry port must be reachable from clients."
+        ;;
+      *)
+        echo "  Cluster traffic (6443/9345, CNI, ingress 80/443) must not be blocked between nodes;"
+        echo "  rke2_installer.sh disables firewalld on cluster nodes during install/join."
+        ;;
+    esac
+  fi
+  if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]; then
+    echo "  NOTE: SELinux is Enforcing. rke2_installer.sh verifies/installs the rke2-selinux policy"
+    echo "  itself (and fails loudly if it cannot); ap-tools makes no SELinux changes."
+  fi
+}
+
+# --- Host Config Helpers (W14/W15) --- #
+
+run_config_hostname () {
+  # 'config hostname <fqdn>': hostnamectl + marker-tagged /etc/hosts fixup. Run this
+  # BEFORE 'install rke2'/'join' - the hostname is the node's identity (node object,
+  # certificates, etcd membership) and must never change under a live cluster node.
+  local fqdn="${CONFIG_ARGS[0]:-}"
+  if [[ -z "$fqdn" || ${#CONFIG_ARGS[@]} -ne 1 ]]; then
+    echo "Error: 'config hostname' requires exactly one argument. Format: config hostname <host.example.com>"
+    echo "Type './$SCRIPT_NAME -h' for help."
+    exit 1
+  fi
+  if [[ ! "$fqdn" =~ $fqdn_pattern ]]; then
+    echo "Error: '$fqdn' is not a valid FQDN (lowercase letters, digits, hyphens and dots, e.g. node1.edge.lab)."
+    exit 1
+  fi
+  if systemctl is-active --quiet rke2-server.service || systemctl is-active --quiet rke2-agent.service; then
+    echo "Error: an RKE2 service is active on this host. Changing the hostname of a live cluster node"
+    echo "  breaks its node identity. Run 'config hostname' BEFORE 'install rke2'/'join', or run"
+    echo "  'uninstall rke2' first."
+    exit 1
+  fi
+  local short="${fqdn%%.*}"
+  echo "  Setting hostname to '$fqdn' (short: '$short')..."
+  hostnamectl set-hostname "$fqdn"
+  # Marker-tagged /etc/hosts entry - re-runs replace the previous ap-tools line
+  sed -i '/# ap-tools hostname$/d' /etc/hosts
+  if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+    # Debian family resolves the local hostname via a 127.0.1.1 line
+    if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+      sed -i -E "s|^127\.0\.1\.1[[:space:]].*|127.0.1.1 $fqdn $short # ap-tools hostname|" /etc/hosts
+    else
+      echo "127.0.1.1 $fqdn $short # ap-tools hostname" >> /etc/hosts
+    fi
+  else
+    # Rocky/RHEL/Leap convention: map the management IP to the FQDN
+    echo "$MGMT_IP $fqdn $short # ap-tools hostname" >> /etc/hosts
+  fi
+  echo "  /etc/hosts updated (marker-tagged; re-runs reconcile instead of duplicating)."
+  echo "  hostname is now: $(hostname)"
+  echo "  Note: already-open shells keep showing the old name until you log in again."
+}
+
+ip_to_int () {
+  # dotted-quad -> integer (for subnet sanity checks)
+  local IFS=.
+  # shellcheck disable=SC2206
+  local -a o=($1)
+  echo $(( (o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3] ))
+}
+
+detect_ssh_interfaces () {
+  # Prints the interface(s) carrying established inbound SSH sessions (best effort)
+  local locals sip ifc out=""
+  locals=$(ss -tnH '( sport = :22 )' 2>/dev/null | awk '$1 == "ESTAB" {print $4}' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | sort -u) || true
+  for sip in $locals; do
+    ifc=$(ip -o -4 addr show 2>/dev/null | awk -v ip="$sip" '$4 ~ "^"ip"/" {print $2; exit}') || true
+    [[ -n "$ifc" ]] && out="$out $ifc"
+  done
+  echo "$out" | tr ' ' '\n' | sort -u | xargs
+}
+
+static_ip_commit () {
+  # Rocky/RHEL/Leap NetworkManager apply path: cancel the scheduled auto-revert.
+  local pending=0
+  if systemctl list-units --all --no-legend 'ap-tools-staticip-revert.*' 2>/dev/null | grep -q 'ap-tools-staticip-revert'; then
+    pending=1
+  fi
+  systemctl stop ap-tools-staticip-revert.timer 2>/dev/null || true
+  systemctl stop ap-tools-staticip-revert.service 2>/dev/null || true
+  systemctl reset-failed ap-tools-staticip-revert.service 2>/dev/null || true
+  if [[ -f $STATE_DIR/static-ip-revert.sh ]]; then
+    rm -f "$STATE_DIR/static-ip-revert.sh"
+    pending=1
+  fi
+  if [[ $pending -eq 1 ]]; then
+    echo "  Static IP change committed - the scheduled auto-revert was cancelled."
+  else
+    echo "  Nothing to commit: no pending static-ip auto-revert found."
+    echo "  (Ubuntu applies use 'netplan try', which confirms interactively and needs no commit.)"
+  fi
+}
+
+run_config_static_ip () {
+  # W15 (limited scope by design): GENERATE + VALIDATE by default - print exactly what
+  # would be applied. APPLY only behind --apply:
+  #   Ubuntu/Debian     -> netplan file + 'netplan try' (120s auto-rollback on lost SSH)
+  #   Rocky/RHEL/Leap16 -> NetworkManager (nmcli) + scheduled 120s auto-revert; the
+  #                        change survives only after 'config static-ip commit'.
+  # Refuses to touch the SSH-carrying interface without --force-ssh-interface.
+  local ip_prefix="" gateway="" dns_list="" search_domain="" ifc="" apply=0 force_ssh=0
+  if [[ "${CONFIG_ARGS[0]:-}" == "commit" ]]; then
+    static_ip_commit
+    return 0
+  fi
+  local -a args=("${CONFIG_ARGS[@]}")
+  local i=0
+  while [[ $i -lt ${#args[@]} ]]; do
+    case "${args[$i]}" in
+      -ip)        ip_prefix="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -gw)        gateway="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -dns)       dns_list="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -domain)    search_domain="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      -interface) ifc="${args[$((i+1))]:-}"; i=$((i+2)) ;;
+      --apply)    apply=1; i=$((i+1)) ;;
+      --force-ssh-interface) force_ssh=1; i=$((i+1)) ;;
+      *)
+        echo "Error: unknown 'config static-ip' argument '${args[$i]}'."
+        echo "Format: config static-ip -ip <addr>/<prefix> -gw <gateway> -dns <srv1[,srv2]> [-domain <search>] [-interface <if>] [--apply] [--force-ssh-interface]"
+        echo "        config static-ip commit"
+        exit 1
+        ;;
+    esac
+  done
+  # --- Validation --- #
+  if [[ -z "$ip_prefix" || -z "$gateway" || -z "$dns_list" ]]; then
+    echo "Error: 'config static-ip' requires -ip <addr>/<prefix>, -gw <gateway>, and -dns <server[,server]>."
+    echo "Type './$SCRIPT_NAME -h' for help."
+    exit 1
+  fi
+  local ip_addr="${ip_prefix%%/*}" prefix="${ip_prefix##*/}"
+  if [[ "$ip_prefix" != */* || ! "$ip_addr" =~ $ipv4_pattern || ! "$prefix" =~ ^[0-9]+$ || "$prefix" -lt 1 || "$prefix" -gt 32 ]]; then
+    echo "Error: '-ip' must be <IPv4>/<prefix 1-32>, e.g. 192.168.1.50/24."
+    exit 1
+  fi
+  if [[ ! "$gateway" =~ $ipv4_pattern ]]; then
+    echo "Error: '-gw' must be a valid IPv4 address."
+    exit 1
+  fi
+  local dns_clean dns_entry
+  dns_clean=$(echo "$dns_list" | tr ',' ' ' | xargs)
+  for dns_entry in $dns_clean; do
+    if [[ ! "$dns_entry" =~ $ipv4_pattern ]]; then
+      echo "Error: '-dns' entry '$dns_entry' is not a valid IPv4 address."
+      exit 1
+    fi
+  done
+  if [[ -n "$search_domain" && ! "$search_domain" =~ $fqdn_pattern ]]; then
+    echo "Error: '-domain' must be a valid domain name, e.g. edge.lab."
+    exit 1
+  fi
+  if [[ -z "$ifc" ]]; then
+    ifc="$mgmt_if"
+    echo "  No -interface given; using the management interface: $ifc"
+  fi
+  if [[ -z "$ifc" ]] || ! ip link show dev "$ifc" >/dev/null 2>&1; then
+    echo "Error: interface '${ifc:-<none detected>}' not found on this host. Pass -interface <name>."
+    exit 1
+  fi
+  # Subnet sanity: warn (not fail) when the gateway is outside the address's subnet
+  if [[ "$prefix" -le 30 ]]; then
+    local mask=$(( 0xffffffff ^ ((1 << (32 - prefix)) - 1) ))
+    if (( ($(ip_to_int "$ip_addr") & mask) != ($(ip_to_int "$gateway") & mask) )); then
+      echo "  WARNING: gateway $gateway is not inside $ip_prefix - double-check before applying."
+    fi
+  fi
+  # SSH-interface guard
+  local ssh_ifaces
+  ssh_ifaces=$(detect_ssh_interfaces)
+  if [[ " $ssh_ifaces " == *" $ifc "* && $force_ssh -eq 0 ]]; then
+    if [[ $apply -eq 1 ]]; then
+      echo "Error: interface '$ifc' carries your current SSH session(s). Changing it can cut you off."
+      echo "  Re-run with --force-ssh-interface to proceed anyway (the 120s auto-rollback is the safety net)."
+      exit 1
+    else
+      echo "  NOTE: interface '$ifc' carries your current SSH session(s); applying will require --force-ssh-interface."
+    fi
+  fi
+  local dns_csv
+  dns_csv=$(echo "$dns_clean" | tr ' ' ',')
+  # --- Render --- #
+  if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+    local np_file="/etc/netplan/99-ap-tools-static.yaml"
+    local np_yaml
+    np_yaml="network:
+  version: 2
+  ethernets:
+    $ifc:
+      dhcp4: false
+      addresses:
+        - $ip_prefix
+      routes:
+        - to: default
+          via: $gateway
+      nameservers:
+        addresses: [$dns_csv]"
+    if [[ -n "$search_domain" ]]; then
+      np_yaml="$np_yaml
+        search: [$search_domain]"
+    fi
+    echo ""
+    echo "--- netplan configuration that would be written to $np_file ---"
+    echo "$np_yaml"
+    echo "----------------------------------------------------------------"
+    if [[ $apply -eq 0 ]]; then
+      echo "  Generate-only mode: nothing was changed. Re-run with --apply to write the file and"
+      echo "  activate it via 'netplan try' (interactive confirm, auto-rollback after 120s)."
+      return 0
+    fi
+    echo "  Applying via netplan..."
+    ( umask 077; echo "$np_yaml" > "$np_file" )
+    if ! netplan generate; then
+      echo "Error: 'netplan generate' rejected the configuration; removing $np_file."
+      rm -f "$np_file"
+      exit 1
+    fi
+    echo "  Running 'netplan try' with a 120s timeout: confirm at the prompt to keep the new"
+    echo "  configuration. If the session is cut off, netplan auto-reverts after 120s."
+    if ! netplan try --timeout 120; then
+      echo "Error: 'netplan try' was not confirmed (or failed) - the previous configuration was restored."
+      rm -f "$np_file"
+      exit 1
+    fi
+    echo "  Static IP applied and confirmed: $ip_prefix on $ifc (gw $gateway, dns $dns_csv)."
+  else
+    # Rocky/RHEL/Leap 16: NetworkManager
+    if ! command -v nmcli >/dev/null 2>&1; then
+      echo "Error: nmcli not found - the static-ip helper requires NetworkManager on this OS family."
+      exit 1
+    fi
+    local con
+    con=$(nmcli -g GENERAL.CONNECTION device show "$ifc" 2>/dev/null | head -n 1) || true
+    if [[ -z "$con" || "$con" == "--" ]]; then
+      echo "Error: no active NetworkManager connection found on '$ifc'."
+      exit 1
+    fi
+    local mod_cmd="nmcli con mod \"$con\" ipv4.method manual ipv4.addresses $ip_prefix ipv4.gateway $gateway ipv4.dns \"$dns_csv\""
+    if [[ -n "$search_domain" ]]; then
+      mod_cmd="$mod_cmd ipv4.dns-search \"$search_domain\""
+    fi
+    echo ""
+    echo "--- nmcli commands that would be applied (connection: '$con', device: $ifc) ---"
+    echo "$mod_cmd"
+    echo "nmcli con up \"$con\""
+    echo "--------------------------------------------------------------------------------"
+    if [[ $apply -eq 0 ]]; then
+      echo "  Generate-only mode: nothing was changed. Re-run with --apply to apply with a scheduled"
+      echo "  120s auto-revert; then confirm with: $SCRIPT_NAME config static-ip commit"
+      return 0
+    fi
+    echo "  Applying via NetworkManager with a scheduled 120s auto-revert..."
+    # Snapshot current settings into a revert script BEFORE changing anything
+    local cur_method cur_addrs cur_gw cur_dns cur_search
+    cur_method=$(nmcli -g ipv4.method con show "$con" 2>/dev/null | head -n 1) || true
+    cur_addrs=$(nmcli -g ipv4.addresses con show "$con" 2>/dev/null | head -n 1) || true
+    cur_gw=$(nmcli -g ipv4.gateway con show "$con" 2>/dev/null | head -n 1) || true
+    cur_dns=$(nmcli -g ipv4.dns con show "$con" 2>/dev/null | head -n 1) || true
+    cur_search=$(nmcli -g ipv4.dns-search con show "$con" 2>/dev/null | head -n 1) || true
+    mkdir -p "$STATE_DIR"
+    cat > "$STATE_DIR/static-ip-revert.sh" << REVERT
+#!/bin/bash
+# Auto-generated by ap-tools 'config static-ip --apply' - restores the previous
+# NetworkManager settings unless 'ap-tools config static-ip commit' cancels it.
+nmcli con mod "$con" ipv4.method "${cur_method:-auto}" ipv4.addresses "${cur_addrs}" ipv4.gateway "${cur_gw}" ipv4.dns "${cur_dns}" ipv4.dns-search "${cur_search}"
+nmcli con up "$con"
+rm -f "$STATE_DIR/static-ip-revert.sh"
+REVERT
+    chmod 700 "$STATE_DIR/static-ip-revert.sh"
+    systemctl stop ap-tools-staticip-revert.timer 2>/dev/null || true
+    systemctl reset-failed ap-tools-staticip-revert.service 2>/dev/null || true
+    if ! systemd-run --unit=ap-tools-staticip-revert --on-active=120 \
+         --description="ap-tools static-ip auto-revert" /bin/bash "$STATE_DIR/static-ip-revert.sh"; then
+      echo "Error: could not schedule the auto-revert timer; refusing to apply without a safety net."
+      rm -f "$STATE_DIR/static-ip-revert.sh"
+      exit 1
+    fi
+    eval "$mod_cmd"
+    nmcli con up "$con" || true
+    echo ""
+    echo "  Applied: $ip_prefix on $ifc (gw $gateway, dns $dns_csv) via connection '$con'."
+    echo "  An auto-revert to the previous settings fires in 120 seconds unless you confirm with:"
+    echo "    sudo ./$SCRIPT_NAME config static-ip commit"
+  fi
+}
+
+# --- Uninstall Definitions (W5) --- #
+
+confirm_destructive () {
+  # Typed-confirmation gate for destructive uninstalls. First argument is the headline,
+  # remaining arguments are printed as detail lines. AP_ASSUME_YES=true skips the
+  # prompt for automation.
+  echo ""
+  echo "WARNING: $1"
+  shift
+  local line
+  for line in "$@"; do
+    echo "  $line"
+  done
+  if [[ "${AP_ASSUME_YES,,}" == "true" ]]; then
+    echo "  AP_ASSUME_YES=true - proceeding without interactive confirmation."
+    return 0
+  fi
+  printf "  Type 'yes-destroy' to continue (anything else aborts): "
+  local reply=""
+  if ! read -r reply; then
+    reply=""
+  fi
+  if [[ "$reply" != "yes-destroy" ]]; then
+    echo "  Aborted - nothing was changed."
+    exit 1
+  fi
+}
+
+remove_ap_host_changes () {
+  # Reverts ONLY what ap-tools itself changed on this host, using state.env records.
+  # rke2_installer.sh's uninstall restores its own recorded host state (swap, firewalls,
+  # its NTP config, its multipathd records) - no double handling here.
+  echo "  Reverting ap-tools host changes recorded in $STATE_FILE..."
+  local bin
+  for bin in "$(state_get AP_INSTALLED_HELM)" "$(state_get AP_INSTALLED_K9S)" "$(state_get AP_INSTALLED_LONGHORNCTL)"; do
+    if [[ -n "$bin" && -f "$bin" ]]; then
+      echo "  Removing $bin"
+      rm -f "$bin"
+    fi
+  done
+  state_unset AP_INSTALLED_HELM
+  state_unset AP_INSTALLED_K9S
+  state_unset AP_INSTALLED_LONGHORNCTL
+  # Sysctl file (fall back to the well-known name for pre-state-file installs)
+  local sysctl_file
+  sysctl_file=$(state_get AP_SYSCTL_FILE)
+  [[ -z "$sysctl_file" ]] && sysctl_file="/etc/sysctl.d/10-ap-orchestrator.conf"
+  if [[ -f "$sysctl_file" ]]; then
+    echo "  Removing $sysctl_file"
+    rm -f "$sysctl_file"
+    systemctl restart systemd-sysctl 2>/dev/null || true
+  fi
+  state_unset AP_SYSCTL_FILE
+  # multipath drop-in + multipathd restoration. A pre-existing site /etc/multipath.conf
+  # is never touched (AP-12); a legacy ap-tools-written /etc/multipath.conf (pre drop-in
+  # versions) is also left in place - it is only a harmless sd* blacklist.
+  rm -f /etc/multipath/conf.d/99-ap-tools.conf
+  state_unset AP_MULTIPATH_DROPIN
+  systemctl unmask multipathd.service multipathd.socket 2>/dev/null || true
+  if [[ "$(state_get AP_MULTIPATHD_SERVICE_WAS_ENABLED)" == "enabled" ]]; then
+    echo "  Restoring multipathd.service (was enabled before install)..."
+    systemctl enable --now multipathd.service 2>/dev/null || true
+  fi
+  if [[ "$(state_get AP_MULTIPATHD_SOCKET_WAS_ENABLED)" == "enabled" ]]; then
+    systemctl enable --now multipathd.socket 2>/dev/null || true
+  fi
+  state_unset AP_MULTIPATHD_SERVICE_WAS_ENABLED
+  state_unset AP_MULTIPATHD_SOCKET_WAS_ENABLED
+  state_unset AP_MULTIPATH_CONF_PREEXISTED
+  # iscsid: disable again only if ap-tools enabled it (recorded prior state != enabled)
+  local iscsid_unit iscsid_prior
+  iscsid_unit=$(state_get AP_ISCSID_UNIT)
+  iscsid_prior=$(state_get AP_ISCSID_WAS_ENABLED)
+  if [[ -n "$iscsid_unit" && -n "$iscsid_prior" && "$iscsid_prior" != "enabled" ]]; then
+    echo "  Restoring iscsid ($iscsid_unit) to its pre-install state ($iscsid_prior)..."
+    systemctl disable "$iscsid_unit" 2>/dev/null || true
+  fi
+  state_unset AP_ISCSID_UNIT
+  state_unset AP_ISCSID_WAS_ENABLED
+  # NTP: only when ap-tools' own configure_node_ntp did the configuring (rke2-managed
+  # NTP is reverted by rke2_installer.sh uninstall via its own state records)
+  local ntp_mode
+  ntp_mode=$(state_get AP_NTP_CONFIGURED)
+  if [[ "$ntp_mode" == "timesyncd" ]]; then
+    echo "  Removing ap-tools timesyncd NTP drop-in..."
+    rm -f /etc/systemd/timesyncd.conf.d/10-ap-tools.conf
+    systemctl restart systemd-timesyncd 2>/dev/null || true
+  elif [[ "$ntp_mode" == "chrony" ]]; then
+    echo "  Removing ap-tools chrony NTP entries..."
+    sed -i '/# ap-tools NTP$/d' /etc/chrony/chrony.conf 2>/dev/null || true
+    sed -i '/# ap-tools NTP$/d' /etc/chrony.conf 2>/dev/null || true
+    systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null || true
+  fi
+  state_unset AP_NTP_CONFIGURED
+  state_unset AP_DOCKER_PREEXISTED
+}
+
+run_uninstall_rke2 () {
+  confirm_destructive "'uninstall rke2' DESTROYS this cluster node. On the last/only server node this deletes ALL Longhorn persistent volumes - every PVC, including Dell Automation Platform's data." \
+    "Velero backups stored on external S3 survive; everything in-cluster is lost." \
+    "Harbor and SeaweedFS hosts are NOT touched - use 'uninstall harbor' / 'uninstall swfs' on those hosts."
+  if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" ]]; then
+      echo "Error: cached rke2_installer.sh not found under $WORKING_DIR/rke2 and this host is air-gapped."
+      echo "  Run uninstall from the directory the install ran in (where the ap-install cache lives)."
+      exit 1
+    fi
+    rke2_installer_check
+  fi
+  cd $WORKING_DIR/rke2
+  RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA PVC_DATA=$PVC_DATA \
+  INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER DEBUG=$DEBUG ./rke2_installer.sh uninstall
+  cd $base_dir
+  remove_ap_host_changes
+  echo "  rke2 uninstall complete."
+}
+
+run_uninstall_harbor () {
+  confirm_destructive "'uninstall harbor' removes the Harbor registry from this host, including its stored container images." \
+    "install_harbor.sh removes only Harbor's own /data subpaths by default; set PURGE_DATA=true to remove /data entirely."
+  if [[ ! -f $WORKING_DIR/ap-utilities/harbor/install_harbor.sh ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" && -f $WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz ]]; then
+      cd $WORKING_DIR/ap-utilities/harbor
+      tar xzf harbor-offline-package.tar.gz
+      cd $base_dir
+    else
+      fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
+        "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
+    fi
+  fi
+  cd $WORKING_DIR/ap-utilities/harbor
+  # Forward ONLY user-set values: install_harbor.sh's recorded /opt/harbor/.install-env
+  # (explicit env > .install-env > default) must stay authoritative for what was
+  # actually installed - unconditionally forwarding ap-tools defaults would defeat it.
+  local fwd=("DEBUG=$DEBUG")
+  [[ -n "$user_set_harbor_cn" ]] && fwd+=("REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME")
+  [[ -n "$user_set_harbor_port" ]] && fwd+=("HARBOR_PORT=$HARBOR_PORT")
+  [[ -n "$user_set_harbor_version" ]] && fwd+=("HARBOR_VERSION=$HARBOR_VERSION")
+  [[ -n "$user_set_purge_data" ]] && fwd+=("PURGE_DATA=$PURGE_DATA")
+  env "${fwd[@]}" ./install_harbor.sh uninstall-harbor
+  cd $base_dir
+  echo "  harbor uninstall complete."
+}
+
+run_uninstall_swfs () {
+  confirm_destructive "'uninstall swfs' removes the SeaweedFS containers, configuration, and locally stored artifact/S3 data on this host." \
+    "SMB/NFS host configuration is reverted per install-seaweedfs's recorded install state."
+  if [[ ! -f $WORKING_DIR/ap-utilities/swfs/install-seaweedfs ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" && -f $WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz ]]; then
+      cd $WORKING_DIR/ap-utilities/swfs
+      tar xzf swfs-save.tar.gz
+      cd $base_dir
+    else
+      fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
+        "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
+    fi
+  fi
+  cd $WORKING_DIR/ap-utilities/swfs
+  # ENABLE_*/DEFAULT_FILER_DIR_NAME are only install-seaweedfs's legacy fallback for
+  # pre-state-file installs; its own state file governs cleanup when present.
+  local fwd=("DEBUG=$DEBUG" "ENABLE_SMB=$ENABLE_SMB" "ENABLE_NFS=$ENABLE_NFS" "DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME")
+  [[ -n "$user_set_swfs_remove_images" ]] && fwd+=("SWFS_REMOVE_IMAGES=$SWFS_REMOVE_IMAGES")
+  env "${fwd[@]}" ./install-seaweedfs uninstall
+  cd $base_dir
+  echo "  swfs uninstall complete."
+}
+
+run_uninstall_velero () {
+  echo "  Uninstalling Velero from the cluster (backups stored on S3 are NOT deleted)..."
+  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  export PATH=$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin
+  if ! kubectl get namespace velero >/dev/null 2>&1; then
+    echo "  velero namespace not found - nothing to uninstall."
+    return 0
+  fi
+  if command -v velero >/dev/null 2>&1; then
+    velero uninstall --force
+  else
+    kubectl delete namespace velero --ignore-not-found
+    kubectl delete crds -l component=velero --ignore-not-found
+  fi
+  kubectl delete volumesnapshotclass "$VSC_NAME" --ignore-not-found 2>/dev/null || true
+  rm -f /usr/local/bin/velero
+  echo "  Velero uninstalled. S3 bucket '$VELERO_BUCKET' and its backups were left untouched."
+}
+
+run_uninstall_monitoring () {
+  echo "  Uninstalling the monitoring stack (kube-prometheus-stack + Fluent Bit) from the cluster..."
+  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  export PATH=$PATH:/var/lib/rancher/rke2/bin
+  if ! kubectl get namespace monitoring >/dev/null 2>&1; then
+    echo "  monitoring namespace not found - nothing to uninstall."
+    return 0
+  fi
+  local helm_bin="/usr/local/bin/helm"
+  [[ -x "$helm_bin" ]] || helm_bin="/usr/bin/helm"   # pre-phase2 installs placed helm in /usr/bin
+  if [[ -x "$helm_bin" ]]; then
+    $helm_bin uninstall fluent-bit -n monitoring 2>/dev/null || true
+    $helm_bin uninstall kube-prometheus-stack -n monitoring 2>/dev/null || true
+  fi
+  kubectl delete namespace monitoring --ignore-not-found
+  echo "  Monitoring stack removed. The external monitoring host (Loki/Grafana on the swfs host) is NOT touched."
+}
+
+run_uninstall_ap_bundle () {
+  echo "  Removing Dell Automation Platform staging artifacts (bundle tree, cmd file, registry trust)..."
+  echo "  NOTE: this does NOT uninstall DAP itself - DAP runs inside the RKE2 cluster and is removed"
+  echo "  with the cluster ('uninstall rke2') or via Dell's own uninstall procedure. Docker is kept."
+  local ca_path reg_fqdn certsd_dir
+  ca_path=$(state_get AP_REG_CA_PATH)
+  reg_fqdn=$(state_get AP_REG_FQDN)
+  certsd_dir=$(state_get AP_REG_CERTSD_DIR)
+  if [[ -z "$ca_path" && -n "$REG_FQDN" ]]; then
+    # Fallback for pre-state-file installs: derive from the -registry argument
+    local p
+    for p in "/usr/local/share/ca-certificates/$REG_FQDN.crt" "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" "/etc/pki/trust/anchors/$REG_FQDN.crt"; do
+      [[ -f "$p" ]] && ca_path="$p"
+    done
+    certsd_dir="/etc/docker/certs.d/$REGISTRY_INFO"
+  fi
+  if [[ -n "$ca_path" && -f "$ca_path" ]]; then
+    echo "  Removing registry CA from the system trust store: $ca_path"
+    rm -f "$ca_path"
+    if command -v update-ca-certificates >/dev/null 2>&1; then
+      update-ca-certificates >/dev/null 2>&1 || true
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+      update-ca-trust extract 2>/dev/null || true
+    fi
+  else
+    echo "  No registry CA recorded/found to remove. (On hosts installed before state tracking,"
+    echo "  pass '-registry <host:port> <user> <pass>' so the CA file can be located.)"
+  fi
+  if [[ -n "$certsd_dir" && -d "$certsd_dir" ]]; then
+    echo "  Removing docker registry cert dir: $certsd_dir"
+    rm -rf "$certsd_dir"
+  fi
+  rm -rf "$WORKING_DIR/bundle"
+  local cmd_file
+  cmd_file=$(state_get AP_CMD_FILE)
+  [[ -z "$cmd_file" ]] && cmd_file="$base_dir/ap-install-upgrade-cmd.txt"
+  rm -f "$cmd_file"
+  state_unset AP_REG_CA_PATH
+  state_unset AP_REG_FQDN
+  state_unset AP_REG_CERTSD_DIR
+  state_unset AP_CMD_FILE
+  echo "  ap-bundle staging removed. The bundle zip and cached sub-installers are kept -"
+  echo "  re-run with --purge-cache to remove the whole $WORKING_DIR tree (~20GB)."
+}
+
+purge_cache_tree () {
+  echo "  --purge-cache: removing the ap-tools working cache..."
+  rm -rf "${WORKING_DIR:?}"
+  rm -rf "${base_dir:?}/LICENSES"
+  echo "  Removed $WORKING_DIR (bundle zip, cached sub-installers, helm charts, staged images)."
+  echo "  A local ap-offline.tar.gz archive, if present, was intentionally kept."
+}
+
+run_uninstall () {
+  case "$UNINSTALL_TYPE" in
+    rke2)       run_uninstall_rke2 ;;
+    harbor)     run_uninstall_harbor ;;
+    swfs)       run_uninstall_swfs ;;
+    velero)     run_uninstall_velero ;;
+    monitoring) run_uninstall_monitoring ;;
+    ap-bundle)  run_uninstall_ap_bundle ;;
+  esac
+  if [[ $PURGE_CACHE -eq 1 ]]; then
+    purge_cache_tree
+  fi
+}
+
+# Configure a user-defined NTP source. Clock skew across nodes breaks etcd, TLS, and DAP
+# tokens. Only acts when NTP_SERVERS is set; otherwise the OS default time source is left
+# untouched. Auto-detects the time daemon: chrony if present, else systemd-timesyncd (the
+# Ubuntu/Debian default). Idempotent.
+# NOTE: rke2 cluster nodes are NO LONGER configured here - rke2_installer.sh owns NTP for
+# install/join (identical NTP_SERVERS semantics, identical '# ap-tools NTP' marker and
+# /etc/systemd/timesyncd.conf.d/10-ap-tools.conf drop-in, so hosts configured by either
+# tool reconcile). This function is retained for hosts outside the rke2 flows
+# (e.g. standalone harbor/swfs hosts) and for manual use.
 configure_node_ntp () {
   if [[ -z "${NTP_SERVERS// /}" ]]; then
     echo "  NTP_SERVERS not set; leaving the OS default time source unchanged."
@@ -788,12 +1621,14 @@ configure_node_ntp () {
     systemctl enable chronyd 2>/dev/null || true
     systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null || true
     chronyc makestep >/dev/null 2>&1 || true
+    state_set AP_NTP_CONFIGURED "chrony"
   else
     # systemd-timesyncd path (Ubuntu/Debian default)
     mkdir -p /etc/systemd/timesyncd.conf.d
     printf '[Time]\nNTP=%s\n' "$ntp_list" > /etc/systemd/timesyncd.conf.d/10-ap-tools.conf
     systemctl enable systemd-timesyncd 2>/dev/null || true
     systemctl restart systemd-timesyncd 2>/dev/null || true
+    state_set AP_NTP_CONFIGURED "timesyncd"
   fi
   # Give the daemon a moment, then report
   sleep 2
@@ -817,6 +1652,8 @@ run_offline_prep () {
     echo "  Downloading RKE2 binaries and images for RKE2 Core, Longhorn, Metallb, HAProxy, Velero."
     echo "  This may take several minutes..."
     run_debug download_rke2
+    echo "  Saving HAProxy/Longhorn/MetalLB add-on images..."
+    run_debug save_addon_images
     if [[ $DOWNLOAD_AP_BUNDLE == "true" ]]; then
       echo "  Downloading Dell Automation Platform bundle."
       echo "  Approximate download size is 20G. This may take several minutes..."
@@ -828,40 +1665,29 @@ run_offline_prep () {
 }
 
 download_swfs () {
-  curl -kL https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs -o $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
-  chmod +x $WORKING_DIR/ap-utilities/swfs/install-seaweedfs
+  fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
+    "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
   cd $WORKING_DIR/ap-utilities/swfs
   ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
   cd $base_dir
 }
 
 download_harbor () {
+  fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
+    "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
   cd $WORKING_DIR/ap-utilities/harbor
-  curl -OL https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh
-  chmod +x install_harbor.sh
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
 }
 
 download_ap_packages () {
-  if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
-    if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
-      longhorn_packages="nfs-common open-iscsi cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
-      longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
-    elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
-      longhorn_packages="nfs-client open-iscsi cryptsetup"
-    fi
-  fi
+  set_longhorn_packages
   install_packages_check
   cd $WORKING_DIR/ap-utilities/packages
   ./install_packages.sh save jq zip unzip hostname bc openssl $longhorn_packages
   cd $base_dir
-  echo "  Downloading support log collector tool..."
-  curl -kL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null || true
-  echo "  Downloading k9s..."
-  mkdir -p $WORKING_DIR/ap-utilities/k9s || true
-  curl -kL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null || true
+  download_support_tool
+  download_k9s
 }
 
 download_rke2 () {
@@ -879,70 +1705,148 @@ download_rke2 () {
 download_helm_binaries () {
   echo "  Downloading helm binary..."
   curl -fsSLo $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz https://get.helm.sh/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  echo "  Installing helm binary..."
-  tar -xvf $WORKING_DIR/ap-utilities/helm/helm-v$HELM_VERSION-linux-amd64.tar.gz
-  mv linux-amd64/helm /usr/bin/helm
-  rm -rf linux-amd64
-  echo "  Adding helm charts..."
-  /usr/bin/helm repo add metallb https://metallb.github.io/metallb
-  /usr/bin/helm repo add haproxytech https://haproxytech.github.io/helm-charts
-  /usr/bin/helm repo add longhorn https://charts.longhorn.io
-  /usr/bin/helm repo update
+  install_helm_binary
+  helm_repo_setup
   echo "  Pulling helm charts..."
   # HAPROXY
   cd $WORKING_DIR/ap-utilities/helm/haproxy
-  /usr/bin/helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
+  /usr/local/bin/helm pull haproxytech/kubernetes-ingress --version $KUBERNETES_INGRESS_VERSION
   # LONGHORN
   cd $WORKING_DIR/ap-utilities/helm/longhorn
-  /usr/bin/helm pull longhorn/longhorn --version $LONGHORN_VERSION
+  /usr/local/bin/helm pull longhorn/longhorn --version $LONGHORN_VERSION
   echo "  Downloading longhornctl binary..."
-  curl -L https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl
+  if ! curl -fL https://github.com/longhorn/cli/releases/download/v$LONGHORN_VERSION/longhornctl-linux-amd64 -o longhornctl; then
+    echo "Error: failed to download longhornctl v$LONGHORN_VERSION."
+    rm -f longhornctl
+    exit 1
+  fi
   # METALLB
   cd $WORKING_DIR/ap-utilities/helm/metallb
-  /usr/bin/helm pull metallb/metallb --version $METALLB_VERSION
+  /usr/local/bin/helm pull metallb/metallb --version $METALLB_VERSION
   # NOTE: monitoring charts (kube-prometheus-stack, fluent-bit) are downloaded by rke2_installer.sh
   # save workflow into rke2-install/monitoring/ and packaged into rke2-save.tar.gz. They do not
   # need to be downloaded here.
 }
 
 download_ap_bundle () {
+  # AP-4: wget is absent on minimal images; use curl (-fL) and download to a .partial
+  # file so an interrupted ~19GB fetch never masquerades as a complete bundle. A
+  # leftover .partial is resumed with 'curl -C -' before falling back to a fresh fetch.
   user_agent_string="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
   url_check=$(echo $AP_BUNDLE_URL | cut -d "/" -f3)
+  local curl_opts=(-fkL --retry 3)
+  if [[ "$url_check" == "dl.dell.com" ]]; then
+    curl_opts+=(--user-agent "$user_agent_string")
+  fi
   if [[ ! -f $WORKING_DIR/$bundle_file ]]; then
     echo "  Downloading on-premise installation bundle..."
-    if [[ "$url_check" == "dl.dell.com" ]]; then
-      if ! wget --no-check-certificate --user-agent="$user_agent_string" -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
-        echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
-        echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
-        exit 1
+    local dl_ok=0
+    if [[ -f $WORKING_DIR/$bundle_file.partial ]]; then
+      echo "  Partial download found; attempting to resume..."
+      if curl "${curl_opts[@]}" -C - -o $WORKING_DIR/$bundle_file.partial $AP_BUNDLE_URL; then
+        dl_ok=1
+      else
+        echo "  Resume failed; restarting the download from scratch..."
+        rm -f $WORKING_DIR/$bundle_file.partial
       fi
-    else
-      if ! wget --no-check-certificate -O $WORKING_DIR/$bundle_file $AP_BUNDLE_URL; then
+    fi
+    if [[ $dl_ok -eq 0 ]]; then
+      if ! curl "${curl_opts[@]}" -o $WORKING_DIR/$bundle_file.partial $AP_BUNDLE_URL; then
+        rm -f $WORKING_DIR/$bundle_file.partial
         echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
         echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
         exit 1
       fi
     fi
+    mv $WORKING_DIR/$bundle_file.partial $WORKING_DIR/$bundle_file
   else
     echo "  Automation Platform bundle already downloaded."
   fi
 }
 
 generate_images_file () {
+  # AP-17: regenerate ap-tools' OWN add-on image list from scratch every run ('>' with
+  # dedup, never '>>' growth). rke2-installer now also regenerates its
+  # utility-images.txt from scratch, so appending into rke2's list (the old approach)
+  # would be wiped - the add-on images (HAProxy, Longhorn, MetalLB) are saved, pushed,
+  # and staged by ap-tools itself via image_pull_push.sh.
+  local list_dir="$WORKING_DIR/ap-utilities/images"
+  local addon_list="$list_dir/ap-addon-images.txt"
+  echo "  Generating add-on image list (HAProxy, Longhorn, MetalLB)..."
   # Haproxy images
-  cd $WORKING_DIR/ap-utilities/helm/haproxy
-  echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > haproxy-images.txt
-  cat haproxy-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  echo "haproxytech/kubernetes-ingress:$HAPROXY_APP_VERSION" > $list_dir/ap-addon-images.tmp
   # Longhorn images
-  cd $WORKING_DIR/ap-utilities/helm/longhorn
-  curl -sOL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt
-  cat longhorn-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  if ! curl -sfL https://github.com/longhorn/longhorn/releases/download/v$LONGHORN_VERSION/longhorn-images.txt -o $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-images.txt; then
+    echo "Error: failed to download longhorn-images.txt for v$LONGHORN_VERSION."
+    rm -f $list_dir/ap-addon-images.tmp
+    exit 1
+  fi
+  cat $WORKING_DIR/ap-utilities/helm/longhorn/longhorn-images.txt >> $list_dir/ap-addon-images.tmp
   # Metallb images
-  cd $WORKING_DIR/ap-utilities/helm/metallb
-  curl -sOL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml
-  grep 'image:' metallb-frr.yaml | awk '{print $2}' | sort -u >> metallb-images.txt
-  cat metallb-images.txt >> $WORKING_DIR/rke2/rke2-install/rke2-utilities/images/utility-images.txt
+  if ! curl -sfL https://raw.githubusercontent.com/metallb/metallb/v$METALLB_VERSION/config/manifests/metallb-frr.yaml -o $WORKING_DIR/ap-utilities/helm/metallb/metallb-frr.yaml; then
+    echo "Error: failed to download the metallb v$METALLB_VERSION manifest."
+    rm -f $list_dir/ap-addon-images.tmp
+    exit 1
+  fi
+  grep 'image:' $WORKING_DIR/ap-utilities/helm/metallb/metallb-frr.yaml | awk '{print $2}' >> $list_dir/ap-addon-images.tmp
+  sort -u $list_dir/ap-addon-images.tmp > "$addon_list"
+  rm -f $list_dir/ap-addon-images.tmp
+}
+
+save_addon_images () {
+  # Save the add-on images into ap-tools' own archive under ap-utilities/images/.
+  # Older archives are removed first so re-runs regenerate instead of accumulating.
+  image_pull_push_check
+  cd $WORKING_DIR/ap-utilities/images
+  rm -f container_images_*.tar.gz
+  ./image_pull_push.sh -f ap-addon-images.txt save
   cd $base_dir
+}
+
+push_addon_images () {
+  # Push the HAProxy/Longhorn/MetalLB images ap-tools deploys itself. rke2_installer's
+  # push covers only its own regenerated utility list, so ap-tools pushes its add-ons.
+  echo "  Pushing HAProxy/Longhorn/MetalLB add-on images to $REGISTRY_INFO..."
+  cd $WORKING_DIR/ap-utilities/images
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    local archive=""
+    archive=$(ls -1t container_images_*.tar.gz 2>/dev/null | head -n 1) || true
+    if [[ -z "$archive" ]]; then
+      echo "  WARNING: no add-on image archive found in ap-utilities/images."
+      echo "  (Archives built by older ap-tools carried the add-on images inside rke2's own"
+      echo "   utility archive, which rke2_installer.sh already pushed - continuing.)"
+      cd $base_dir
+      return 0
+    fi
+    ./image_pull_push.sh -f "$archive" push $REGISTRY_INFO $REG_USER $REG_PASS
+  else
+    image_pull_push_check
+    generate_images_file
+    ./image_pull_push.sh -f ap-addon-images.txt push $REGISTRY_INFO $REG_USER $REG_PASS
+  fi
+  cd $base_dir
+}
+
+stage_addon_images () {
+  # Air-gapped 'install rke2'/'join' WITHOUT a private registry: containerd must find
+  # the add-on images locally. Stage them into RKE2's agent image dir BEFORE the rke2
+  # service first starts (containerd auto-imports every archive in that dir).
+  local rke2_data_path="$RKE2_DATA"
+  [[ "$rke2_data_path" == "default" ]] && rke2_data_path="/var/lib/rancher/rke2"
+  local archive=""
+  archive=$(ls -1t $WORKING_DIR/ap-utilities/images/container_images_*.tar.gz 2>/dev/null | head -n 1) || true
+  if [[ -z "$archive" ]]; then
+    echo "  WARNING: no add-on image archive found in ap-utilities/images."
+    echo "  (Archives built by older ap-tools carried the add-on images inside rke2's own"
+    echo "   utility archive, which rke2_installer.sh already stages - continuing.)"
+    return 0
+  fi
+  echo "  Staging add-on images (HAProxy, Longhorn, MetalLB) for containerd import..."
+  rm -rf $WORKING_DIR/ap-utilities/images/extract
+  mkdir -p $WORKING_DIR/ap-utilities/images/extract "$rke2_data_path/agent/images"
+  tar -xzf "$archive" -C $WORKING_DIR/ap-utilities/images/extract
+  cp $WORKING_DIR/ap-utilities/images/extract/images/images.tar.gz "$rke2_data_path/agent/images/ap-addon-images.tar.gz"
+  rm -rf $WORKING_DIR/ap-utilities/images/extract
 }
 
 generate_bundle_licenses () {
@@ -950,7 +1854,7 @@ generate_bundle_licenses () {
     # written offer for the bundled copyleft components (Grafana, AGPL-3.0; and HAProxy,
     # GPL-2.0+, which ships inside the haproxytech ingress image). Satisfies the GPL/AGPL
     # "corresponding source or written offer" requirement.
-    local dir="$base_dir/LICENSES"
+    local dir="${base_dir:?}/LICENSES"
     rm -rf "$dir"; mkdir -p "$dir"
     {
         echo "Third-party components redistributed in this Dell AP (ap-tools) air-gap bundle"
@@ -1000,7 +1904,33 @@ create_offline_prep_archive () {
     # saves downloaded files into ap-offline.tar.gz
     echo "  Creating offline archive 'ap-offline.tar.gz'"
     generate_bundle_licenses
-    tar -czf ap-offline.tar.gz ap-install ap-tools LICENSES
+    # AP-13: tar with -C $base_dir and stage a copy of this script (plus
+    # inputs.env.example when shipped alongside it) into $base_dir first, so
+    # offline-prep works when ap-tools is invoked by absolute path from another cwd.
+    if [[ "$SCRIPT_PATH" != "$base_dir/ap-tools" ]]; then
+        cp "$SCRIPT_PATH" "$base_dir/ap-tools"
+        chmod +x "$base_dir/ap-tools"
+    fi
+    local extra_files=""
+    if [[ -f "$(dirname "$SCRIPT_PATH")/inputs.env.example" ]]; then
+        if [[ "$(dirname "$SCRIPT_PATH")" != "$base_dir" ]]; then
+            cp "$(dirname "$SCRIPT_PATH")/inputs.env.example" "$base_dir/inputs.env.example"
+        fi
+        extra_files="inputs.env.example"
+    fi
+    # AP-9: write to a temp name + mv. The archive IS the air-gap sentinel - a partial
+    # tar left by an interrupted run would flip every later invocation in this
+    # directory into air-gapped mode. tar can never leave a half-written sentinel now.
+    # ap-install/bundle is the install-time EXTRACTION of the DAP zip: when
+    # offline-prep runs on a host that already did 'install ap-bundle', shipping
+    # it alongside the zip doubles the archive (~38G tree + ~19G zip carrying the
+    # same payload). The air-gapped target re-extracts from the zip anyway.
+    if ! tar -czf "$base_dir/ap-offline.tar.gz.partial" -C "$base_dir" --exclude='ap-install/bundle' ap-install ap-tools LICENSES $extra_files; then
+        rm -f "$base_dir/ap-offline.tar.gz.partial"
+        echo "Error: failed to create ap-offline.tar.gz (disk space?). No archive was left behind."
+        exit 1
+    fi
+    mv "$base_dir/ap-offline.tar.gz.partial" "$base_dir/ap-offline.tar.gz"
 }
 
 # --- Helper Functions --- #
@@ -1008,22 +1938,41 @@ create_offline_prep_archive () {
 ap_preflight_checks () {
   # Check k8s for the required resources and NTP sync
   echo "  Running pre-flight resource checks..."
-  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c '{
-    cpu: ([.items[]?.status.allocatable.cpu | sub("m"; "")] | add),
-    memory: ([.items[]?.status.allocatable.memory | sub("Ki$"; "") | sub("Mi$"; "") | sub("Gi$"; "") | sub("Ti$"; "")] | add),
-    storage: ([.items[]?.status.allocatable."ephemeral-storage" | sub("Ki$"; "") | sub("Mi$"; "") | sub("Gi$"; "") | sub("Ti$"; "")] | add)}' || true)
+  # AP-2: normalise every quantity to a NUMBER inside jq before 'add'. The old
+  # sub()-only pipeline returned strings, so multi-node 'add' CONCATENATED them
+  # ("16"+"16"+"16" -> "161616") and the resource gate was silently disabled on
+  # exactly the clusters where it matters. Units: millicores -> cores; memory and
+  # ephemeral-storage -> GB (Ki/Mi/Gi/Ti binary suffixes, K/M/G/T decimal, bare = bytes).
+  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c '
+    def cpu_cores: if (type == "string" and test("m$")) then (sub("m$"; "") | tonumber) / 1000 else tonumber end;
+    def qty_gb:
+      if type != "string" then (tonumber / 1073741824)
+      elif test("Ki$") then (sub("Ki$"; "") | tonumber) / 1048576
+      elif test("Mi$") then (sub("Mi$"; "") | tonumber) / 1024
+      elif test("Gi$") then (sub("Gi$"; "") | tonumber)
+      elif test("Ti$") then (sub("Ti$"; "") | tonumber) * 1024
+      elif test("[Kk]$") then (sub("[Kk]$"; "") | tonumber) / 1000000
+      elif test("M$") then (sub("M$"; "") | tonumber) / 1000
+      elif test("G$") then (sub("G$"; "") | tonumber)
+      elif test("T$") then (sub("T$"; "") | tonumber) * 1000
+      else (tonumber / 1073741824) end;
+    {cpu: ([.items[]?.status.allocatable.cpu | cpu_cores] | add),
+     memory_gb: ([.items[]?.status.allocatable.memory | qty_gb] | add),
+     storage_gb: ([.items[]?.status.allocatable."ephemeral-storage" | qty_gb] | add)}' || true)
   if [ -z "$ALLOCATABLE_JSON" ] || [ "$ALLOCATABLE_JSON" = "null" ]; then
     echo "Error: Could not retrieve or parse allocatable resource data. Check kubectl connectivity and 'jq' installation."
     exit 1
   fi
   CURRENT_CPU=$(echo "$ALLOCATABLE_JSON" | jq -r '.cpu')
-  CURRENT_MEM_KIB=$(echo "$ALLOCATABLE_JSON" | jq -r '.memory')
-  CURRENT_STORAGE_B=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage')
+  CURRENT_MEM_GB=$(echo "$ALLOCATABLE_JSON" | jq -r '.memory_gb')
+  CURRENT_STORAGE_GB=$(echo "$ALLOCATABLE_JSON" | jq -r '.storage_gb')
   if [ -z "$CURRENT_CPU" ] || [ "$CURRENT_CPU" = "null" ]; then CURRENT_CPU=0; fi
-  if [ -z "$CURRENT_MEM_KIB" ] || [ "$CURRENT_MEM_KIB" = "null" ]; then CURRENT_MEM_KIB=0; fi
-  if [ -z "$CURRENT_STORAGE_B" ] || [ "$CURRENT_STORAGE_B" = "null" ]; then CURRENT_STORAGE_B=0; fi
-  CURRENT_MEM_GB=$(echo "$CURRENT_MEM_KIB / 1024 / 1024" | bc)
-  CURRENT_STORAGE_GB=$(echo "$CURRENT_STORAGE_B / 1024 / 1024 /1024" | bc)
+  if [ -z "$CURRENT_MEM_GB" ] || [ "$CURRENT_MEM_GB" = "null" ]; then CURRENT_MEM_GB=0; fi
+  if [ -z "$CURRENT_STORAGE_GB" ] || [ "$CURRENT_STORAGE_GB" = "null" ]; then CURRENT_STORAGE_GB=0; fi
+  # Trim to one decimal for display/comparison; bc -l handles the fractions.
+  CURRENT_CPU=$(LC_ALL=C printf '%.2f' "$CURRENT_CPU")
+  CURRENT_MEM_GB=$(LC_ALL=C printf '%.1f' "$CURRENT_MEM_GB")
+  CURRENT_STORAGE_GB=$(LC_ALL=C printf '%.1f' "$CURRENT_STORAGE_GB")
   EXIT_CODE=0
   if (( $(echo "$CURRENT_CPU < $REQUIRED_CPU" | bc -l) )); then
     echo "Error: Not enough CPU resources available. Required: $REQUIRED_CPU, Available: $CURRENT_CPU"
@@ -1092,7 +2041,9 @@ dns_pre_flight_checks () {
   done
   for entry in "${dns_to_check[@]}"; do
     echo "  Running pre-flight dns check for $entry"
-    resolved_dns=$(host -t A "$entry" 2>/dev/null | awk '/has address|is an alias/ { print $NF }' | head -n 1) || true
+    # AP-3: use getent (glibc, always present - incl. minimal images) instead of 'host'
+    # (bind-utils/dnsutils, absent on minimal images). Also honors /etc/hosts entries.
+    resolved_dns=$(getent hosts "$entry" 2>/dev/null | awk '{ print $1; exit }') || true
     if [ -z "$resolved_dns" ]; then
       failed_lookups+=("$entry")
       echo "  Failed to resolve $entry"
@@ -1133,49 +2084,151 @@ os_check () {
         OS_ID_LIKE="${ID_LIKE:-}"
         OS_ID="${ID:-}"
     else
-        echo "Error: Unknown or unsupported OS $OS_ID."
+        # AP-26: OS_ID is initialised empty; never reference it unguarded under set -u
+        echo "Error: Unknown or unsupported OS (${OS_ID:-no /etc/os-release})."
         exit 1
     fi
-    if [[ ! "$OS_ID" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
-        echo "Error: Unknown or unsupported OS $OS_ID."
+    if [[ ! "${OS_ID:-}" =~ ^(ubuntu|debian|rhel|centos|rocky|almalinux|fedora|sles|opensuse-leap)$ ]]; then
+        echo "Error: Unknown or unsupported OS ${OS_ID:-unknown}."
         exit 1
     fi
+}
+
+fetch_subtool () {
+    # AP-7/AP-8/AP-23: single fetcher for every sub-installer script.
+    # $1 = destination path, $2 = raw URL, $3 = branch to record for cache invalidation.
+    # - curl -f: an HTTP error (404 on a bad branch, etc.) FAILS instead of saving an
+    #   HTML error page that would later be executed as a script (AP-7).
+    # - temp file + mv: an interrupted fetch never leaves a partial script behind.
+    # - The branch is recorded next to the cached file; requesting a different branch
+    #   triggers a refetch (AP-8). Cached files without a record are treated as 'main'.
+    local dest="$1" url="$2" branch="${3:-main}"
+    local branch_file
+    branch_file="$(dirname "$dest")/.$(basename "$dest").branch"
+    if [[ -f "$dest" ]]; then
+        local cached_branch="main"
+        [[ -f "$branch_file" ]] && cached_branch=$(cat "$branch_file")
+        if [[ "$cached_branch" == "$branch" ]]; then
+            return 0
+        fi
+        echo "  Cached $(basename "$dest") came from branch '$cached_branch' but '$branch' was requested; refetching..."
+    fi
+    echo "  Downloading $(basename "$dest") (branch: $branch)..."
+    if ! curl -fsSL "$url" -o "$dest.tmp"; then
+        echo "Error: failed to download $url"
+        echo "  Check the branch name and internet connectivity, then retry."
+        rm -f "$dest.tmp"
+        exit 1
+    fi
+    mv "$dest.tmp" "$dest"
+    chmod +x "$dest"
+    echo "$branch" > "$branch_file"
 }
 
 install_packages_check () {
-    if [[ ! -f $WORKING_DIR/ap-utilities/packages/install_packages.sh ]]; then
-        echo "  Downloading install_packages.sh..."
-        curl -sfL https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh  -o $WORKING_DIR/ap-utilities/packages/install_packages.sh
-        chmod +x $WORKING_DIR/ap-utilities/packages/install_packages.sh
-    fi
+    fetch_subtool "$WORKING_DIR/ap-utilities/packages/install_packages.sh" \
+      "https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh" main
 }
 
 image_pull_push_check () {
-    if [[ ! -f $WORKING_DIR/ap-utilities/images/image_pull_push.sh ]]; then
-        echo "  Downloading image_pull_push.sh..."
-        curl -sfL https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh  -o $WORKING_DIR/ap-utilities/images/image_pull_push.sh
-        chmod +x $WORKING_DIR/ap-utilities/images/image_pull_push.sh
-    fi
+    fetch_subtool "$WORKING_DIR/ap-utilities/images/image_pull_push.sh" \
+      "https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh" main
 }
 
 rke2_installer_check () {
-    if [[ ! -f $WORKING_DIR/rke2/rke2_installer.sh ]]; then
-        echo "  Downloading rke2_installer.sh..."
-        curl -sfL https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh  -o $WORKING_DIR/rke2/rke2_installer.sh
-        chmod +x $WORKING_DIR/rke2/rke2_installer.sh
+    fetch_subtool "$WORKING_DIR/rke2/rke2_installer.sh" \
+      "https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh" "$rke2_feature_branch"
+}
+
+set_longhorn_packages () {
+    # AP-23: single source for the per-distro Longhorn host package map (was duplicated
+    # in run_install_join_push and download_ap_packages and had started to drift).
+    if [[ $INSTALL_LOCAL_PATH_PROVISIONER == "false" ]]; then
+        if [[ "${OS_ID}" =~ ^(ubuntu|debian)$ ]] || [[ "${OS_ID_LIKE}" =~ (debian|ubuntu) ]]; then
+            longhorn_packages="nfs-common open-iscsi cryptsetup"
+        elif [[ "${OS_ID}" =~ ^(rhel|centos|rocky|almalinux|fedora)$ ]] || [[ "${OS_ID_LIKE}" =~ (rhel|fedora|centos) ]]; then
+            longhorn_packages="nfs-utils iscsi-initiator-utils cryptsetup"
+        elif [[ "${OS_ID}" =~ ^(sles|opensuse-leap)$ ]] || [[ "${OS_ID_LIKE}" =~ (suse|sles) ]]; then
+            longhorn_packages="nfs-client open-iscsi cryptsetup"
+        fi
+    fi
+}
+
+download_k9s () {
+    # Best-effort: k9s is a convenience tool - a failed download must not abort installs.
+    echo "  Downloading k9s..."
+    mkdir -p $WORKING_DIR/ap-utilities/k9s
+    if ! curl -fkL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz -o $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz &>/dev/null; then
+        echo "  WARNING: k9s download failed; continuing without k9s."
+        rm -f $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz
+    fi
+}
+
+install_k9s () {
+    # Installs to /usr/local/bin (FHS location for non-packaged binaries; this is what
+    # the README/spec already document). Best-effort, mirroring download_k9s.
+    if [[ ! -f $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz ]]; then
+        echo "  WARNING: k9s archive not present; skipping k9s install."
+        return 0
+    fi
+    echo "  Installing k9s..."
+    if tar -xzf $WORKING_DIR/ap-utilities/k9s/k9s_Linux_amd64.tar.gz -C $WORKING_DIR/ap-utilities/k9s \
+       && install -m 0755 $WORKING_DIR/ap-utilities/k9s/k9s /usr/local/bin/k9s; then
+        state_set AP_INSTALLED_K9S "/usr/local/bin/k9s"
+    else
+        echo "  WARNING: k9s install failed; continuing without k9s."
+    fi
+}
+
+download_support_tool () {
+    # Best-effort: the Dell support log collector is optional tooling.
+    echo "  Downloading support log collector tool..."
+    if ! curl -fkL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null; then
+        echo "  WARNING: support log collector download failed; continuing without it."
+        rm -f $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file)
     fi
 }
 
 check_rke2_service_running () {
-    # Check if rke2 service is running
+    # AP-1: an already-running RKE2 node is NO LONGER a hard stop. rke2_installer.sh
+    # now reconciles a running node itself: identical env -> no-op (exit 0); changed
+    # config -> requires RKE2_RECONFIGURE=true; version drift -> error directing to
+    # 'upgrade'. ap-tools proceeds and re-applies its add-ons idempotently
+    # (helm upgrade --install). The only remaining ap-tools-side hard error is a
+    # join to a DIFFERENT cluster, which always requires an uninstall first.
+    # AP-18: pure 'push' never blocks on the local rke2 service state.
+    if [[ $INSTALL_MODE -eq 0 && $JOIN_MODE -eq 0 ]]; then
+        return 0
+    fi
+    local active_svc=""
     if systemctl is-active --quiet rke2-server.service; then
-        echo "Error: rke2-server service is already runnnig, install cannot proceed."
-        exit 1
+        active_svc="rke2-server.service"
+    elif systemctl is-active --quiet rke2-agent.service; then
+        active_svc="rke2-agent.service"
     fi
-    if systemctl is-active --quiet rke2-agent.service; then
-        echo "Error: rke2-agent service is already runnnig, install cannot proceed."
-        exit 1
+    if [[ -z "$active_svc" ]]; then
+        return 0
     fi
+    if [[ $JOIN_MODE -eq 1 && -f /etc/rancher/rke2/config.yaml ]]; then
+        local existing_server=""
+        existing_server=$(awk -F'https://' '/^server:/ {print $2}' /etc/rancher/rke2/config.yaml | cut -d: -f1) || true
+        if [[ -n "$existing_server" && "$existing_server" != "$JOIN_SERVER_FQDN" ]]; then
+            echo "Error: this node is already joined to cluster server '$existing_server', but a join to"
+            echo "  '$JOIN_SERVER_FQDN' was requested. Joining a different cluster requires an uninstall first:"
+            echo "  sudo ./$SCRIPT_NAME uninstall rke2"
+            exit 1
+        fi
+    fi
+    echo "  $active_svc is already active: continuing in reconcile mode."
+    if [[ "$active_svc" == "rke2-server.service" ]]; then
+        if KUBECONFIG=/etc/rancher/rke2/rke2.yaml /var/lib/rancher/rke2/bin/kubectl get nodes >/dev/null 2>&1; then
+            echo "  Cluster is healthy ('kubectl get nodes' responds)."
+        else
+            echo "  WARNING: rke2-server is active but 'kubectl get nodes' is not responding yet."
+            echo "  Proceeding - rke2_installer.sh re-validates cluster readiness and fails hard if it does not converge."
+        fi
+    fi
+    echo "  rke2_installer.sh will reconcile: unchanged config is a no-op; a changed config requires RKE2_RECONFIGURE=true."
 }
 
 check_namespace_pods_ready() {
@@ -1208,38 +2261,81 @@ check_namespace_pods_ready() {
 }
 
 run_debug() {
-  # Use this to hide the output of functions or helper scripts when they are not needed.
+  # Runs a step while preserving 'set -e' semantics INSIDE the called function (AP-21).
+  # Wrapping "$@" in an if/&&/|| condition would suppress errexit for the whole call
+  # tree and let mid-function failures continue silently \u2014 the old failure branch here
+  # was dead code for the same reason. On failure, errexit aborts the script and the
+  # on_exit trap reports the failing step; with DEBUG=0 the step's captured output is
+  # replayed by the trap so failures are never silent.
+  RUN_DEBUG_STEP="$*"
   if [ "$DEBUG" = "1" ]; then
-    local GREEN=$(tput setaf 2)
-    local RED=$(tput setaf 1)
-    local NC=$(tput sgr0)
+    local GREEN NC
+    GREEN=$(tput setaf 2 2>/dev/null || true)
+    NC=$(tput sgr0 2>/dev/null || true)
     local CHECKMARK='\u2714'
-    local CROSSMARK='\u2717'
-    local SUCCESS_MSG=${2:-"Success"}
-    local ERROR_MSG=${3:-"Error"}
     echo "--- Running '$*' with DEBUG enabled---"
     "$@"
-    local status=$?
-    if [ "$status" -eq 0 ]; then
-        echo -e "--- DEBUG: Finished '$*' ${GREEN}${CHECKMARK} ${SUCCESS_MSG}${NC} ---"
-    else
-        echo -e "--- DEBUG: Finished '$*' ${RED}${CROSSMARK} ${ERROR_MSG}${NC} ---" >&2
-    fi
-    return $status
+    echo -e "--- DEBUG: Finished '$*' ${GREEN}${CHECKMARK} Success${NC} ---"
   else
-    # echo "Running '$*'..."
-    "$@" > /dev/null 2>&1
-    return $?
+    # DEBUG=0: capture output so the on_exit trap can replay it if the step fails.
+    : > "$RUN_DEBUG_LOG"
+    "$@" > "$RUN_DEBUG_LOG" 2>&1
   fi
+  RUN_DEBUG_STEP=""
 }
 
-cleanup () {
-    if [[ $INSTALL_MODE -eq 1 || $JOIN_MODE -eq 1 ]]; then
-        echo "  Installation detected, no cleanup required..."
-    else
-        echo "  Cleaning up..."
-        rm -rf "$WORKING_DIR"
+on_exit () {
+  # EXIT trap: make failures visible (AP-21) \u2014 reports the failing run_debug step and,
+  # when DEBUG=0 swallowed its output, replays it so failures are never silent.
+  local rc=$?
+  if [[ $rc -ne 0 && -n "${RUN_DEBUG_STEP:-}" ]]; then
+    echo "Error: step '$RUN_DEBUG_STEP' failed (exit $rc)." >&2
+    if [[ "$DEBUG" != "1" && -s "${RUN_DEBUG_LOG:-/dev/null}" ]]; then
+      echo "--- output of failed step '$RUN_DEBUG_STEP' ---" >&2
+      cat "$RUN_DEBUG_LOG" >&2
+      echo "--- end of failed step output ---" >&2
     fi
+  fi
+  rm -f "${RUN_DEBUG_LOG:-}"
+  exit $rc
+}
+trap on_exit EXIT
+
+# --- Install-state file helpers (enabler for 'uninstall <component>') --- #
+# /var/lib/ap-tools/state.env records host state BEFORE ap-tools changes it, plus what
+# ap-tools itself installed, so uninstall reverts ONLY ap-tools' changes.
+
+state_set () {
+    # state_set KEY VALUE - idempotent key=value write to the install-state file
+    local key="$1" val="$2"
+    mkdir -p "$STATE_DIR"
+    if [[ -f "$STATE_FILE" ]]; then
+        sed -i "/^${key}=/d" "$STATE_FILE"
+    fi
+    echo "${key}=\"${val}\"" >> "$STATE_FILE"
+    chmod 600 "$STATE_FILE"
+}
+
+state_get () {
+    # state_get KEY - prints the recorded value, empty when absent
+    [[ -f "$STATE_FILE" ]] || return 0
+    sed -n "s/^${1}=\"\(.*\)\"$/\1/p" "$STATE_FILE" | head -n 1
+}
+
+state_record_once () {
+    # state_record_once KEY VALUE - like state_set but never overwrites an existing key.
+    # Used for pre-install host state so re-runs don't clobber the original record.
+    local key="$1" val="$2"
+    if [[ -f "$STATE_FILE" ]] && grep -q "^${key}=" "$STATE_FILE"; then
+        return 0
+    fi
+    state_set "$key" "$val"
+}
+
+state_unset () {
+    # state_unset KEY - removes a key after its recorded change has been reverted
+    [[ -f "$STATE_FILE" ]] || return 0
+    sed -i "/^${1}=/d" "$STATE_FILE"
 }
 
 runtime_outputs () {
@@ -1299,6 +2395,11 @@ runtime_outputs () {
     fi
   fi
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
+    # AP-11: the generated command file contains registry credentials - 0600 it and
+    # print only a masked rendering to stdout (stdout ends up in install logs).
+    rm -f $base_dir/ap-install-upgrade-cmd.txt
+    touch $base_dir/ap-install-upgrade-cmd.txt
+    chmod 600 $base_dir/ap-install-upgrade-cmd.txt
     cat << EOF > $base_dir/ap-install-upgrade-cmd.txt
 
 ### BUNDLE PREP FLOW COMPLETED ###
@@ -1329,7 +2430,9 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   EMAIL="$EMAIL"
 ----
 EOF
-    cat $base_dir/ap-install-upgrade-cmd.txt
+    state_set AP_CMD_FILE "$base_dir/ap-install-upgrade-cmd.txt"
+    mask_secret "$(cat $base_dir/ap-install-upgrade-cmd.txt)"
+    echo "  (The unmasked command block, including the registry password, is in $base_dir/ap-install-upgrade-cmd.txt - mode 0600.)"
   fi
 }
 
@@ -1365,6 +2468,35 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             shift
+            shift
+            ;;
+        config)
+            CONFIG_MODE=1
+            CONFIG_TYPE="${2:-}"
+            if [[ "$CONFIG_TYPE" != "hostname" && "$CONFIG_TYPE" != "static-ip" ]]; then
+                echo "Error: 'config' command requires a type. Format: config hostname <fqdn> | config static-ip <options>"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            # 'config' consumes all remaining arguments; its own sub-parser validates them
+            CONFIG_ARGS=("$@")
+            set --
+            ;;
+        uninstall)
+            UNINSTALL_MODE=1
+            UNINSTALL_TYPE="${2:-}"
+            if [[ -z "$UNINSTALL_TYPE" || "$UNINSTALL_TYPE" != "ap-bundle" && "$UNINSTALL_TYPE" != "rke2" && "$UNINSTALL_TYPE" != "harbor" && "$UNINSTALL_TYPE" != "swfs" && "$UNINSTALL_TYPE" != "velero" && "$UNINSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'uninstall' command requires a type. Format: uninstall [rke2|ap-bundle|harbor|swfs|velero|monitoring] [--purge-cache]"
+                echo "Type './$SCRIPT_NAME -h' for help."
+                exit 1
+            fi
+            shift
+            shift
+            ;;
+        --purge-cache)
+            PURGE_CACHE=1
             shift
             ;;
         upgrade)
@@ -1476,9 +2608,12 @@ if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then
         exit 1
     fi
     if [[ $AIR_GAPPED_MODE == "1" ]]; then
-        echo "Error: Air-gapped mode detected,'offline-prep' requires an internet connection."
-        echo "Type './$SCRIPT_NAME -h' for help."
-        exit 1
+        # AP-9: the archive is the sentinel - its presence means offline prep already
+        # completed here (or this is an air-gapped host, where offline-prep can't run).
+        echo "ap-offline.tar.gz already exists in $base_dir - offline preparation has already completed."
+        echo "  Nothing to do. To force a rebuild, move or delete ap-offline.tar.gz and re-run 'offline-prep'"
+        echo "  (offline-prep requires an internet connection)."
+        exit 0
     fi
 fi
 
@@ -1524,6 +2659,34 @@ if [[ "$INSTALL_TYPE" == "velero" ]]; then
     fi
 fi
 
+# Verify CONFIG_MODE is not combined with other commands or options
+if [[ "$CONFIG_MODE" == "1" ]]; then
+    if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $UPGRADE_MODE == "1" || $UNINSTALL_MODE == "1" || $TLS_SAN_MODE == "1" || $REGISTRY_MODE == "1" ]]; then
+        echo "Error: 'config' cannot be combined with other commands or options."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
+# Verify UNINSTALL_MODE is not combined with other commands
+if [[ "$UNINSTALL_MODE" == "1" ]]; then
+    if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $UPGRADE_MODE == "1" ]]; then
+        echo "Error: 'uninstall' command cannot be used with 'install, join, push, upgrade, or offline-prep'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+    if [[ $TLS_SAN_MODE == "1" ]]; then
+        echo "Error: 'uninstall' command cannot be used with '-tls-san'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+if [[ "$PURGE_CACHE" == "1" && "$UNINSTALL_MODE" == "0" ]]; then
+    echo "Error: '--purge-cache' is only valid with the 'uninstall' command."
+    echo "Type './$SCRIPT_NAME -h' for help."
+    exit 1
+fi
+
 # Verify UPGRADE_MODE is not combined with other commands
 if [[ "$UPGRADE_MODE" == "1" ]]; then
     if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" ]]; then
@@ -1541,13 +2704,13 @@ fi
 # Verify REGISTRY_MODE is an FQDN/IP and port
 if [[ "$REGISTRY_MODE" == "1" ]]; then
     if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
-        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com:443'."
+        echo "Error: registry info must be a valid FQDN or IPv4 format. i.e. 'my.registry.com:443'."
         exit 1
     fi
     REG_FQDN=$(echo "$REGISTRY_INFO" | cut -d':' -f1)
     REG_PORT=$(echo "$REGISTRY_INFO" | cut -d':' -f2)
     if [[ ! ( "$REG_FQDN" =~ $fqdn_pattern || "$REG_FQDN" =~ $ipv4_pattern ) ]]; then
-        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.regsitry.com' or '192.168.1.50'."
+        echo "Error: Registry url must be a valid FQDN or IPv4 format. i.e. 'my.registry.com' or '192.168.1.50'."
         exit 1
     fi
     if [[ "$REG_PORT" =~ ^[0-9]+$ ]]; then
@@ -1565,7 +2728,22 @@ fi
 
 os_check
 display_args
+if [[ $CONFIG_MODE == "1" ]]; then
+  # 'config' subcommands are host-preparation helpers: no working dir, no downloads.
+  if [[ $CONFIG_TYPE == "hostname" ]]; then
+    run_config_hostname
+  else
+    run_config_static_ip
+  fi
+  echo "### Automation Tools Finished on $(date) ###"
+  exit 0
+fi
 create_working_dir
+if [[ $UNINSTALL_MODE == "1" ]]; then
+  run_uninstall
+  echo "### Automation Tools Finished on $(date) ###"
+  exit 0
+fi
 if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
@@ -1576,6 +2754,9 @@ if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INST
     if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
       dns_pre_flight_checks $REG_FQDN
     fi
+  fi
+  if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" ]]; then
+    firewalld_selinux_preflight
   fi
   run_install_join_push
 fi
@@ -1589,15 +2770,19 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   else
     dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $mtls_recovery_dns $REG_FQDN
   fi
+  firewalld_selinux_preflight
+  ensure_bundle_prereqs
   ap_preflight_checks
   ap_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "swfs" ]]; then
   echo "  Installing SeaweedFS artifact server..."
+  firewalld_selinux_preflight
   run_install_swfs
 fi
 if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."
+  firewalld_selinux_preflight
   run_install_harbor
 fi
 if [[ $INSTALL_TYPE == "velero" ]]; then

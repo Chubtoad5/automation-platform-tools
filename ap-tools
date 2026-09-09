@@ -514,9 +514,7 @@ run_install_swfs () {
     fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
       "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
   else
-    for file in "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"; do
-      tar xzf $file
-    done
+    tar xzf "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"
   fi
   SWFS_IMAGE=$SWFS_IMAGE CADDY_IMAGE=$CADDY_IMAGE SWFS_USER=$SWFS_HARBOR_USER SWFS_PASSWORD=$SWFS_HARBOR_PASS HOST_FQDN=$HOST_FQDN \
   SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
@@ -532,9 +530,7 @@ run_install_harbor () {
       fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
         "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
   else
-      for file in "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"; do
-        tar xzf $file
-      done
+      tar xzf "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"
   fi
   PROJECTS=$PROJECTS HARBOR_VERSION=$HARBOR_VERSION HARBOR_PORT=$HARBOR_PORT HARBOR_USERNAME=$SWFS_HARBOR_USER HARBOR_PASSWORD=$SWFS_HARBOR_PASS \
   COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME \
@@ -1542,13 +1538,26 @@ run_uninstall_ap_bundle () {
   ca_path=$(state_get AP_REG_CA_PATH)
   reg_fqdn=$(state_get AP_REG_FQDN)
   certsd_dir=$(state_get AP_REG_CERTSD_DIR)
-  if [[ -z "$ca_path" && -n "$REG_FQDN" ]]; then
-    # Fallback for pre-state-file installs: derive from the -registry argument
-    local p
-    for p in "/usr/local/share/ca-certificates/$REG_FQDN.crt" "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" "/etc/pki/trust/anchors/$REG_FQDN.crt"; do
-      [[ -f "$p" ]] && ca_path="$p"
-    done
-    certsd_dir="/etc/docker/certs.d/$REGISTRY_INFO"
+  if [[ -z "$ca_path" ]]; then
+    # No CA path recorded. Two ways to land here:
+    #   1. a pre-state-file install  -> nothing recorded, use the -registry argument
+    #   2. an install that died between recording AP_REG_FQDN (early) and AP_REG_CA_PATH
+    #      (written only after the bundle download) -> the FQDN *is* recorded, so prefer it
+    #      and don't make the operator re-supply what we already know.
+    local fallback_fqdn="${reg_fqdn:-$REG_FQDN}"
+    if [[ -n "$fallback_fqdn" ]]; then
+      local p
+      for p in "/usr/local/share/ca-certificates/$fallback_fqdn.crt" "/etc/pki/ca-trust/source/anchors/$fallback_fqdn.crt" "/etc/pki/trust/anchors/$fallback_fqdn.crt"; do
+        [[ -f "$p" ]] && ca_path="$p"
+      done
+    fi
+    # Only derive certs.d from the ambient -registry value, and only when nothing was
+    # recorded. REGISTRY_INFO is empty unless -registry was passed, and an empty value here
+    # would yield the bare '/etc/docker/certs.d/' directory - which the -d test below would
+    # accept and rm -rf wholesale. Never let that happen.
+    if [[ -z "$certsd_dir" && -n "$REGISTRY_INFO" ]]; then
+      certsd_dir="/etc/docker/certs.d/$REGISTRY_INFO"
+    fi
   fi
   if [[ -n "$ca_path" && -f "$ca_path" ]]; then
     echo "  Removing registry CA from the system trust store: $ca_path"
@@ -2193,9 +2202,11 @@ install_k9s () {
 download_support_tool () {
     # Best-effort: the Dell support log collector is optional tooling.
     echo "  Downloading support log collector tool..."
-    if ! curl -fkL $kb_000216838_file -o $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file) &>/dev/null; then
+    local support_tool_file
+    support_tool_file="$WORKING_DIR/ap-utilities/$(basename "$kb_000216838_file")"
+    if ! curl -fkL "$kb_000216838_file" -o "$support_tool_file" &>/dev/null; then
         echo "  WARNING: support log collector download failed; continuing without it."
-        rm -f $WORKING_DIR/ap-utilities/$(basename $kb_000216838_file)
+        rm -f "$support_tool_file"
     fi
 }
 
@@ -2244,15 +2255,18 @@ check_rke2_service_running () {
 check_namespace_pods_ready() {
   # Run this function as 'check_namespace_pods_ready $namespace', no argument will default to kube-system
   local timeout_seconds=300
-  local start_time=$(date +%s)
+  local start_time
+  start_time=$(date +%s)
   local ns=${1:-"kube-system"}
   while true; do
-    local completed_pods=$(kubectl get pods -n $ns --field-selector status.phase=Succeeded -o name)
+    local completed_pods
+    completed_pods=$(kubectl get pods -n $ns --field-selector status.phase=Succeeded -o name)
     echo "  Checking pod status and removing Completed pods in $ns namespace..."
     for pod_name in $completed_pods; do
       kubectl delete -n $ns "$pod_name" --ignore-not-found
     done
-    local current_pods_not_ready=$(kubectl get pods -n $ns --no-headers | awk '{print $2}' | awk -F'/' '{if ($1 != $2) print $0}' | wc -l)
+    local current_pods_not_ready
+    current_pods_not_ready=$(kubectl get pods -n $ns --no-headers | awk '{print $2}' | awk -F'/' '{if ($1 != $2) print $0}' | wc -l)
     local elapsed_time=$(($(date +%s) - start_time))
     if [ "$elapsed_time" -ge "$timeout_seconds" ]; then
       echo "Error: Timeout reached after $timeout_seconds seconds. Not all pods are ready." >&2
@@ -2350,7 +2364,10 @@ state_unset () {
 
 runtime_outputs () {
   if [[ $INSTALL_TYPE == "rke2" ]]; then
-    local join_token=$(cat /var/lib/rancher/rke2/server/node-token)
+    # Declared and assigned separately so a missing/unreadable node-token fails the run
+    # instead of being masked by local's own exit status and printing an empty token.
+    local join_token
+    join_token=$(cat /var/lib/rancher/rke2/server/node-token)
     echo ""
     echo "### INSTALL FLOW COMPLETED ###"
     echo "###    PRINTING OUTPUTS    ###"
@@ -2776,7 +2793,7 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   echo "  This may take several minutes..."
   mtls_dns="mtls-$ORCHESTRATOR_FQDN"
   mtls_recovery_dns="mtls-recovery-$ORCHESTRATOR_FQDN"
-  if [[ $ORCHESTRATOR_FQDN == $MGMT_IP ]]; then
+  if [[ $ORCHESTRATOR_FQDN == "$MGMT_IP" ]]; then
     echo "  IP Based Install detected, skipping DNS checks..."
   else
     dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $mtls_recovery_dns $REG_FQDN

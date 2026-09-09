@@ -1,5 +1,30 @@
 # Changelog — automation-platform-tools
 
+## 2026-09-09 — Static-analysis pass: shellcheck clean, plus one latent uninstall bug
+
+`ap-tools` is now clean under `shellcheck -S warning` (was 10 findings). Mostly hygiene, but one
+finding turned out to be a real defect.
+
+### Fixed
+- **`uninstall ap-bundle` could leave the registry CA in the system trust store.** `AP_REG_FQDN` is
+  recorded early (during registry/docker setup) while `AP_REG_CA_PATH` is only recorded after the
+  bundle download — so an `install ap-bundle` that failed during that download left state holding the
+  FQDN but no CA path. `uninstall ap-bundle` read the recorded FQDN into a variable, **never used it**,
+  and instead required the operator to re-pass `-registry` before it would look for the CA. It now
+  prefers the recorded FQDN and falls back to the `-registry` argument. Same class of bug the
+  `/opt/harbor/.install-env` work fixed in `install_harbor.sh`; this instance was missed.
+  The `certs.d` derivation is now guarded so it can only be built from a non-empty `REGISTRY_INFO` —
+  an empty value would have produced the bare `/etc/docker/certs.d/` directory, which the existing
+  `-d` test would have accepted and removed wholesale.
+- **`runtime_outputs` no longer prints an empty join token.** `local join_token=$(cat …)` masked the
+  read's exit status behind `local`'s own; declaring and assigning separately restores `errexit`, so an
+  unreadable `node-token` fails the run instead of silently emitting a blank token.
+- Two single-iteration `for` loops over a quoted path (the air-gap SeaweedFS and Harbor archive
+  extractions) replaced with direct `tar` calls — the same shape as the quoted-glob air-gap bug fixed
+  in `seaweedfs-installer`, though here the paths are literal so behaviour is unchanged.
+- Quoting fixes with no behavioural change: `$(basename …)` in the support-log-collector download, and
+  the right-hand side of `[[ $ORCHESTRATOR_FQDN == "$MGMT_IP" ]]` (unquoted, it was glob-matched).
+
 ## 2026-09-09 — DAP 2.1.1.0 support: resource requirements, bundle default, image-loader threads
 
 Validated end-to-end against a live DAP **2.1.1.0** single-node install. No change was needed to make

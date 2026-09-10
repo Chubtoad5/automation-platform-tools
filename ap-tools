@@ -2942,8 +2942,9 @@ $cmd_block
 ----
   - When it reports 'Installation has completed successfully', verify:
       helm ls -n $ORCHESTRATOR_NAMESPACE                      (dell-distributed-private-cloud: deployed)
-      kubectl -n $ORCHESTRATOR_NAMESPACE get pods | grep -E 'compute|firmwareupdate|fru-cru|oe-template|recovery|time-svc|health-check|fido-manufacturer|ne-endpoint|ne-ui'
-      https://$ORCHESTRATOR_FQDN/neui/                        (DDPC UI route on the orchestrator gateway)
+      kubectl -n $ORCHESTRATOR_NAMESPACE get deploy hzp-compute-svc hzp-ece-firmwareupdate-svc fido-manufacturer hzp-fru-cru-svc hzp-health-check-svc hzp-oe-template-mgr-svc hzp-recovery-svc hzp-time-svc ne-endpoint-svc ne-ui
+      kubectl -n $ORCHESTRATOR_NAMESPACE get cm ne-nginx-config   (DDPC routes on the orchestrator gateway; the ne-nginx-restart job rolls nginx-gw)
+    then sign in to https://$ORCHESTRATOR_FQDN/ and open /neui/ - unauthenticated probes cannot tell DDPC routes apart (the gateway answers 401 first).
   - Re-running the same command is safe (same version: skipped; failed: retried). 'uninstall ddpc-bundle' removes the staging only.
 EOF
     state_set DDPC_CMD_FILE "$cmd_file"

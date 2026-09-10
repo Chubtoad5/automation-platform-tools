@@ -1,5 +1,60 @@
 # Changelog — automation-platform-tools
 
+## 2026-09-10 — `install ddpc-bundle`: Dell Distributed Private Cloud add-on staging (feature/ddpc-bundle)
+
+Adds a stage-then-run flow for Dell's **Distributed Private Cloud (DDPC) 4.3.0.0** add-on, which installs
+*into* a running DAP 2.1.1.0 orchestrator (same cluster, same namespace). It mirrors `install ap-bundle`:
+ap-tools pre-checks, downloads and extracts, then hands the operator a ready-to-run
+`ddpc-install-upgrade-cmd.txt`; it never runs Dell's installer itself.
+
+### Added
+- **`install ddpc-bundle [-registry <host:port> <user> <pass>]`.** Pre-flight, all before the ~6 GB
+  download: Kubernetes API answers and every node is `Ready`; the `native-edge-orchestrator` and
+  `dap-portal` helm releases are `deployed`; the orchestrator app version equals
+  `DDPC_REQUIRED_DAP_VERSION` (default `2.1.1.0`, exact match, `any` disables); no pod in
+  `kube-system` / portal / orchestrator namespaces is outside `Running`/`Completed`; `ORCHESTRATOR_FQDN`
+  is a host the orchestrator ingress actually serves (it becomes DDPC's `DAPO_HOST`); an existing DDPC
+  release is reported (re-runs are safe), leftover eo-chart NE-service pods are refused; the registry
+  answers on `/v2/` (credentials verified with `-registry`, CA trust verified without); the cluster has
+  `DDPC_REQUIRED_CPU_HEADROOM` / `DDPC_REQUIRED_MEM_HEADROOM_GB` of **unrequested** capacity and
+  `DDPC_REQUIRED_DISK_GB` free under `ap-install/`; NTP state is reported. Dell's own DDPC installer has
+  no resource gate, and a node that passed the DAP gate can still be fully committed by DAP, hence the
+  headroom model.
+- **`-registry` is optional for DDPC.** Given, ap-tools reuses the ap-bundle CA-trust/docker path and
+  emits explicit credentials (DDPC creates its own `distpvtcloud-docker-secret`). Omitted, ap-tools
+  decodes the orchestrator's `docker-secret` for the registry URL and emits a credential-free command so
+  Dell's installer reuses that secret. A mismatch between the two registries is warned about.
+- **Every parameter of DDPC's `install-upgrade.sh` is exposed:** `DDPC_BUNDLE_URL`,
+  `DDPC_SKIP_IMAGES_LOADER` (defaults to `SKIP_IMAGES_LOADER`), `DDPC_IMAGE_LOADER_PARALLEL_JOBS`,
+  `DDPC_IMAGE_LOADER_MAX_RETRIES` and `DDPC_LOG_LEVEL` (env-only in Dell's script, emitted as an `env`
+  prefix), `DDPC_INSTALL_TYPE`, `DDPC_INSTALL_TIMEOUT`; `DAPO_HOST`/`NAMESPACE` come from
+  `ORCHESTRATOR_FQDN`/`ORCHESTRATOR_NAMESPACE`. Plus `DOWNLOAD_DDPC_BUNDLE` for `offline-prep` and the
+  three pre-flight gates above. All `${VAR:-default}` and in `inputs.env.example`.
+- **`uninstall ddpc-bundle [--purge-cache]`** — staging only (the `ddpc-bundle/` tree, the cmd file and
+  the `DDPC_*` state keys; the zip is kept). It prints Dell's in-cluster removal (`helm uninstall
+  dell-distributed-private-cloud` + configmap/secret cleanup) and deliberately does not run it.
+- **Idempotent re-runs:** an already-downloaded zip, an already-extracted tree, an unchanged registry
+  CA and a running docker are all skipped; only the command file is regenerated. Running the generated
+  command twice is safe too — Dell's installer skips a same-version install, retries a failed one and
+  records a `distpvtcloud-image-push-status` configmap so the image push is not repeated.
+- Skill package: SKILL.md phase 7 + add-on section, intake 4c, `reference/commands.md`,
+  `prerequisites.md`, `troubleshooting.md` #18/#19, `registry.md` (DDPC images + authenticate before
+  judging a Harbor project missing), `dap-deploy-template.env`, and a read-only **`preflight.sh --ddpc`**
+  mode that runs the same in-cluster readiness checks. `AGENTS.md` and the Devin playbook mirror it.
+
+### Changed
+- The DAP and DDPC bundle fetch/extract now share `download_dell_bundle` (browser UA on `dl.dell.com`,
+  `.partial` + resume, explicit air-gap error when the zip is absent) and `extract_dell_bundle` (signed
+  outer zip → inner bundle zip). `install ap-bundle` behaviour is unchanged apart from generalised
+  wording. The NTP check moved to a shared `ntp_preflight_check`.
+- The generated command blocks (ap-bundle **and** ddpc-bundle) now escape `"`, `$`, `\` and backtick in
+  the emitted registry password; such a password previously produced an unparsable block.
+- `inputs.env.example` had a stale 2.0.0.0 `AP_BUNDLE_URL` example; it now shows the 2.1.1.0 default.
+
+### Validation
+- _Manual DDPC install and fresh end-to-end smoke recorded in the chubtoad-automation project runbook
+  `runbook/2026-09-10-ddpc-bundle.md` (results to be appended)._
+
 ## 2026-09-09 — Static-analysis pass: shellcheck clean, plus one latent uninstall bug
 
 `ap-tools` is now clean under `shellcheck -S warning` (was 10 findings). Mostly hygiene, but one

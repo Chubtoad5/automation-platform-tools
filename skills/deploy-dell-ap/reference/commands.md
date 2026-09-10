@@ -56,7 +56,7 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 | `DDPC_SKIP_IMAGES_LOADER` | `$SKIP_IMAGES_LOADER` | `true` if the DDPC images are already in the registry. |
 | `DDPC_IMAGE_LOADER_PARALLEL_JOBS` / `DDPC_IMAGE_LOADER_MAX_RETRIES` | `5` / `3` | DDPC image-push parallelism and per-image retries. |
 | `DDPC_INSTALL_TYPE` / `DDPC_INSTALL_TIMEOUT` / `DDPC_LOG_LEVEL` | `KUBERNETES` / `600` / _(empty)_ | Pass-throughs to DDPC's installer (`INSTALL_TYPE`, `INSTALL_TIMEOUT`, env-only `LOG_LEVEL`). |
-| `DDPC_REQUIRED_CPU_HEADROOM` / `DDPC_REQUIRED_MEM_HEADROOM_GB` / `DDPC_REQUIRED_DISK_GB` | `2` / `4` / `25` | DDPC pre-flight gates: **unrequested** cores/GB the cluster must have free, and free disk under `ap-install/`. |
+| `DDPC_REQUIRED_CPU_HEADROOM` / `DDPC_REQUIRED_MEM_HEADROOM_GB` / `DDPC_REQUIRED_DISK_GB` | `2` / `4` / `30` | DDPC pre-flight gates: **unrequested** cores/GB the cluster must have free, and free disk under `ap-install/`. |
 | `DOWNLOAD_DDPC_BUNDLE` | `false` | `true` to include the DDPC bundle in `offline-prep`. |
 | `ORG_NAME` / `ORG_DESC` | `changeme` | DAP organization identity. |
 | `FIRST_NAME` / `LAST_NAME` / `USERNAME` / `EMAIL` | see README | DAP admin identity. |

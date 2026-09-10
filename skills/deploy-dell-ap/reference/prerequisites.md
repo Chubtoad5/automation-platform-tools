@@ -23,7 +23,7 @@ everywhere.
 > jobs to the orchestrator namespace, no PVCs. Its own installer has **no resource gate**, so `ap-tools`
 > checks *headroom* — allocatable minus what DAP's pods already request — and requires
 > `DDPC_REQUIRED_CPU_HEADROOM=2` cores / `DDPC_REQUIRED_MEM_HEADROOM_GB=4` GB free, plus
-> `DDPC_REQUIRED_DISK_GB=25` GB under `ap-install/` (6 GB zip + 6 GB extraction + docker image load). A
+> `DDPC_REQUIRED_DISK_GB=30` GB under `ap-install/` (6 GB zip + 6 GB extraction + a ~9 GB transient docker load + ~9 GB of images pulled into containerd; a validated install grew the node by 23 GB). A
 > correctly-sized DAP host has this headroom; no extra provisioning is normally needed.
 
 > **Multi-node disk:** prefer **≥1 TB/node**. At the 500–600 GB floor, DAP's large replica-3 Longhorn

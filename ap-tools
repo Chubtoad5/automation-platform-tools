@@ -88,7 +88,7 @@ DDPC_INSTALL_TIMEOUT="${DDPC_INSTALL_TIMEOUT:-600}"      # helm install/upgrade 
 DDPC_LOG_LEVEL="${DDPC_LOG_LEVEL:-}"                     # set to DEBUG to make the DDPC installer echo its helm command (env-only LOG_LEVEL); empty = Dell default
 DDPC_REQUIRED_CPU_HEADROOM="${DDPC_REQUIRED_CPU_HEADROOM:-2}"        # cores of allocatable-minus-requested CPU the cluster must have free before staging DDPC
 DDPC_REQUIRED_MEM_HEADROOM_GB="${DDPC_REQUIRED_MEM_HEADROOM_GB:-4}"  # GB of allocatable-minus-requested memory the cluster must have free before staging DDPC
-DDPC_REQUIRED_DISK_GB="${DDPC_REQUIRED_DISK_GB:-25}"     # free disk (GB) under ap-install/ for the DDPC zip + extraction + docker image load
+DDPC_REQUIRED_DISK_GB="${DDPC_REQUIRED_DISK_GB:-30}"     # free disk (GB) under ap-install/: 6GB zip + 6GB extraction + ~9GB docker load (transient) + ~9GB of DDPC images pulled into containerd (measured 2026-09-10: +23GB on the node)
 
 # Harbor Configuration
 HARBOR_VERSION="${HARBOR_VERSION:-2.15.0}"

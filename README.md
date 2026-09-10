@@ -462,7 +462,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `DDPC_LOG_LEVEL` | _(empty)_ | Set to `DEBUG` to make Dell's installer echo its helm command (`LOG_LEVEL`, env-only). |
 | `DDPC_REQUIRED_CPU_HEADROOM` | `2` | Pre-flight gate: cores of **unrequested** CPU (allocatable minus what running pods already request) the cluster must have free. DDPC's own installer has no resource check, and a node that passed the DAP gate can still be fully committed by DAP. |
 | `DDPC_REQUIRED_MEM_HEADROOM_GB` | `4` | Pre-flight gate: GB of unrequested memory the cluster must have free. |
-| `DDPC_REQUIRED_DISK_GB` | `25` | Pre-flight gate: free disk under `ap-install/` for the zip, its extraction and the docker image load. |
+| `DDPC_REQUIRED_DISK_GB` | `30` | Pre-flight gate: free disk under `ap-install/` — 6 GB zip + 6 GB extraction + ~9 GB transient docker load + ~9 GB of DDPC images pulled into containerd (a validated install grew the node by 23 GB). |
 
 ### RKE2 Kubernetes
 

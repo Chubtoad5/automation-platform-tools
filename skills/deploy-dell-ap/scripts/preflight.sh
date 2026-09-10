@@ -161,8 +161,10 @@ if [ "$DDPC" -eq 1 ]; then
       fi
     fi
     for ns in kube-system "$DDPC_PORTAL_NS" "$DDPC_NS"; do
-      bad=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 !~ /^(Running|Completed)$/ {print $1"("$3")"}' | tr '\n' ' ')
+      bad=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 !~ /^(Running|Completed|Terminating)$/ {print $1"("$3")"}' | tr '\n' ' ')
+      term=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 == "Terminating" {print $1}' | tr '\n' ' ')
       if [ -n "$bad" ]; then fail_msg "unhealthy pod(s) in ${ns}: ${bad}"; else pass_msg "pods healthy in ${ns}"; fi
+      [ -n "$term" ] && warn_msg "pod(s) stuck Terminating in ${ns} (not blocking; force-delete if they never clear): ${term}"
     done
     if command -v jq >/dev/null 2>&1; then
       alloc=$(kubectl get nodes -o json 2>/dev/null | jq '[.items[].status.allocatable | {cpu: (.cpu | if test("m$") then (sub("m$";"")|tonumber)/1000 else tonumber end), mem: (.memory | if test("Ki$") then (sub("Ki$";"")|tonumber)/1048576 elif test("Mi$") then (sub("Mi$";"")|tonumber)/1024 elif test("Gi$") then (sub("Gi$";"")|tonumber) else (tonumber/1073741824) end)}] | {cpu: (map(.cpu)|add), mem: (map(.mem)|add)}')

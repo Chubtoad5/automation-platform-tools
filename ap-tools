@@ -1189,13 +1189,19 @@ ddpc_preflight_checks () {
     fail=1
   fi
   # 3. No unhealthy pods in the platform namespaces
-  local bad_pods pods_ok=1
+  # A pod stuck in Terminating (typical after a node restart) is reported but does not block: its
+  # replacement is what matters, and that shows up as a non-Running pod if it is unhealthy.
+  local bad_pods term_pods pods_ok=1
   for ns in kube-system "$PORTAL_NAMESPACE" "$ORCHESTRATOR_NAMESPACE"; do
-    bad_pods=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 !~ /^(Running|Completed)$/ {print $1" ("$3")"}' | xargs)
+    bad_pods=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 !~ /^(Running|Completed|Terminating)$/ {print $1" ("$3")"}' | xargs)
+    term_pods=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 == "Terminating" {print $1}' | xargs)
     if [[ -n "$bad_pods" ]]; then
       echo "Error: unhealthy pod(s) in $ns: $bad_pods"
       fail=1
       pods_ok=0
+    fi
+    if [[ -n "$term_pods" ]]; then
+      echo "  WARNING: pod(s) stuck Terminating in $ns (not blocking; force-delete them if they never go away): $term_pods"
     fi
   done
   [[ $pods_ok -eq 1 ]] && echo "  All pods Running/Completed in kube-system, $PORTAL_NAMESPACE and $ORCHESTRATOR_NAMESPACE."

@@ -1265,6 +1265,9 @@ ddpc_bundle_prep () {
     state_set DDPC_REG_CERTSD_DIR "/etc/docker/certs.d/$REGISTRY_INFO"
     if [[ -n "$ap_reg_fqdn" && "$ap_reg_fqdn" != "$REG_FQDN" ]]; then
       state_set AP_REG_FQDN "$ap_reg_fqdn"
+    fi
+    if [[ -n "$ap_reg_certsd" && "$ap_reg_certsd" != "/etc/docker/certs.d/$REGISTRY_INFO" ]]; then
+      # compared on host:port, so a second registry on the same FQDN but another port is covered too
       state_set AP_REG_CERTSD_DIR "$ap_reg_certsd"
     fi
   elif [[ "$DDPC_SKIP_IMAGES_LOADER" != "true" ]] && ! command -v docker >/dev/null 2>&1; then

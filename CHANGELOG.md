@@ -56,9 +56,20 @@ ap-tools pre-checks, downloads and extracts, then hands the operator a ready-to-
   shell or glob characters are masked on stdout too.
 - `inputs.env.example` had a stale 2.0.0.0 `AP_BUNDLE_URL` example; it now shows the 2.1.1.0 default.
 
-### Validation
-- _Manual DDPC install and fresh end-to-end smoke recorded in the chubtoad-automation project runbook
-  `runbook/2026-09-10-ddpc-bundle.md` (results to be appended)._
+### Validation (2026-09-10, single-node dap-aio, Ubuntu 24.04, DAP 2.1.1.0, Harbor registry)
+- **Manual DDPC install** with the exact parameters the tool generates: exit 0 in **9m00s** (checksum ~50 s,
+  docker load ~2.5 min, 19 pushes ~50 s, helm ~4.5 min). 10 deployments `1/1`, all jobs complete, 0 PVCs,
+  DAP untouched; node disk +23 GB; a same-version re-run exits 0 in 0.3 s.
+- **Tool on the live host:** `install ddpc-bundle -registry …` (existing release noted, no restarts,
+  no re-extraction), the generated block (skip), reuse mode without `-registry` (credential-free block,
+  skip), `uninstall ddpc-bundle` (staging only, release untouched, second run a no-op), re-stage, and four
+  negative pre-checks (wrong DAP version, unresolvable registry, bad password, orchestrator FQDN not served)
+  — all as designed.
+- **Fresh end-to-end** on a re-cloned VM: `install rke2` → `install ap-bundle` → DAP install →
+  `install ddpc-bundle -registry …` (2.5 min) → generated DDPC install (**6m49s**, loader on) → verify →
+  idempotent re-run → reuse mode → negatives → uninstall/re-stage; 0 unhealthy pods at the end.
+- dep-validator: **SAFE TO MERGE** (no sub-installer contract drift; `install ap-bundle` behaviour-preserving).
+  It caught the masking regression fixed above.
 
 ## 2026-09-09 — Static-analysis pass: shellcheck clean, plus one latent uninstall bug
 

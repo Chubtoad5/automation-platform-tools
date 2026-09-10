@@ -70,6 +70,26 @@ LAST_NAME="${LAST_NAME:-changeme}"                     # Admin user last name
 USERNAME="${USERNAME:-administrator}"                  # Admin user name
 EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 
+# Dell Distributed Private Cloud (DDPC) add-on Variables - used by 'install ddpc-bundle'.
+# DDPC is a Dell add-on bundle installed INTO the running DAP orchestrator (same cluster,
+# same namespace) on top of an existing DAP install. Its install-upgrade.sh accepts:
+# DAPO_HOST, NAMESPACE, IMAGE_REG_URL, IMAGE_REG_USERNAME, IMAGE_REG_PASSWORD,
+# REGISTRY_CERT_FILE_PATH, SKIP_IMAGES_LOADER, IMAGE_LOADER_PARALLEL_JOBS, INSTALL_TYPE,
+# INSTALL_TIMEOUT (unknown keys are rejected), plus the env-only knobs
+# IMAGE_LOADER_MAX_RETRIES and LOG_LEVEL. Every one of them is exposed below.
+DDPC_BUNDLE_URL="${DDPC_BUNDLE_URL:-https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip}"  # DDPC bundle URL, or a pre-staged .zip filename in ap-install/. The dl.dell.com FOLDER path changes per release - replace the whole URL.
+DOWNLOAD_DDPC_BUNDLE="${DOWNLOAD_DDPC_BUNDLE:-false}"    # Include the (~6GB) DDPC bundle in 'offline-prep'
+DDPC_REQUIRED_DAP_VERSION="${DDPC_REQUIRED_DAP_VERSION:-2.1.1.0}"  # DAP orchestrator app version DDPC must sit on top of (exact match against the deployed helm release; 'any' disables the gate)
+DDPC_SKIP_IMAGES_LOADER="${DDPC_SKIP_IMAGES_LOADER:-$SKIP_IMAGES_LOADER}"  # true = the DDPC images are already in the registry; skip the push (defaults to SKIP_IMAGES_LOADER)
+DDPC_IMAGE_LOADER_PARALLEL_JOBS="${DDPC_IMAGE_LOADER_PARALLEL_JOBS:-5}"  # parallel image pushes in the DDPC image loader (IMAGE_LOADER_PARALLEL_JOBS, Dell default 5)
+DDPC_IMAGE_LOADER_MAX_RETRIES="${DDPC_IMAGE_LOADER_MAX_RETRIES:-3}"  # per-image push retries (env-only IMAGE_LOADER_MAX_RETRIES, Dell default 3)
+DDPC_INSTALL_TYPE="${DDPC_INSTALL_TYPE:-KUBERNETES}"     # KUBERNETES = DDPC in the orchestrator's own cluster (this tool's model); VIRTUAL_MACHINE is Dell's OVA variant (not exercised here)
+DDPC_INSTALL_TIMEOUT="${DDPC_INSTALL_TIMEOUT:-600}"      # helm install/upgrade timeout in seconds (INSTALL_TIMEOUT, Dell default 600)
+DDPC_LOG_LEVEL="${DDPC_LOG_LEVEL:-}"                     # set to DEBUG to make the DDPC installer echo its helm command (env-only LOG_LEVEL); empty = Dell default
+DDPC_REQUIRED_CPU_HEADROOM="${DDPC_REQUIRED_CPU_HEADROOM:-2}"        # cores of allocatable-minus-requested CPU the cluster must have free before staging DDPC
+DDPC_REQUIRED_MEM_HEADROOM_GB="${DDPC_REQUIRED_MEM_HEADROOM_GB:-4}"  # GB of allocatable-minus-requested memory the cluster must have free before staging DDPC
+DDPC_REQUIRED_DISK_GB="${DDPC_REQUIRED_DISK_GB:-25}"     # free disk (GB) under ap-install/ for the DDPC zip + extraction + docker image load
+
 # Harbor Configuration
 HARBOR_VERSION="${HARBOR_VERSION:-2.15.0}"
 HARBOR_PORT="${HARBOR_PORT:-8443}"
@@ -192,6 +212,7 @@ base_dir=$(pwd)
 # wrong NIC, e.g. 192.168.1.5 inside 192.168.1.50, and hand MetalLB the wrong interface).
 mgmt_if=$(ip -o -4 addr show | awk -v ip="$MGMT_IP" '$4 ~ "^"ip"/" {print $2; exit}')
 WORKING_DIR="$base_dir/ap-install"
+DDPC_BUNDLE_DIR="$WORKING_DIR/ddpc-bundle"   # install-time extraction of the DDPC zip (sibling of ap-install/bundle)
 UPGRADE_MODE=0
 UPGRADE_TYPE=""
 UPGRADE_VERSION=""
@@ -207,6 +228,29 @@ ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]
 RKE2_CMD_ARGS=""
 longhorn_packages=""
 bundle_file=$(basename $AP_BUNDLE_URL)
+ddpc_bundle_file=$(basename "$DDPC_BUNDLE_URL")
+DDPC_REG_URL=""          # <registry:port>/<project> the DDPC images are pushed to / pulled from
+DDPC_REG_HOST=""         # <registry:port> part of DDPC_REG_URL
+DDPC_REG_SOURCE=""       # where DDPC_REG_URL came from: '-registry' or 'docker-secret'
+DDPC_SECRET_REG_URL=""   # registry recorded in the orchestrator's docker-secret (what DAP itself pulls from)
+DDPC_EXISTING_RELEASE="" # '<status> <version>' of an already-present DDPC helm release, empty when none
+DDPC_DAP_VERSION=""      # deployed DAP orchestrator app version found by the DDPC pre-flight
+# jq helpers shared by the resource gates (AP-2): normalise every Kubernetes quantity to a
+# NUMBER - millicores -> cores; memory/ephemeral-storage -> GB (Ki/Mi/Gi/Ti binary suffixes,
+# K/M/G/T decimal, bare = bytes) - so multi-node 'add' sums instead of concatenating strings.
+ap_jq_qty_defs='
+    def cpu_cores: if (type == "string" and test("m$")) then (sub("m$"; "") | tonumber) / 1000 else tonumber end;
+    def qty_gb:
+      if type != "string" then (tonumber / 1073741824)
+      elif test("Ki$") then (sub("Ki$"; "") | tonumber) / 1048576
+      elif test("Mi$") then (sub("Mi$"; "") | tonumber) / 1024
+      elif test("Gi$") then (sub("Gi$"; "") | tonumber)
+      elif test("Ti$") then (sub("Ti$"; "") | tonumber) * 1024
+      elif test("[Kk]$") then (sub("[Kk]$"; "") | tonumber) / 1000000
+      elif test("M$") then (sub("M$"; "") | tonumber) / 1000
+      elif test("G$") then (sub("G$"; "") | tonumber)
+      elif test("T$") then (sub("T$"; "") | tonumber) * 1000
+      else (tonumber / 1073741824) end;'
 # Cluster resource gates, measured against ALLOCATABLE resources (not provisioned) after the
 # cluster is up. Aligned to DAP 2.1.1.0, whose own pre_install_check enforces
 # REQUIRED_CPU=12000m / REQUIRED_MEMORY=24Gi / REQUIRED_DISK_SPACE=850Gi against each node's
@@ -228,7 +272,7 @@ harbor_feature_branch="${harbor_feature_branch:-main}"
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [install rke2|ap-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -236,6 +280,11 @@ Commands:
     [rke2]       Installs rke2 as a server.
     [ap-bundle]  Extracts the Dell Automation Platform install bundle and outputs the install command.
                  Must be used with [-registry].
+    [ddpc-bundle] Stages the Dell Distributed Private Cloud (DDPC) add-on bundle on top of an EXISTING
+                 DAP install: pre-checks the cluster, the deployed DAP version, the registry and the
+                 resource headroom, then extracts the bundle and outputs the install command.
+                 [-registry] is optional: given, the DDPC images are pushed with those credentials;
+                 omitted, the orchestrator's existing docker-secret registry is reused.
     [harbor]     Installs the harbor registry.
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
     [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
@@ -250,6 +299,8 @@ Commands:
     [ap-bundle]  Removes the DAP staging: bundle tree, ap-install-upgrade-cmd.txt, registry CA trust and
                  docker certs.d entry. Does NOT uninstall DAP itself (DAP lives in the cluster - remove it
                  with 'uninstall rke2' or Dell's own procedure). Does NOT remove docker.
+    [ddpc-bundle] Removes the DDPC staging: ddpc-bundle tree and ddpc-install-upgrade-cmd.txt. Does NOT
+                 uninstall DDPC itself - it prints the helm/kubectl commands that do.
     [harbor]     Delegates to install_harbor.sh uninstall-harbor.
     [swfs]       Delegates to install-seaweedfs uninstall.
     [velero]     Removes Velero from the cluster (S3 backups are kept).
@@ -292,7 +343,7 @@ Commands:
       [server|agent|both]  Nodes to upgrade: server (control-plane), agent (workers), or both.
       [stable|<version>]   Target version: 'stable' for latest, or specific version (e.g. v1.33.4+rke2r1).
 
-  -registry    : Used with [install rke2], [install ap-bundle], [push], and [upgrade rke2] to provide a valid registry and credentials.
+  -registry    : Used with [install rke2], [install ap-bundle], [install ddpc-bundle], [push], and [upgrade rke2] to provide a valid registry and credentials.
     [registry:port username password]
 
 EOF
@@ -874,44 +925,324 @@ install_reg_docker () {
   cd $base_dir
 }
 
+resolve_reg_cert_path () {
+  # prints the registry CA file for <fqdn> from the system trust store, or nothing
+  local fqdn="$1" p
+  for p in "/usr/local/share/ca-certificates/$fqdn.crt" "/etc/pki/ca-trust/source/anchors/$fqdn.crt" "/etc/pki/trust/anchors/$fqdn.crt"; do
+    if [[ -f "$p" ]]; then
+      echo "$p"
+      return 0
+    fi
+  done
+  echo ""
+}
+
+extract_dell_bundle () {
+  # $1 = zip, $2 = extraction dir, $3 = label. Idempotent: an extracted tree (marker =
+  # install-upgrade.sh) is left alone. Dell ships a signed OUTER zip wrapping the real
+  # bundle zip (plus .signed.bin + dell_public.key), so a second unzip pass is needed.
+  local zip="$1" dir="$2" label="$3"
+  if [[ -f "$dir/install-upgrade.sh" ]]; then
+    echo "  $label bundle already extracted."
+    chmod +x "$dir/install-upgrade.sh"
+    return 0
+  fi
+  if [[ ! -f "$zip" ]]; then
+    echo "Error: $zip not found - nothing to extract."
+    exit 1
+  fi
+  echo "  Extracting $label bundle, this may take several minutes..."
+  mkdir -p "$dir"
+  unzip -o "$zip" -d "$dir" > /dev/null 2>&1 || true
+  if [[ ! -f "$dir/install-upgrade.sh" ]]; then
+    local inner
+    for inner in "$dir"/*.zip; do
+      if [[ -f "$inner" ]]; then
+        unzip -o "$inner" -d "$dir" > /dev/null 2>&1 || true
+        rm -f "$inner"
+      fi
+    done
+  fi
+  if [[ ! -f "$dir/install-upgrade.sh" ]]; then
+    echo "Error: install-upgrade.sh not found after extracting the bundle. The downloaded"
+    echo "  zip may be corrupt or not a $label bundle - remove $zip and re-run."
+    exit 1
+  fi
+  chmod +x "$dir/install-upgrade.sh"
+}
+
 extract_ap_bundle () {
-  if [[ -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
-    echo "  Bundle already extracted."
-    chmod +x $WORKING_DIR/bundle/install-upgrade.sh
-  else
+  if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
     echo "  Checking for Automation Platform Bundle and downloading if needed. This may take several minutes..."
     run_debug download_ap_bundle
-    if [[ -f $WORKING_DIR/$bundle_file ]]; then
-      echo "  Extracting Automation Platform Bundle, this may take several minutes..."
-      unzip $WORKING_DIR/$bundle_file -d $WORKING_DIR/bundle &> /dev/null
-    fi
-    if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
-      for file in "$WORKING_DIR/bundle/"*.zip; do
-        if [[ -f "$file" ]]; then
-          unzip "$file" -d "$WORKING_DIR/bundle/" &> /dev/null
-          rm -f $file
-        fi
-      done
-    fi
-    if [[ ! -f "$WORKING_DIR/bundle/install-upgrade.sh" ]]; then
-      echo "Error: install-upgrade.sh not found after extracting the bundle. The downloaded"
-      echo "  zip may be corrupt or not a Dell Automation Platform bundle - remove"
-      echo "  $WORKING_DIR/$bundle_file and re-run."
-      exit 1
-    fi
-    chmod +x $WORKING_DIR/bundle/install-upgrade.sh
   fi
-  if [[ -f "/usr/local/share/ca-certificates/$REG_FQDN.crt" ]]; then
-    REG_CERT_FILE_PATH="/usr/local/share/ca-certificates/$REG_FQDN.crt"
-  elif [[ -f "/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt" ]]; then
-    REG_CERT_FILE_PATH="/etc/pki/ca-trust/source/anchors/$REG_FQDN.crt"
-  elif [[ -f "/etc/pki/trust/anchors/$REG_FQDN.crt" ]]; then
-    REG_CERT_FILE_PATH="/etc/pki/trust/anchors/$REG_FQDN.crt"
-  else
+  extract_dell_bundle "$WORKING_DIR/$bundle_file" "$WORKING_DIR/bundle" "Dell Automation Platform"
+  REG_CERT_FILE_PATH=$(resolve_reg_cert_path "$REG_FQDN")
+  if [[ -z "$REG_CERT_FILE_PATH" ]]; then
     echo "Error: registry certificate not found."
     exit 1
   fi
   state_set AP_REG_CA_PATH "$REG_CERT_FILE_PATH"
+}
+
+# --- Dell Distributed Private Cloud (DDPC) add-on definitions --- #
+# 'install ddpc-bundle' stages Dell's DDPC add-on bundle on top of a RUNNING DAP install
+# (same cluster, same orchestrator namespace). Like 'install ap-bundle' it never runs the
+# Dell installer itself: it pre-checks, downloads/extracts idempotently, and writes the
+# ready-to-run install-upgrade.sh command to ddpc-install-upgrade-cmd.txt.
+
+ddpc_kube_env () {
+  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  export PATH=$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin
+}
+
+ddpc_helm_bin () {
+  # prints the helm binary to use (ap-tools installs to /usr/local/bin; pre-phase2 hosts used /usr/bin)
+  local h
+  for h in /usr/local/bin/helm /usr/bin/helm; do
+    if [[ -x "$h" ]]; then
+      echo "$h"
+      return 0
+    fi
+  done
+  command -v helm 2>/dev/null || true
+}
+
+ddpc_registry_resolve () {
+  # Decide which registry the DDPC images go to, and record where DAP itself pulls from.
+  # Sets DDPC_REG_URL / DDPC_REG_HOST / DDPC_REG_SOURCE / DDPC_SECRET_REG_URL.
+  local secret_b64 secret_url=""
+  secret_b64=$(kubectl -n "$ORCHESTRATOR_NAMESPACE" get secret docker-secret -o jsonpath='{.data.\.dockerconfigjson}' 2>/dev/null || true)
+  if [[ -n "$secret_b64" ]]; then
+    secret_url=$(echo "$secret_b64" | base64 -d 2>/dev/null | jq -r '.auths | keys[0] // empty' 2>/dev/null || true)
+    secret_url="${secret_url#*//}"
+    secret_url="${secret_url%/}"
+  fi
+  DDPC_SECRET_REG_URL="$secret_url"
+  if [[ $REGISTRY_MODE == "1" ]]; then
+    DDPC_REG_URL="$REGISTRY_INFO/$REGISTRY_PROJECT_NAME"
+    DDPC_REG_SOURCE="-registry"
+    if [[ -n "$secret_url" && "$secret_url" != "$DDPC_REG_URL" ]]; then
+      echo "  WARNING: -registry points at $DDPC_REG_URL but the orchestrator's docker-secret pulls from $secret_url."
+      echo "  DDPC images will be pushed to and pulled from $DDPC_REG_URL via their own pull secret; DAP keeps using $secret_url."
+    fi
+  else
+    if [[ -z "$secret_url" ]]; then
+      echo "Error: no -registry given and no docker-secret found in namespace $ORCHESTRATOR_NAMESPACE to reuse."
+      echo "  Re-run with: install ddpc-bundle -registry [registry:port] [username] [password]"
+      exit 1
+    fi
+    DDPC_REG_URL="$secret_url"
+    DDPC_REG_SOURCE="docker-secret"
+  fi
+  DDPC_REG_HOST="${DDPC_REG_URL%%/*}"
+  echo "  DDPC image registry: $DDPC_REG_URL (from $DDPC_REG_SOURCE)"
+}
+
+ddpc_registry_check () {
+  # The registry must answer over TLS before the ~6GB download starts. With -registry the
+  # credentials are verified too (HTTP 200 on /v2/); without, the system trust store must
+  # already trust the registry CA (it does on a host that ran 'install ap-bundle').
+  echo "  Running pre-flight registry check for $DDPC_REG_HOST..."
+  local code
+  if [[ $REGISTRY_MODE == "1" ]]; then
+    code=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 10 -u "$REG_USER:$REG_PASS" "https://$DDPC_REG_HOST/v2/" 2>/dev/null || true)
+    case "$code" in
+      200) echo "  Registry $DDPC_REG_HOST reachable, credentials accepted." ;;
+      401|403)
+        echo "Error: registry $DDPC_REG_HOST rejected the -registry credentials (HTTP $code)."
+        exit 1 ;;
+      *)
+        echo "Error: registry https://$DDPC_REG_HOST/v2/ is not reachable (HTTP ${code:-000}). Check the address, port and network."
+        exit 1 ;;
+    esac
+  else
+    code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 "https://$DDPC_REG_HOST/v2/" 2>/dev/null || true)
+    case "$code" in
+      200|401) echo "  Registry $DDPC_REG_HOST reachable and its certificate is trusted by this host." ;;
+      *)
+        echo "Error: registry https://$DDPC_REG_HOST/v2/ is not reachable with the system trust store (HTTP ${code:-000})."
+        echo "  If the registry uses a private CA, pass -registry so ap-tools installs the CA; otherwise fix connectivity."
+        exit 1 ;;
+    esac
+  fi
+}
+
+ddpc_resource_check () {
+  # DDPC adds ~10 single-replica services plus one-shot jobs to the orchestrator namespace
+  # and no PVCs. Dell's DDPC installer has no resource gate of its own, so ap-tools checks
+  # HEADROOM (allocatable minus what running pods already request) rather than raw capacity:
+  # a node that passed the DAP gate can still be fully committed by DAP itself.
+  echo "  Running pre-flight resource headroom checks..."
+  local alloc_json req_json
+  alloc_json=$(kubectl get nodes -o json | jq -c "$ap_jq_qty_defs"'
+    {cpu: ([.items[]?.status.allocatable.cpu | cpu_cores] | add // 0),
+     mem_gb: ([.items[]?.status.allocatable.memory | qty_gb] | add // 0)}' 2>/dev/null || true)
+  req_json=$(kubectl get pods -A -o json | jq -c "$ap_jq_qty_defs"'
+    [.items[] | select(.status.phase != "Succeeded" and .status.phase != "Failed")
+      | (.spec.containers[]?.resources.requests // {})]
+    | {cpu: ([.[] | .cpu // "0" | cpu_cores] | add // 0),
+       mem_gb: ([.[] | .memory // "0" | qty_gb] | add // 0)}' 2>/dev/null || true)
+  if [[ -z "$alloc_json" || -z "$req_json" ]]; then
+    echo "Error: could not compute the cluster resource headroom. Check kubectl connectivity and 'jq'."
+    exit 1
+  fi
+  local cpu_free mem_free disk_free rc=0
+  cpu_free=$(jq -rn --argjson a "$alloc_json" --argjson r "$req_json" '$a.cpu - $r.cpu')
+  mem_free=$(jq -rn --argjson a "$alloc_json" --argjson r "$req_json" '$a.mem_gb - $r.mem_gb')
+  cpu_free=$(LC_ALL=C printf '%.2f' "$cpu_free")
+  mem_free=$(LC_ALL=C printf '%.1f' "$mem_free")
+  if (( $(echo "$cpu_free < $DDPC_REQUIRED_CPU_HEADROOM" | bc -l) )); then
+    echo "Error: not enough unrequested CPU for DDPC. Required headroom: $DDPC_REQUIRED_CPU_HEADROOM cores, available: $cpu_free"
+    rc=1
+  fi
+  if (( $(echo "$mem_free < $DDPC_REQUIRED_MEM_HEADROOM_GB" | bc -l) )); then
+    echo "Error: not enough unrequested memory for DDPC. Required headroom: $DDPC_REQUIRED_MEM_HEADROOM_GB GB, available: $mem_free GB"
+    rc=1
+  fi
+  disk_free=$(df -BG --output=avail "$WORKING_DIR" 2>/dev/null | awk 'NR==2 {gsub("G","",$1); print $1}')
+  disk_free=${disk_free:-0}
+  if (( disk_free < DDPC_REQUIRED_DISK_GB )); then
+    echo "Error: not enough free disk under $WORKING_DIR for the DDPC bundle (zip + extraction + docker image load). Required: ${DDPC_REQUIRED_DISK_GB} GB, available: ${disk_free} GB"
+    rc=1
+  fi
+  if [[ $rc -eq 0 ]]; then
+    echo "🎉 Cluster headroom check PASSED."
+    echo "  CPU headroom: $cpu_free cores (allocatable minus requested)"
+    echo "  Memory headroom: $mem_free GB"
+    echo "  Free disk under $WORKING_DIR: ${disk_free} GB"
+  else
+    echo "🛑 Cluster headroom check FAILED. Exiting."
+    echo "  (Gates: DDPC_REQUIRED_CPU_HEADROOM / DDPC_REQUIRED_MEM_HEADROOM_GB / DDPC_REQUIRED_DISK_GB.)"
+    exit 1
+  fi
+}
+
+ddpc_preflight_checks () {
+  ddpc_kube_env
+  echo "  Running DDPC pre-flight checks (cluster, DAP orchestrator, registry, headroom, NTP)..."
+  local fail=0 helm_bin ns
+  # 1. Kubernetes reachable and every node Ready
+  if ! kubectl get nodes >/dev/null 2>&1; then
+    echo "Error: Kubernetes API not reachable (KUBECONFIG=$KUBECONFIG)."
+    echo "  DDPC installs INTO an existing DAP cluster: run 'install rke2', 'install ap-bundle' and the DAP install first."
+    exit 1
+  fi
+  local not_ready
+  not_ready=$(kubectl get nodes --no-headers 2>/dev/null | awk '$2 != "Ready" {print $1}' | xargs)
+  if [[ -n "$not_ready" ]]; then
+    echo "Error: cluster node(s) not Ready: $not_ready"
+    fail=1
+  else
+    echo "  Cluster healthy: $(kubectl get nodes --no-headers | wc -l) node(s) Ready."
+  fi
+  helm_bin=$(ddpc_helm_bin)
+  if [[ -z "$helm_bin" ]]; then
+    echo "Error: helm not found - the DDPC installer needs helm (installed by 'install rke2')."
+    exit 1
+  fi
+  # 2. DAP installed, deployed, and at the version this DDPC bundle requires
+  for ns in "$ORCHESTRATOR_NAMESPACE" "$PORTAL_NAMESPACE"; do
+    if ! kubectl get namespace "$ns" >/dev/null 2>&1; then
+      echo "Error: namespace $ns not found - Dell Automation Platform is not installed on this cluster."
+      fail=1
+    fi
+  done
+  local dap_rel dap_status portal_status
+  dap_rel=$($helm_bin ls -n "$ORCHESTRATOR_NAMESPACE" -o json 2>/dev/null | jq -c '[.[] | select(.chart | startswith("native-edge-orchestrator"))] | first // empty' 2>/dev/null || true)
+  if [[ -z "$dap_rel" ]]; then
+    echo "Error: no native-edge-orchestrator helm release in namespace $ORCHESTRATOR_NAMESPACE."
+    echo "  Run the DAP install (the install-upgrade.sh command from 'install ap-bundle') before adding DDPC."
+    fail=1
+  else
+    dap_status=$(jq -r '.status' <<< "$dap_rel")
+    DDPC_DAP_VERSION=$(jq -r '.app_version' <<< "$dap_rel")
+    if [[ "$dap_status" != "deployed" ]]; then
+      echo "Error: the DAP orchestrator helm release is '$dap_status', expected 'deployed'. Fix the DAP install before adding DDPC."
+      fail=1
+    fi
+    if [[ "$DDPC_REQUIRED_DAP_VERSION" != "any" && "$DDPC_DAP_VERSION" != "$DDPC_REQUIRED_DAP_VERSION" ]]; then
+      echo "Error: DAP orchestrator version is $DDPC_DAP_VERSION but this DDPC bundle requires $DDPC_REQUIRED_DAP_VERSION."
+      echo "  Upgrade DAP first, or override with DDPC_REQUIRED_DAP_VERSION=<version> (or 'any') if the bundle supports it."
+      fail=1
+    else
+      echo "  DAP orchestrator $DDPC_DAP_VERSION is deployed (required: $DDPC_REQUIRED_DAP_VERSION)."
+    fi
+  fi
+  portal_status=$($helm_bin ls -n "$PORTAL_NAMESPACE" -o json 2>/dev/null | jq -r '[.[] | select(.chart | startswith("dap-portal"))] | first | .status // empty' 2>/dev/null || true)
+  if [[ "$portal_status" != "deployed" ]]; then
+    echo "Error: the DAP portal helm release in $PORTAL_NAMESPACE is '${portal_status:-missing}', expected 'deployed'."
+    fail=1
+  fi
+  # 3. No unhealthy pods in the platform namespaces
+  local bad_pods pods_ok=1
+  for ns in kube-system "$PORTAL_NAMESPACE" "$ORCHESTRATOR_NAMESPACE"; do
+    bad_pods=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null | awk '$3 !~ /^(Running|Completed)$/ {print $1" ("$3")"}' | xargs)
+    if [[ -n "$bad_pods" ]]; then
+      echo "Error: unhealthy pod(s) in $ns: $bad_pods"
+      fail=1
+      pods_ok=0
+    fi
+  done
+  [[ $pods_ok -eq 1 ]] && echo "  All pods Running/Completed in kube-system, $PORTAL_NAMESPACE and $ORCHESTRATOR_NAMESPACE."
+  # 4. The orchestrator FQDN handed to DDPC (DAPO_HOST) must be the one DAP actually serves
+  local ingress_hosts
+  ingress_hosts=$(kubectl -n "$ORCHESTRATOR_NAMESPACE" get ingress -o jsonpath='{.items[*].spec.rules[*].host}' 2>/dev/null || true)
+  if [[ " $ingress_hosts " != *" $ORCHESTRATOR_FQDN "* ]]; then
+    echo "Error: ORCHESTRATOR_FQDN '$ORCHESTRATOR_FQDN' is not served by any ingress in $ORCHESTRATOR_NAMESPACE (hosts: ${ingress_hosts:-none})."
+    echo "  Set HOST_FQDN / ORCHESTRATOR_FQDN to the values used at 'install ap-bundle' (multi-node: HOST_FQDN=<cluster-name>)."
+    fail=1
+  else
+    echo "  Orchestrator ingress serves $ORCHESTRATOR_FQDN."
+  fi
+  # 5. An existing DDPC release is fine (re-runs); leftover eo-chart NE services are not
+  DDPC_EXISTING_RELEASE=$($helm_bin ls -n "$ORCHESTRATOR_NAMESPACE" -o json 2>/dev/null | jq -r '.[] | select(.name == "dell-distributed-private-cloud") | "\(.status) \(.app_version)"' 2>/dev/null || true)
+  if [[ -n "$DDPC_EXISTING_RELEASE" ]]; then
+    echo "  NOTE: a DDPC release is already present ($DDPC_EXISTING_RELEASE). Re-running the generated command is safe:"
+    echo "  same version -> Dell's installer skips; failed -> it retries; newer bundle -> it upgrades."
+  else
+    local leftover
+    leftover=$(kubectl -n "$ORCHESTRATOR_NAMESPACE" get pods -l 'hzp-app in (hzp-compute-svc,hzp-ece-firmwareupdate-svc,hzp-fru-cru-svc,hzp-oe-template-mgr-svc,hzp-recovery-svc,hzp-time-svc,hzp-health-check-svc,fido-manufacturer)' --no-headers 2>/dev/null | wc -l)
+    if [[ "$leftover" -gt 0 ]]; then
+      echo "Error: $leftover NE-service pod(s) already run in $ORCHESTRATOR_NAMESPACE without a DDPC release (eo-chart deployNEservices=true?)."
+      echo "  Dell's DDPC pre-install check refuses this state; disable the eo-chart NE services first."
+      fail=1
+    fi
+  fi
+  if [[ $fail -ne 0 ]]; then
+    echo "🛑 DDPC pre-flight checks FAILED. Exiting."
+    exit 1
+  fi
+  # 6. registry, 7. headroom, 8. NTP
+  ddpc_registry_resolve
+  ddpc_registry_check
+  ddpc_resource_check
+  ntp_preflight_check
+}
+
+ddpc_bundle_prep () {
+  ddpc_kube_env
+  if [[ $REGISTRY_MODE == "1" ]]; then
+    # Same idempotent path as ap-bundle: trusts the registry CA and installs docker only
+    # when missing; services are bounced only when the CA actually changed (AP-10).
+    install_reg_docker
+    REG_CERT_FILE_PATH=$(resolve_reg_cert_path "$REG_FQDN")
+    if [[ -z "$REG_CERT_FILE_PATH" ]]; then
+      echo "Error: registry certificate for $REG_FQDN not found in the system trust store."
+      exit 1
+    fi
+  elif [[ "$DDPC_SKIP_IMAGES_LOADER" != "true" ]] && ! command -v docker >/dev/null 2>&1; then
+    echo "Error: docker is required to push the DDPC images but is not installed on this host."
+    echo "  Pass -registry so ap-tools installs docker and trusts the registry CA, or set DDPC_SKIP_IMAGES_LOADER=true if the images are already in $DDPC_REG_URL."
+    exit 1
+  fi
+  if [[ ! -f "$DDPC_BUNDLE_DIR/install-upgrade.sh" ]]; then
+    echo "  Checking for the DDPC bundle and downloading if needed. This may take several minutes..."
+    run_debug download_ddpc_bundle
+  fi
+  extract_dell_bundle "$WORKING_DIR/$ddpc_bundle_file" "$DDPC_BUNDLE_DIR" "Dell Distributed Private Cloud"
+  state_set DDPC_BUNDLE_DIR "$DDPC_BUNDLE_DIR"
+  state_set DDPC_BUNDLE_FILE "$WORKING_DIR/$ddpc_bundle_file"
 }
 
 ap_host_config () {
@@ -1036,7 +1367,7 @@ firewalld_selinux_preflight () {
         echo "  master $SWFS_MASTER_PORT, admin $SWFS_ADMIN_PORT, plus SMB/NFS when enabled);"
         echo "  install-seaweedfs manages its own firewalld rules."
         ;;
-      ap-bundle)
+      ap-bundle|ddpc-bundle)
         echo "  DAP ingress (80/443 via HAProxy) and the registry port must be reachable from clients."
         ;;
       *)
@@ -1588,6 +1919,27 @@ run_uninstall_ap_bundle () {
   echo "  re-run with --purge-cache to remove the whole $WORKING_DIR tree (~20GB)."
 }
 
+run_uninstall_ddpc_bundle () {
+  echo "  Removing Dell Distributed Private Cloud staging artifacts (ddpc-bundle tree, cmd file)..."
+  echo "  NOTE: this does NOT uninstall DDPC itself - it runs inside the DAP orchestrator namespace."
+  local dir cmd_file
+  dir=$(state_get DDPC_BUNDLE_DIR)
+  [[ -z "$dir" ]] && dir="$DDPC_BUNDLE_DIR"
+  cmd_file=$(state_get DDPC_CMD_FILE)
+  [[ -z "$cmd_file" ]] && cmd_file="$base_dir/ddpc-install-upgrade-cmd.txt"
+  rm -rf "${dir:?}"
+  rm -f "$cmd_file"
+  state_unset DDPC_BUNDLE_DIR
+  state_unset DDPC_BUNDLE_FILE
+  state_unset DDPC_CMD_FILE
+  echo "  ddpc-bundle staging removed. The DDPC zip is kept - re-run with --purge-cache to remove the whole $WORKING_DIR tree."
+  echo "  To remove DDPC from the cluster (Dell's own uninstall), run:"
+  echo "    export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"
+  echo "    helm uninstall dell-distributed-private-cloud -n $ORCHESTRATOR_NAMESPACE --wait --timeout ${DDPC_INSTALL_TIMEOUT}s"
+  echo "    kubectl -n $ORCHESTRATOR_NAMESPACE delete configmap distpvtcloud-custom-values distpvtcloud-image-push-status distpvtcloud-checkpoint-data --ignore-not-found"
+  echo "    kubectl -n $ORCHESTRATOR_NAMESPACE delete secret distpvtcloud-docker-secret --ignore-not-found"
+}
+
 purge_cache_tree () {
   echo "  --purge-cache: removing the ap-tools working cache..."
   rm -rf "${WORKING_DIR:?}"
@@ -1604,6 +1956,7 @@ run_uninstall () {
     velero)     run_uninstall_velero ;;
     monitoring) run_uninstall_monitoring ;;
     ap-bundle)  run_uninstall_ap_bundle ;;
+    ddpc-bundle) run_uninstall_ddpc_bundle ;;
   esac
   if [[ $PURGE_CACHE -eq 1 ]]; then
     purge_cache_tree
@@ -1678,6 +2031,11 @@ run_offline_prep () {
       echo "  Approximate download size is 20G. This may take several minutes..."
       run_debug download_ap_bundle
     fi
+    if [[ $DOWNLOAD_DDPC_BUNDLE == "true" ]]; then
+      echo "  Downloading Dell Distributed Private Cloud (DDPC) add-on bundle."
+      echo "  Approximate download size is 6G. This may take several minutes..."
+      run_debug download_ddpc_bundle
+    fi
     echo "  Creating archive..."
     run_debug  create_offline_prep_archive
     echo "--- Offline prep workflow complete"
@@ -1747,40 +2105,57 @@ download_helm_binaries () {
   # need to be downloaded here.
 }
 
-download_ap_bundle () {
+download_dell_bundle () {
+  # $1 = URL (or a bare filename already placed in $WORKING_DIR), $2 = destination file,
+  # $3 = label for messages. Shared by the DAP and DDPC bundles.
   # AP-4: wget is absent on minimal images; use curl (-fL) and download to a .partial
-  # file so an interrupted ~19GB fetch never masquerades as a complete bundle. A
+  # file so an interrupted multi-GB fetch never masquerades as a complete bundle. A
   # leftover .partial is resumed with 'curl -C -' before falling back to a fresh fetch.
-  user_agent_string="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-  url_check=$(echo $AP_BUNDLE_URL | cut -d "/" -f3)
+  local url="$1" dest="$2" label="$3"
+  if [[ -f "$dest" ]]; then
+    echo "  $label bundle already downloaded."
+    return 0
+  fi
+  if [[ $AIR_GAPPED_MODE == "1" ]]; then
+    echo "Error: air-gapped mode, but $(basename "$dest") is not present in $WORKING_DIR."
+    echo "  Re-run 'offline-prep' on a connected host with the matching DOWNLOAD_*_BUNDLE=true, or copy the zip into $WORKING_DIR."
+    exit 1
+  fi
+  local user_agent_string="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+  local url_host
+  url_host=$(echo "$url" | cut -d "/" -f3)
   local curl_opts=(-fkL --retry 3)
-  if [[ "$url_check" == "dl.dell.com" ]]; then
+  if [[ "$url_host" == "dl.dell.com" ]]; then
     curl_opts+=(--user-agent "$user_agent_string")
   fi
-  if [[ ! -f $WORKING_DIR/$bundle_file ]]; then
-    echo "  Downloading on-premise installation bundle..."
-    local dl_ok=0
-    if [[ -f $WORKING_DIR/$bundle_file.partial ]]; then
-      echo "  Partial download found; attempting to resume..."
-      if curl "${curl_opts[@]}" -C - -o $WORKING_DIR/$bundle_file.partial $AP_BUNDLE_URL; then
-        dl_ok=1
-      else
-        echo "  Resume failed; restarting the download from scratch..."
-        rm -f $WORKING_DIR/$bundle_file.partial
-      fi
+  echo "  Downloading $label bundle..."
+  local dl_ok=0
+  if [[ -f "$dest.partial" ]]; then
+    echo "  Partial download found; attempting to resume..."
+    if curl "${curl_opts[@]}" -C - -o "$dest.partial" "$url"; then
+      dl_ok=1
+    else
+      echo "  Resume failed; restarting the download from scratch..."
+      rm -f "$dest.partial"
     fi
-    if [[ $dl_ok -eq 0 ]]; then
-      if ! curl "${curl_opts[@]}" -o $WORKING_DIR/$bundle_file.partial $AP_BUNDLE_URL; then
-        rm -f $WORKING_DIR/$bundle_file.partial
-        echo "Error: Failed to download on-premise instalation bundle. Verify URL $AP_BUNDLE_URL is correct and internet connection is available."
-        echo "  Alternatively, you can download the bundle manually and place it in $WORKING_DIR then update 'AP_BUNDLE_URL' with the name of the zip file and try again."
-        exit 1
-      fi
-    fi
-    mv $WORKING_DIR/$bundle_file.partial $WORKING_DIR/$bundle_file
-  else
-    echo "  Automation Platform bundle already downloaded."
   fi
+  if [[ $dl_ok -eq 0 ]]; then
+    if ! curl "${curl_opts[@]}" -o "$dest.partial" "$url"; then
+      rm -f "$dest.partial"
+      echo "Error: Failed to download the $label bundle. Verify URL $url is correct and internet connection is available."
+      echo "  Alternatively, download the bundle manually, place it in $WORKING_DIR and set the *_BUNDLE_URL variable to the zip file name, then try again."
+      exit 1
+    fi
+  fi
+  mv "$dest.partial" "$dest"
+}
+
+download_ap_bundle () {
+  download_dell_bundle "$AP_BUNDLE_URL" "$WORKING_DIR/$bundle_file" "Dell Automation Platform"
+}
+
+download_ddpc_bundle () {
+  download_dell_bundle "$DDPC_BUNDLE_URL" "$WORKING_DIR/$ddpc_bundle_file" "Dell Distributed Private Cloud"
 }
 
 generate_images_file () {
@@ -1944,7 +2319,7 @@ create_offline_prep_archive () {
     # offline-prep runs on a host that already did 'install ap-bundle', shipping
     # it alongside the zip doubles the archive (~38G tree + ~19G zip carrying the
     # same payload). The air-gapped target re-extracts from the zip anyway.
-    if ! tar -czf "$base_dir/ap-offline.tar.gz.partial" -C "$base_dir" --exclude='ap-install/bundle' ap-install ap-tools LICENSES $extra_files; then
+    if ! tar -czf "$base_dir/ap-offline.tar.gz.partial" -C "$base_dir" --exclude='ap-install/bundle' --exclude='ap-install/ddpc-bundle' ap-install ap-tools LICENSES $extra_files; then
         rm -f "$base_dir/ap-offline.tar.gz.partial"
         echo "Error: failed to create ap-offline.tar.gz (disk space?). No archive was left behind."
         exit 1
@@ -1962,19 +2337,7 @@ ap_preflight_checks () {
   # ("16"+"16"+"16" -> "161616") and the resource gate was silently disabled on
   # exactly the clusters where it matters. Units: millicores -> cores; memory and
   # ephemeral-storage -> GB (Ki/Mi/Gi/Ti binary suffixes, K/M/G/T decimal, bare = bytes).
-  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c '
-    def cpu_cores: if (type == "string" and test("m$")) then (sub("m$"; "") | tonumber) / 1000 else tonumber end;
-    def qty_gb:
-      if type != "string" then (tonumber / 1073741824)
-      elif test("Ki$") then (sub("Ki$"; "") | tonumber) / 1048576
-      elif test("Mi$") then (sub("Mi$"; "") | tonumber) / 1024
-      elif test("Gi$") then (sub("Gi$"; "") | tonumber)
-      elif test("Ti$") then (sub("Ti$"; "") | tonumber) * 1024
-      elif test("[Kk]$") then (sub("[Kk]$"; "") | tonumber) / 1000000
-      elif test("M$") then (sub("M$"; "") | tonumber) / 1000
-      elif test("G$") then (sub("G$"; "") | tonumber)
-      elif test("T$") then (sub("T$"; "") | tonumber) * 1000
-      else (tonumber / 1073741824) end;
+  ALLOCATABLE_JSON=$(kubectl get nodes -o json | jq -c "$ap_jq_qty_defs"'
     {cpu: ([.items[]?.status.allocatable.cpu | cpu_cores] | add),
      memory_gb: ([.items[]?.status.allocatable.memory | qty_gb] | add),
      storage_gb: ([.items[]?.status.allocatable."ephemeral-storage" | qty_gb] | add)}' || true)
@@ -2017,6 +2380,12 @@ ap_preflight_checks () {
     echo "🛑 Cluster resource check FAILED. Exiting."
     exit 1
   fi
+  ntp_preflight_check
+}
+
+ntp_preflight_check () {
+  # Shared by the ap-bundle and ddpc-bundle pre-flights: warns (never fails) on an
+  # unsynchronised clock and verifies a user-defined NTP_SERVERS source is the active one.
   # Check NTP status
   ntp_status=$(timedatectl status | awk '/System clock synchronized/ {print $NF}') || true
   ntp_message="NTP is synchronized!"
@@ -2457,10 +2826,68 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   USERNAME="$USERNAME" \\
   EMAIL="$EMAIL"
 ----
+  - (Optional) Once DAP is up, stage the Dell Distributed Private Cloud add-on with 'install ddpc-bundle [-registry ...]'
 EOF
     state_set AP_CMD_FILE "$base_dir/ap-install-upgrade-cmd.txt"
     mask_secret "$(cat $base_dir/ap-install-upgrade-cmd.txt)"
     echo "  (The unmasked command block, including the registry password, is in $base_dir/ap-install-upgrade-cmd.txt - mode 0600.)"
+  fi
+  if [[ $INSTALL_TYPE == "ddpc-bundle" ]]; then
+    # Same secret hygiene as ap-bundle (AP-11): 0600 file, masked stdout.
+    local cmd_file="$base_dir/ddpc-install-upgrade-cmd.txt"
+    local env_prefix="env IMAGE_LOADER_MAX_RETRIES=\"$DDPC_IMAGE_LOADER_MAX_RETRIES\""
+    [[ -n "$DDPC_LOG_LEVEL" ]] && env_prefix="$env_prefix LOG_LEVEL=\"$DDPC_LOG_LEVEL\""
+    local reg_note cmd_block
+    # Built line by line: an empty line inside a backslash-continued block would split the command.
+    cmd_block="sudo $env_prefix $DDPC_BUNDLE_DIR/install-upgrade.sh \\
+  DAPO_HOST=\"$ORCHESTRATOR_FQDN\" \\
+  NAMESPACE=\"$ORCHESTRATOR_NAMESPACE\" \\
+  IMAGE_REG_URL=\"$DDPC_REG_URL\" \\"
+    if [[ $REGISTRY_MODE == "1" ]]; then
+      cmd_block="$cmd_block
+  IMAGE_REG_USERNAME=\"$REG_USER\" \\
+  IMAGE_REG_PASSWORD=\"$REG_PASS\" \\
+  REGISTRY_CERT_FILE_PATH=\"$REG_CERT_FILE_PATH\" \\"
+      reg_note="Registry: $DDPC_REG_URL with the -registry credentials (DDPC creates its own pull secret, distpvtcloud-docker-secret)."
+      if [[ -n "$DDPC_SECRET_REG_URL" && "$DDPC_SECRET_REG_URL" != "$DDPC_REG_URL" ]]; then
+        reg_note="$reg_note WARNING: DAP itself pulls from $DDPC_SECRET_REG_URL."
+      fi
+    else
+      reg_note="Registry: $DDPC_REG_URL reused from the orchestrator's docker-secret (no credentials passed; Dell's installer reads them from that secret)."
+    fi
+    cmd_block="$cmd_block
+  SKIP_IMAGES_LOADER=\"$DDPC_SKIP_IMAGES_LOADER\" \\
+  IMAGE_LOADER_PARALLEL_JOBS=\"$DDPC_IMAGE_LOADER_PARALLEL_JOBS\" \\
+  INSTALL_TYPE=\"$DDPC_INSTALL_TYPE\" \\
+  INSTALL_TIMEOUT=\"$DDPC_INSTALL_TIMEOUT\""
+    local existing_note=""
+    [[ -n "$DDPC_EXISTING_RELEASE" ]] && existing_note="NOTE: DDPC release already present ($DDPC_EXISTING_RELEASE) - the command below is a safe re-run/upgrade."
+    rm -f "$cmd_file"
+    touch "$cmd_file"
+    chmod 600 "$cmd_file"
+    cat << EOF > "$cmd_file"
+
+### DDPC BUNDLE PREP FLOW COMPLETED ###
+###        PRINTING OUTPUTS         ###
+
+Dell Distributed Private Cloud is ready for installation on top of DAP $DDPC_DAP_VERSION (namespace $ORCHESTRATOR_NAMESPACE).
+$ntp_message
+$reg_note
+$existing_note
+Next steps:
+  - Run the following command block to install Dell Distributed Private Cloud into the orchestrator:
+----
+$cmd_block
+----
+  - When it reports 'Installation has completed successfully', verify:
+      helm ls -n $ORCHESTRATOR_NAMESPACE                      (dell-distributed-private-cloud: deployed)
+      kubectl -n $ORCHESTRATOR_NAMESPACE get pods | grep -E 'compute|firmwareupdate|fru-cru|oe-template|recovery|time-svc|health-check|fido-manufacturer|ne-endpoint|ne-ui'
+      https://$ORCHESTRATOR_FQDN/neui/                        (DDPC UI route on the orchestrator gateway)
+  - Re-running the same command is safe (same version: skipped; failed: retried). 'uninstall ddpc-bundle' removes the staging only.
+EOF
+    state_set DDPC_CMD_FILE "$cmd_file"
+    mask_secret "$(cat "$cmd_file")"
+    echo "  (The unmasked command block, including any registry password, is in $cmd_file - mode 0600.)"
   fi
 }
 
@@ -2490,8 +2917,8 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" && "$INSTALL_TYPE" != "monitoring" ]]; then
-                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|harbor|swfs|velero|monitoring]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "ddpc-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" && "$INSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -2515,8 +2942,8 @@ while [[ "$#" -gt 0 ]]; do
         uninstall)
             UNINSTALL_MODE=1
             UNINSTALL_TYPE="${2:-}"
-            if [[ -z "$UNINSTALL_TYPE" || "$UNINSTALL_TYPE" != "ap-bundle" && "$UNINSTALL_TYPE" != "rke2" && "$UNINSTALL_TYPE" != "harbor" && "$UNINSTALL_TYPE" != "swfs" && "$UNINSTALL_TYPE" != "velero" && "$UNINSTALL_TYPE" != "monitoring" ]]; then
-                echo "Error: 'uninstall' command requires a type. Format: uninstall [rke2|ap-bundle|harbor|swfs|velero|monitoring] [--purge-cache]"
+            if [[ -z "$UNINSTALL_TYPE" || "$UNINSTALL_TYPE" != "ap-bundle" && "$UNINSTALL_TYPE" != "ddpc-bundle" && "$UNINSTALL_TYPE" != "rke2" && "$UNINSTALL_TYPE" != "harbor" && "$UNINSTALL_TYPE" != "swfs" && "$UNINSTALL_TYPE" != "velero" && "$UNINSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'uninstall' command requires a type. Format: uninstall [rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring] [--purge-cache]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -2776,7 +3203,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero" && $INSTALL_TYPE != "monitoring") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "ddpc-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero" && $INSTALL_TYPE != "monitoring") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   if [[ $REGISTRY_MODE == "1" ]]; then
     if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
@@ -2802,6 +3229,21 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   ensure_bundle_prereqs
   ap_preflight_checks
   ap_bundle_prep
+fi
+if [[ $INSTALL_TYPE == "ddpc-bundle" ]]; then
+  echo "  Preparing Dell Distributed Private Cloud (DDPC) add-on bundle..."
+  echo "  This may take several minutes..."
+  if [[ $ORCHESTRATOR_FQDN == "$MGMT_IP" ]]; then
+    echo "  IP Based Install detected, skipping DNS checks..."
+  elif [[ $REGISTRY_MODE == "1" && $REG_FQDN =~ $fqdn_pattern ]]; then
+    dns_pre_flight_checks $ORCHESTRATOR_FQDN $REG_FQDN
+  else
+    dns_pre_flight_checks $ORCHESTRATOR_FQDN
+  fi
+  firewalld_selinux_preflight
+  ensure_bundle_prereqs
+  ddpc_preflight_checks
+  ddpc_bundle_prep
 fi
 if [[ $INSTALL_TYPE == "swfs" ]]; then
   echo "  Installing SeaweedFS artifact server..."

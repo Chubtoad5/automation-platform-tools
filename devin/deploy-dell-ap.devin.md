@@ -29,6 +29,9 @@ the job.
   nodes (etcd/TLS/tokens). If none supplied, confirm the hosts are already time-synced.
 - Identity: organization name and description; admin first name, last name, username, email.
 - Mode: online or air-gapped.
+- Optional Dell Distributed Private Cloud (DDPC) add-on: whether the user wants it; bundle source (pinned
+  4.3.0.0 / URL / pre-staged zip); registry for its images (`-registry …` or reuse the orchestrator's
+  `docker-secret`); whether its images are already in the registry (`DDPC_SKIP_IMAGES_LOADER=true`).
 - Confirmation of sizing + supported OS: single-node 18 vCPU / 36 GB RAM / 850 GB+ disk (1 TB preferred);
   multi-node 16 vCPU / **≥ 20 GB RAM per node (3-node)** / 850 GB+ disk per node (16 GB/node wedges the
   Orchestrator install). A node at exactly the floor reports ~1 GB less than allocated — expected; the
@@ -45,6 +48,7 @@ the job.
 - Stage the bundle: `sudo BASE_DOMAIN=<domain> [HOST_FQDN=<cluster-name>] [SKIP_IMAGES_LOADER=true] ORG_NAME=<org> EMAIL=<email> ./ap-tools install ap-bundle -registry <host:port> <user> <pass>`. **Multi-node: set `HOST_FQDN=<cluster-name>`** so the portal/orchestrator/`mtls-*` FQDNs match your DNS (else the pre-flight checks `portal.<hostname>` and aborts).
 - Open `ap-install-upgrade-cmd.txt` and run the `install-upgrade.sh` command it contains; wait for `Installation has completed successfully` (20–40 minutes).
 - Verify the install before reporting success (see Specifications).
+- *(only if DDPC was requested, and only after DAP is verified up)* `sudo BASE_DOMAIN=<domain> [HOST_FQDN=<cluster-name>] ./ap-tools install ddpc-bundle [-registry <host:port> <user> <pass>]`, then run the command in `ddpc-install-upgrade-cmd.txt` (10–25 min) and confirm `helm ls -n dell-orchestrator` shows `dell-distributed-private-cloud` as `deployed`.
 
 ## Specifications
 - DAP Portal is reachable over HTTPS at `https://<portal-fqdn>` and serves a login page.

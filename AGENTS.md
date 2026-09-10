@@ -15,7 +15,9 @@ Playbook is at [`devin/deploy-dell-ap.devin.md`](devin/deploy-dell-ap.devin.md).
 - `ap-tools` runs as **root on the target host**. From a remote machine, SSH in to run each step.
 - Install components in order: `install rke2` → (`install harbor`) → `install ap-bundle` → run the
   generated `install-upgrade.sh`. `install ap-bundle` stages the bundle but does **not** deploy DAP by
-  itself.
+  itself. The optional **Dell Distributed Private Cloud** add-on comes last: `install ddpc-bundle
+  [-registry …]` on a verified-healthy DAP, then run `ddpc-install-upgrade-cmd.txt` (same
+  stage-then-run model).
 - Exit code 0 is not proof of success — verify nodes, pods, and the portal after install.
 - **Multi-node:** `portal.`/`orchestrator.`/`mtls-*` DNS point at the ingress VIP (`LB_IP`); the cluster
   `-tls-san` name points at the **node IPs** (the VIP is ingress-only, not an API LB). Join via a node IP,

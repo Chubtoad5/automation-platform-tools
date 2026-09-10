@@ -55,6 +55,17 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
   - **Download:** the tool fetches `AP_BUNDLE_URL` during `install ap-bundle` (needs outbound internet;
     ~19 GB, 5–40 min). See [reference/commands.md](reference/commands.md).
 
+## 4c. Dell Distributed Private Cloud (DDPC) add-on — ask, don't assume
+- **Does the user also want DDPC** (Dell Distributed Private Cloud) on this DAP? It is an add-on bundle
+  installed **into the running orchestrator** after DAP is up. Only if yes:
+  - **Bundle source**: default pinned version (`DDPC_BUNDLE_URL`, currently 4.3.0.0), a different URL, or a
+    pre-staged `.zip` in `ap-install/` (~6 GB saved).
+  - **Registry for the DDPC images**: pass `-registry` (same or different registry/credentials), or omit it to
+    reuse the orchestrator's `docker-secret` registry. If the 19 DDPC images are already there, set
+    `DDPC_SKIP_IMAGES_LOADER=true`.
+  - **DAP version pairing**: the bundle's required DAP version (default gate `DDPC_REQUIRED_DAP_VERSION=2.1.1.0`,
+    exact match). If the user runs a different DAP version, confirm Dell supports the pairing before overriding.
+
 ## 5. Identity / organization (for DAP setup)
 - Organization name and description.
 - Admin first name, last name, username, and email.
@@ -96,6 +107,8 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
   - **Monitoring** (`install monitoring`) — kube-prometheus-stack + Fluent Bit. Needs `MONITORING_HOST`
     (the shared SeaweedFS monitoring host running Loki/Grafana/Prometheus); `CLUSTER_NAME` labels this
     cluster's metrics and logs so multiple clusters can be filtered apart in Grafana/Loki.
+  - **DDPC** (`install ddpc-bundle`) — see 4c. Runs after DAP is verified up; then run
+    `ddpc-install-upgrade-cmd.txt`.
 
 ---
 

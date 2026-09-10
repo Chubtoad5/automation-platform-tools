@@ -105,6 +105,22 @@ When `install-upgrade.sh` reports success, open `https://portal.myhost.mydomain.
 the initial credentials `administrator` / `Temporary@123` — **you must change the password on first
 login**.
 
+### Step 6 (optional) — Add Dell Distributed Private Cloud
+
+[Dell Distributed Private Cloud](https://www.dell.com/en-us/lp/dt/automation-platform) (DDPC) is an
+add-on bundle that installs **into the running DAP orchestrator** (same cluster, same namespace). Once
+DAP is up and healthy:
+
+```bash
+# Stages the DDPC bundle: pre-checks the cluster, the DAP version, the registry and the free headroom,
+# downloads + extracts the bundle, and writes a ready-to-run command to ddpc-install-upgrade-cmd.txt.
+sudo BASE_DOMAIN=mydomain.lab ./ap-tools install ddpc-bundle -registry registry.myhost.mydomain.lab:8443 admin Harbor12345
+```
+
+Then run the `install-upgrade.sh` command from `ddpc-install-upgrade-cmd.txt`. `-registry` is optional
+here — without it the orchestrator's existing `docker-secret` registry is reused. See
+[Dell Distributed Private Cloud Add-on](#dell-distributed-private-cloud-add-on).
+
 That is the single-node happy path. For multi-node, the optional components (Velero backups,
 monitoring, SeaweedFS), air-gapped installs, the full CLI reference, and every configuration variable,
 read on.
@@ -217,6 +233,7 @@ Installs a component and its dependencies. When `ap-offline.tar.gz` is present, 
 |:----------|:------------|:-----------------|
 | `rke2` | Provisions an RKE2 server node with Helm, MetalLB, HAProxy ingress, Longhorn, and k9s. | None (optional: `-registry`, `-tls-san`, `push`) |
 | `ap-bundle` | Extracts the Dell AP install bundle, runs preflight checks, configures the host, and outputs the `install-upgrade.sh` command. | `-registry` |
+| `ddpc-bundle` | Stages the **Dell Distributed Private Cloud** add-on on top of an existing, healthy DAP install: pre-checks the cluster, the deployed DAP version, the registry and the resource headroom, extracts the bundle, and outputs its `install-upgrade.sh` command (`ddpc-install-upgrade-cmd.txt`). | None (optional: `-registry` — omitted, the orchestrator's `docker-secret` registry is reused) |
 | `harbor` | Deploys a Harbor registry with auto-generated self-signed certificates and pre-created projects. | None |
 | `swfs` | Deploys a single-node SeaweedFS server with S3, Filer, optional SMB/NFS, and Caddy reverse proxy. | None (optional: `-registry`, `push`) |
 | `velero` | Installs Velero with CSI snapshot support, Longhorn integration, and SeaweedFS S3 backend. | Requires `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, `VELERO_S3_SECRET_KEY` set in script. Optional: `push`, `-registry`. |
@@ -272,6 +289,7 @@ own state files for the same purpose.
 | `velero` | Removes Velero from the cluster (namespace, CRDs, VolumeSnapshotClass, CLI). **S3 backups are kept.** |
 | `monitoring` | `helm uninstall` of kube-prometheus-stack + Fluent Bit and removal of the `monitoring` namespace. The external monitoring host is not touched. |
 | `ap-bundle` | Removes the DAP **staging**: registry CA from the system trust store, the docker `certs.d` entry, the extracted `bundle/` tree, and `ap-install-upgrade-cmd.txt`. It does **not** uninstall DAP itself — DAP runs inside the cluster and is removed with `uninstall rke2` (or Dell's own procedure) — and does **not** remove docker. |
+| `ddpc-bundle` | Removes the DDPC **staging**: the extracted `ddpc-bundle/` tree, `ddpc-install-upgrade-cmd.txt` (the zip is kept unless `--purge-cache`), and the registry CA / docker `certs.d` entry **only if** `install ddpc-bundle -registry` targeted a registry other than the one DAP itself uses (the ap-bundle registry trust stays). It does **not** uninstall DDPC itself — it prints the `helm uninstall` + configmap/secret cleanup commands that do. |
 
 Destructive targets (`rke2`, `harbor`, `swfs`) require typing `yes-destroy` at a prompt.
 Set `AP_ASSUME_YES=true` to skip the prompt in automation.
@@ -320,7 +338,7 @@ Valid with: `install rke2`, `join server`.
 
 Configures a private registry for container images. The value must be an FQDN or IPv4 address with a port (e.g., `registry.lab:8443`). Do not include `https://`.
 
-Valid with: `install rke2`, `install ap-bundle`, `install swfs`, `push`, `join`, `upgrade rke2`.
+Valid with: `install rke2`, `install ap-bundle`, `install ddpc-bundle`, `install swfs`, `push`, `join`, `upgrade rke2`.
 
 #### `-h`, `--help`
 
@@ -339,6 +357,8 @@ The script validates argument combinations at startup. The following table shows
 | `install rke2 push -registry <r> <u> <p>` | `./ap-tools install rke2 push -registry reg.lab:443 admin pass` |
 | `install rke2 push -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools install rke2 push -registry reg.lab:443 admin pass -tls-san cluster.lab` |
 | `install ap-bundle -registry <r> <u> <p>` | `./ap-tools install ap-bundle -registry reg.lab:443 admin pass` |
+| `install ddpc-bundle` | `./ap-tools install ddpc-bundle` (reuses the orchestrator's `docker-secret` registry) |
+| `install ddpc-bundle -registry <r> <u> <p>` | `./ap-tools install ddpc-bundle -registry reg.lab:443 admin pass` |
 | `install harbor` | `./ap-tools install harbor` |
 | `install swfs` | `./ap-tools install swfs` |
 | `install velero` | `./ap-tools install velero` |
@@ -419,6 +439,30 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 | `LAST_NAME` | `changeme` | Admin user last name. |
 | `USERNAME` | `administrator` | Admin username. |
 | `EMAIL` | `changeme@example.com` | Admin user email. |
+
+### Dell Distributed Private Cloud (DDPC) add-on
+
+Used by `install ddpc-bundle`. DDPC's `install-upgrade.sh` accepts exactly these parameters — `DAPO_HOST`,
+`NAMESPACE`, `IMAGE_REG_URL`, `IMAGE_REG_USERNAME`, `IMAGE_REG_PASSWORD`, `REGISTRY_CERT_FILE_PATH`,
+`SKIP_IMAGES_LOADER`, `IMAGE_LOADER_PARALLEL_JOBS`, `INSTALL_TYPE`, `INSTALL_TIMEOUT` — plus two env-only
+knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed here; `DAPO_HOST` and
+`NAMESPACE` come from `ORCHESTRATOR_FQDN` / `ORCHESTRATOR_NAMESPACE` above, and the registry from
+`-registry` (or the orchestrator's `docker-secret`).
+
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| `DDPC_BUNDLE_URL` | Dell download URL (**v4.3.0.0**) | URL to the DDPC add-on bundle `.zip` (~6 GB). Set to a local filename if the bundle was placed manually into `ap-install/`. As with `AP_BUNDLE_URL`, the `dl.dell.com` `FOLDER…` path changes with every release — replace the whole URL. |
+| `DOWNLOAD_DDPC_BUNDLE` | `false` | When `true`, the DDPC bundle is included in `offline-prep` (`ap-offline.tar.gz`). |
+| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.0` | DAP orchestrator app version the DDPC bundle must be installed on top of. The pre-flight compares it **exactly** against the deployed `native-edge-orchestrator` helm release and aborts on a mismatch. Override for a different pairing, or set `any` to disable the gate. |
+| `DDPC_SKIP_IMAGES_LOADER` | `$SKIP_IMAGES_LOADER` | `true` if the 19 DDPC images are already in the registry (skips the push). Defaults to whatever `SKIP_IMAGES_LOADER` is. |
+| `DDPC_IMAGE_LOADER_PARALLEL_JOBS` | `5` | Parallel image pushes in the DDPC image loader (`IMAGE_LOADER_PARALLEL_JOBS`). |
+| `DDPC_IMAGE_LOADER_MAX_RETRIES` | `3` | Per-image push retries (`IMAGE_LOADER_MAX_RETRIES`, env-only in Dell's script — emitted as an `env` prefix in the generated command). |
+| `DDPC_INSTALL_TYPE` | `KUBERNETES` | `KUBERNETES` = DDPC inside the orchestrator's own cluster (this tool's model). `VIRTUAL_MACHINE` is Dell's OVA variant and is not exercised by `ap-tools`. |
+| `DDPC_INSTALL_TIMEOUT` | `600` | Helm install/upgrade timeout in seconds (`INSTALL_TIMEOUT`). |
+| `DDPC_LOG_LEVEL` | _(empty)_ | Set to `DEBUG` to make Dell's installer echo its helm command (`LOG_LEVEL`, env-only). |
+| `DDPC_REQUIRED_CPU_HEADROOM` | `2` | Pre-flight gate: cores of **unrequested** CPU (allocatable minus what running pods already request) the cluster must have free. DDPC's own installer has no resource check, and a node that passed the DAP gate can still be fully committed by DAP. |
+| `DDPC_REQUIRED_MEM_HEADROOM_GB` | `4` | Pre-flight gate: GB of unrequested memory the cluster must have free. |
+| `DDPC_REQUIRED_DISK_GB` | `30` | Pre-flight gate: free disk under `ap-install/` — 6 GB zip + 6 GB extraction + ~9 GB transient docker load + ~9 GB of DDPC images pulled into containerd (a validated install grew the node by 23 GB). |
 
 ### RKE2 Kubernetes
 
@@ -605,6 +649,38 @@ sudo ./ap-tools install monitoring
 ```bash
 sudo ./ap-tools install ap-bundle -registry myregistry.lab:443 admin password
 ```
+
+### Dell Distributed Private Cloud Add-on
+
+DDPC is installed **into the running DAP orchestrator** — same cluster, same `ORCHESTRATOR_NAMESPACE` —
+so it comes after a successful DAP install. `install ddpc-bundle` mirrors `install ap-bundle`: it stages
+and pre-checks, then hands you the command; it does **not** run Dell's installer itself.
+
+```bash
+# Explicit registry (DDPC images are pushed there and pulled via DDPC's own pull secret):
+sudo ./ap-tools install ddpc-bundle -registry myregistry.lab:443 admin password
+
+# No -registry: the registry and credentials recorded in the orchestrator's docker-secret are reused
+# (Dell's installer reads them from the secret; nothing is passed on the command line):
+sudo ./ap-tools install ddpc-bundle
+
+# Then run the command block from ddpc-install-upgrade-cmd.txt (mode 0600).
+```
+
+Pre-flight checks (all before the ~6 GB download): the Kubernetes API answers and every node is `Ready`;
+the `native-edge-orchestrator` and `dap-portal` helm releases are `deployed` and the orchestrator's app
+version equals `DDPC_REQUIRED_DAP_VERSION`; no pod in `kube-system` / `dell-portal` / `dell-orchestrator`
+is outside `Running`/`Completed`; `ORCHESTRATOR_FQDN` is a host actually served by the orchestrator
+ingress (this becomes DDPC's `DAPO_HOST`); the registry answers on `/v2/` (credentials verified when
+`-registry` is given, CA trust verified when it is not); the cluster has `DDPC_REQUIRED_CPU_HEADROOM` /
+`DDPC_REQUIRED_MEM_HEADROOM_GB` **unrequested** capacity and `DDPC_REQUIRED_DISK_GB` free under
+`ap-install/`; NTP is synchronised. An already-deployed DDPC release is reported, not refused — the
+generated command is a safe re-run (Dell's installer skips a same-version install, retries a failed one
+and upgrades a newer bundle), and `install ddpc-bundle` itself re-runs without re-downloading,
+re-extracting or restarting docker.
+
+Everything DDPC deploys lands in the orchestrator namespace (10 single-replica services, no PVCs) and its
+UI/API routes are added to DAP's existing gateway — no new DNS records or ingress are needed.
 
 ### Air-Gapped Workflow
 

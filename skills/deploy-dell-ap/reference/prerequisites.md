@@ -19,6 +19,13 @@ everywhere.
 > expected; `scripts/preflight.sh` accepts a ~2 GiB tolerance so a correctly-sized node passes. If you have
 > the headroom, provisioning ~1 GB above the floor avoids any ambiguity.
 
+> **DDPC add-on:** Dell Distributed Private Cloud adds ~10 single-replica services and a handful of one-shot
+> jobs to the orchestrator namespace, no PVCs. Its own installer has **no resource gate**, so `ap-tools`
+> checks *headroom* — allocatable minus what DAP's pods already request — and requires
+> `DDPC_REQUIRED_CPU_HEADROOM=2` cores / `DDPC_REQUIRED_MEM_HEADROOM_GB=4` GB free, plus
+> `DDPC_REQUIRED_DISK_GB=30` GB under `ap-install/` (6 GB zip + 6 GB extraction + a ~9 GB transient docker load + ~9 GB of images pulled into containerd; a validated install grew the node by 23 GB). A
+> correctly-sized DAP host has this headroom; no extra provisioning is normally needed.
+
 > **Multi-node disk:** prefer **≥1 TB/node**. At the 500–600 GB floor, DAP's large replica-3 Longhorn
 > volumes (OpenSearch, vmstorage) can hit `ReplicaSchedulingFailure: insufficient storage` because the tool
 > sets Longhorn over-provisioning to 200%. If you must run smaller disks, raise

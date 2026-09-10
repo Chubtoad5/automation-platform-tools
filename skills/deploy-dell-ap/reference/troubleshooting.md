@@ -63,5 +63,22 @@ Walk this tree top-down; most failures match the early branches.
     (Longhorn volumes are thin-provisioned, so real usage stays far below the allocation). See
     [prerequisites.md](prerequisites.md).
 
+18. **`install ddpc-bundle` pre-flight fails** — read the first `Error:` line; each check names its fix:
+    *DAP version mismatch* → the bundle pairs with `DDPC_REQUIRED_DAP_VERSION` (default 2.1.1.0); upgrade DAP or,
+    only if Dell supports the pairing, override the variable. *Unhealthy pods / release not `deployed`* → DAP is
+    not finished or is degraded (e.g. Longhorn volumes re-attaching after a node freeze/reboot) — wait for
+    `kubectl get pods -A` to settle, then re-run. *ORCHESTRATOR_FQDN not served by any ingress* → set
+    `HOST_FQDN`/`ORCHESTRATOR_FQDN` to the values used at `install ap-bundle` (multi-node: the cluster name).
+    *Registry not reachable / credentials rejected* → check `curl -k https://<host:port>/v2/`; without
+    `-registry` the registry CA must already be trusted by the host (it is after `install ap-bundle`).
+    *Headroom* → DAP has committed most of the node; free capacity or lower the `DDPC_REQUIRED_*` gates
+    knowingly. *Leftover NE-service pods* → the orchestrator still deploys its own NE services; Dell's
+    installer refuses this state.
+19. **DDPC `install-upgrade.sh` fails or stalls** — its logs are under `ap-install/ddpc-bundle/logs/`
+    (`script_execution_*.log`, `distpvtcloud-install-helm-output-*.log`, per-image `image-loader_*` logs). A
+    push failure is retried per image (`DDPC_IMAGE_LOADER_MAX_RETRIES`); a helm timeout (`INSTALL_TIMEOUT`,
+    default 600 s) leaves the release `failed` — simply re-run the same command: the image push is skipped
+    (recorded in the `distpvtcloud-image-push-status` configmap) and helm retries the install.
+
 > Note: env-var overrides (`BASE_DOMAIN`, the identity vars, `SKIP_IMAGES_LOADER`, …) are honored on the
 > current `main`. If an override seems ignored, update your checkout rather than editing the script.

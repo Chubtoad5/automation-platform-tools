@@ -28,6 +28,7 @@ for. Surface these three things up front (details in the linked references):
 | 4 | Stage DAP bundle | `install ap-bundle -registry …` (writes `ap-install-upgrade-cmd.txt`) | a control-plane node | 5–40 min (download) |
 | 5 | Deploy DAP | run `install-upgrade.sh` from that file | same node | 20–40 min |
 | 6 | Verify | nodes/pods/portal smoke (don't trust exit 0) | from any node | minutes |
+| 7 | *(optional)* DDPC add-on | `install ddpc-bundle [-registry …]` then run `ddpc-install-upgrade-cmd.txt` | same node as 4/5 | 10–25 min |
 
 **2. The hard prerequisites** (the install aborts without them — see [reference/prerequisites.md](reference/prerequisites.md)
 and [reference/dns-and-certs.md](reference/dns-and-certs.md)): the right-sized host(s); the four DNS records
@@ -77,6 +78,9 @@ Never skip RKE2 first. The exact flags and env vars are in
 5. **Run `install-upgrade.sh`** from the generated `ap-install-upgrade-cmd.txt` — this is what actually
    deploys DAP (20–40 min). It inherits `EO_HOST`/`PORTAL_HOST` from the `HOST_FQDN` you set in step 4.
 6. **Smoke-verify** — see "Verify, don't trust exit codes" below.
+7. *(optional, only if the user asked for it)* **Dell Distributed Private Cloud (DDPC) add-on** — after DAP is
+   verified up: `install ddpc-bundle [-registry <host:port> <user> <pass>]`, then run the command in
+   `ddpc-install-upgrade-cmd.txt`. See "Optional add-ons" below.
 
 ### Multi-node: VIP, DNS split, and HOST_FQDN (read before phases 1/3/4)
 The single thing that most often breaks a multi-node install is conflating two different addresses:
@@ -147,6 +151,17 @@ None of these are required to deploy DAP, and DAP never consumes them at install
 **only if the user asks**, and only after the platform is verified up. The full flags are in
 [reference/commands.md](reference/commands.md).
 
+- **`install ddpc-bundle`** — stages the **Dell Distributed Private Cloud (DDPC)** add-on bundle (~6 GB), which
+  installs **into the running DAP orchestrator** (same cluster, same namespace) and adds the DDPC services and
+  UI to it. It mirrors `install ap-bundle`: pre-checks (API + nodes Ready, `native-edge-orchestrator` and
+  `dap-portal` releases `deployed`, DAP version **exactly** `DDPC_REQUIRED_DAP_VERSION` (default 2.1.1.0),
+  no unhealthy platform pods, `ORCHESTRATOR_FQDN` served by the orchestrator ingress, registry reachable,
+  unrequested CPU/memory headroom, free disk, NTP), downloads + extracts the bundle, and writes
+  `ddpc-install-upgrade-cmd.txt` — **you must then run that command** (it does not deploy DDPC by itself).
+  `-registry` is optional: given, the 19 DDPC images are pushed with those credentials; omitted, the
+  orchestrator's `docker-secret` registry is reused. Prerequisite: DAP verified up. Optional pre-check from the
+  skill: `bash scripts/preflight.sh --ddpc --dns orchestrator.<domain>` on the DAP node. Verify afterwards with
+  `helm ls -n dell-orchestrator` (`dell-distributed-private-cloud` deployed) and the new pods Running.
 - **`install swfs`** — a single-node SeaweedFS instance (S3 / Filer, optional SMB/NFS) for **artifact
   storage**, e.g. day-2 blueprint artifacts. Standalone — DAP does not depend on it. Can run on this host
   or a separate one.
@@ -160,8 +175,8 @@ None of these are required to deploy DAP, and DAP never consumes them at install
   SeaweedFS host running Loki/Grafana/Prometheus). **Multi-cluster:** set `CLUSTER_NAME=<cluster-id>` so
   this cluster's metrics and logs are labelled and can be filtered apart from other clusters in Grafana/Loki.
 
-Suggested order when used: install `swfs` any time after `rke2`; install `velero` / `monitoring` after
-DAP is verified up.
+Suggested order when used: install `swfs` any time after `rke2`; install `ddpc-bundle`, `velero` and
+`monitoring` after DAP is verified up.
 
 ## Scope — what this skill does NOT do
 - It does **not** provision infrastructure (VMs, networks, DNS zones) — you create those first; the

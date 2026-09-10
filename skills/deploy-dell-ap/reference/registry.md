@@ -24,3 +24,13 @@ prometheus-operator  kube-state-metrics  ingress-nginx  bats  kiwigrid  fluent
 
 If the DAP images are already present in your registry and you don't want ap-tools to re-load them
 during the bundle step, set `SKIP_IMAGES_LOADER=true`.
+
+> **Checking a Harbor registry:** an *unauthenticated* project listing hides private projects. Always
+> authenticate (`curl -u <user>:<pass> https://<host>/api/v2.0/projects`) before concluding a project is
+> missing — otherwise an existing private project gets needlessly recreated.
+
+## DDPC add-on images
+The Dell Distributed Private Cloud bundle carries 19 more images. `install ddpc-bundle` pushes them into the
+**same** `REGISTRY_PROJECT_NAME` project (under `hzp/`, `ne/`, `bitnami/` and `busybox`) — either with the
+`-registry` credentials you pass, or with the ones recorded in the orchestrator's `docker-secret` when you
+omit `-registry`. If they are already there, set `DDPC_SKIP_IMAGES_LOADER=true`.

@@ -31,8 +31,11 @@ ap-tools pre-checks, downloads and extracts, then hands the operator a ready-to-
   `ORCHESTRATOR_FQDN`/`ORCHESTRATOR_NAMESPACE`. Plus `DOWNLOAD_DDPC_BUNDLE` for `offline-prep` and the
   three pre-flight gates above. All `${VAR:-default}` and in `inputs.env.example`.
 - **`uninstall ddpc-bundle [--purge-cache]`** — staging only (the `ddpc-bundle/` tree, the cmd file and
-  the `DDPC_*` state keys; the zip is kept). It prints Dell's in-cluster removal (`helm uninstall
-  dell-distributed-private-cloud` + configmap/secret cleanup) and deliberately does not run it.
+  the `DDPC_*` state keys; the zip is kept), plus the registry CA / `certs.d` entry **only when**
+  `install ddpc-bundle -registry` targeted a registry other than DAP's own (recorded under
+  `DDPC_REG_*` state keys; the ap-bundle `AP_REG_*` keys stay authoritative for DAP's registry). It
+  prints Dell's in-cluster removal (`helm uninstall dell-distributed-private-cloud` + configmap/secret
+  cleanup) and deliberately does not run it.
 - **Idempotent re-runs:** an already-downloaded zip, an already-extracted tree, an unchanged registry
   CA and a running docker are all skipped; only the command file is regenerated. Running the generated
   command twice is safe too — Dell's installer skips a same-version install, retries a failed one and
@@ -48,7 +51,9 @@ ap-tools pre-checks, downloads and extracts, then hands the operator a ready-to-
   outer zip → inner bundle zip). `install ap-bundle` behaviour is unchanged apart from generalised
   wording. The NTP check moved to a shared `ntp_preflight_check`.
 - The generated command blocks (ap-bundle **and** ddpc-bundle) now escape `"`, `$`, `\` and backtick in
-  the emitted registry password; such a password previously produced an unparsable block.
+  the emitted registry password; such a password previously produced an unparsable block. `mask_secret`
+  matches the password literally (quoted pattern) in both its raw and escaped form, so passwords with
+  shell or glob characters are masked on stdout too.
 - `inputs.env.example` had a stale 2.0.0.0 `AP_BUNDLE_URL` example; it now shows the 2.1.1.0 default.
 
 ### Validation

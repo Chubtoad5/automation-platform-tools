@@ -289,7 +289,7 @@ own state files for the same purpose.
 | `velero` | Removes Velero from the cluster (namespace, CRDs, VolumeSnapshotClass, CLI). **S3 backups are kept.** |
 | `monitoring` | `helm uninstall` of kube-prometheus-stack + Fluent Bit and removal of the `monitoring` namespace. The external monitoring host is not touched. |
 | `ap-bundle` | Removes the DAP **staging**: registry CA from the system trust store, the docker `certs.d` entry, the extracted `bundle/` tree, and `ap-install-upgrade-cmd.txt`. It does **not** uninstall DAP itself — DAP runs inside the cluster and is removed with `uninstall rke2` (or Dell's own procedure) — and does **not** remove docker. |
-| `ddpc-bundle` | Removes the DDPC **staging**: the extracted `ddpc-bundle/` tree and `ddpc-install-upgrade-cmd.txt` (the zip is kept unless `--purge-cache`). It does **not** uninstall DDPC itself — it prints the `helm uninstall` + configmap/secret cleanup commands that do. |
+| `ddpc-bundle` | Removes the DDPC **staging**: the extracted `ddpc-bundle/` tree, `ddpc-install-upgrade-cmd.txt` (the zip is kept unless `--purge-cache`), and the registry CA / docker `certs.d` entry **only if** `install ddpc-bundle -registry` targeted a registry other than the one DAP itself uses (the ap-bundle registry trust stays). It does **not** uninstall DDPC itself — it prints the `helm uninstall` + configmap/secret cleanup commands that do. |
 
 Destructive targets (`rke2`, `harbor`, `swfs`) require typing `yes-destroy` at a prompt.
 Set `AP_ASSUME_YES=true` to skip the prompt in automation.

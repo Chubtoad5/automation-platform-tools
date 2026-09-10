@@ -299,8 +299,9 @@ Commands:
     [ap-bundle]  Removes the DAP staging: bundle tree, ap-install-upgrade-cmd.txt, registry CA trust and
                  docker certs.d entry. Does NOT uninstall DAP itself (DAP lives in the cluster - remove it
                  with 'uninstall rke2' or Dell's own procedure). Does NOT remove docker.
-    [ddpc-bundle] Removes the DDPC staging: ddpc-bundle tree and ddpc-install-upgrade-cmd.txt. Does NOT
-                 uninstall DDPC itself - it prints the helm/kubectl commands that do.
+    [ddpc-bundle] Removes the DDPC staging: ddpc-bundle tree and ddpc-install-upgrade-cmd.txt, plus the
+                 registry CA trust/certs.d entry ONLY if 'install ddpc-bundle -registry' targeted a registry
+                 other than DAP's own. Does NOT uninstall DDPC itself - it prints the helm/kubectl commands that do.
     [harbor]     Delegates to install_harbor.sh uninstall-harbor.
     [swfs]       Delegates to install-seaweedfs uninstall.
     [velero]     Removes Velero from the cluster (S3 backups are kept).
@@ -387,12 +388,14 @@ display_args() {
 mask_secret () {
     # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11),
     # in both its raw and its double-quote-escaped (dq_escape) form.
+    # Patterns are quoted so every character of the password is matched literally (an
+    # unquoted pattern would treat the backslashes/globs in it as pattern syntax).
     local text="$1"
     if [[ -n "$REG_PASS" ]]; then
-        text="${text//$REG_PASS/********}"
         local esc
         esc=$(dq_escape "$REG_PASS")
-        [[ "$esc" != "$REG_PASS" ]] && text="${text//$esc/********}"
+        [[ "$esc" != "$REG_PASS" ]] && text="${text//"$esc"/********}"
+        text="${text//"$REG_PASS"/********}"
     fi
     echo "$text"
 }
@@ -1245,11 +1248,24 @@ ddpc_bundle_prep () {
   if [[ $REGISTRY_MODE == "1" ]]; then
     # Same idempotent path as ap-bundle: trusts the registry CA and installs docker only
     # when missing; services are bounced only when the CA actually changed (AP-10).
+    # install_reg_docker writes the ap-bundle-owned AP_REG_FQDN / AP_REG_CERTSD_DIR keys; when
+    # DDPC targets a DIFFERENT registry those must keep pointing at DAP's, so they are
+    # restored and the DDPC registry is recorded under its own keys (used by uninstall).
+    local ap_reg_fqdn ap_reg_certsd
+    ap_reg_fqdn=$(state_get AP_REG_FQDN)
+    ap_reg_certsd=$(state_get AP_REG_CERTSD_DIR)
     install_reg_docker
     REG_CERT_FILE_PATH=$(resolve_reg_cert_path "$REG_FQDN")
     if [[ -z "$REG_CERT_FILE_PATH" ]]; then
       echo "Error: registry certificate for $REG_FQDN not found in the system trust store."
       exit 1
+    fi
+    state_set DDPC_REG_FQDN "$REG_FQDN"
+    state_set DDPC_REG_CA_PATH "$REG_CERT_FILE_PATH"
+    state_set DDPC_REG_CERTSD_DIR "/etc/docker/certs.d/$REGISTRY_INFO"
+    if [[ -n "$ap_reg_fqdn" && "$ap_reg_fqdn" != "$REG_FQDN" ]]; then
+      state_set AP_REG_FQDN "$ap_reg_fqdn"
+      state_set AP_REG_CERTSD_DIR "$ap_reg_certsd"
     fi
   elif [[ "$DDPC_SKIP_IMAGES_LOADER" != "true" ]] && ! command -v docker >/dev/null 2>&1; then
     echo "Error: docker is required to push the DDPC images but is not installed on this host."
@@ -1940,7 +1956,7 @@ run_uninstall_ap_bundle () {
 }
 
 run_uninstall_ddpc_bundle () {
-  echo "  Removing Dell Distributed Private Cloud staging artifacts (ddpc-bundle tree, cmd file)..."
+  echo "  Removing Dell Distributed Private Cloud staging artifacts (ddpc-bundle tree, cmd file, DDPC-only registry trust)..."
   echo "  NOTE: this does NOT uninstall DDPC itself - it runs inside the DAP orchestrator namespace."
   local dir cmd_file
   dir=$(state_get DDPC_BUNDLE_DIR)
@@ -1949,9 +1965,34 @@ run_uninstall_ddpc_bundle () {
   [[ -z "$cmd_file" ]] && cmd_file="$base_dir/ddpc-install-upgrade-cmd.txt"
   rm -rf "${dir:?}"
   rm -f "$cmd_file"
+  # Registry trust is removed only when 'install ddpc-bundle -registry' pointed at a registry
+  # other than the one DAP itself uses (the ap-bundle keys stay authoritative for that one).
+  local ddpc_fqdn ddpc_ca ddpc_certsd ap_fqdn
+  ddpc_fqdn=$(state_get DDPC_REG_FQDN)
+  ddpc_ca=$(state_get DDPC_REG_CA_PATH)
+  ddpc_certsd=$(state_get DDPC_REG_CERTSD_DIR)
+  ap_fqdn=$(state_get AP_REG_FQDN)
+  if [[ -n "$ddpc_fqdn" && "$ddpc_fqdn" != "$ap_fqdn" ]]; then
+    if [[ -n "$ddpc_ca" && -f "$ddpc_ca" ]]; then
+      echo "  Removing the DDPC-only registry CA from the system trust store: $ddpc_ca"
+      rm -f "$ddpc_ca"
+      if command -v update-ca-certificates >/dev/null 2>&1; then
+        update-ca-certificates >/dev/null 2>&1 || true
+      elif command -v update-ca-trust >/dev/null 2>&1; then
+        update-ca-trust extract 2>/dev/null || true
+      fi
+    fi
+    if [[ -n "$ddpc_certsd" && -d "$ddpc_certsd" ]]; then
+      echo "  Removing the DDPC-only docker registry cert dir: $ddpc_certsd"
+      rm -rf "$ddpc_certsd"
+    fi
+  fi
   state_unset DDPC_BUNDLE_DIR
   state_unset DDPC_BUNDLE_FILE
   state_unset DDPC_CMD_FILE
+  state_unset DDPC_REG_FQDN
+  state_unset DDPC_REG_CA_PATH
+  state_unset DDPC_REG_CERTSD_DIR
   echo "  ddpc-bundle staging removed. The DDPC zip is kept - re-run with --purge-cache to remove the whole $WORKING_DIR tree."
   echo "  To remove DDPC from the cluster (Dell's own uninstall), run:"
   echo "    export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"

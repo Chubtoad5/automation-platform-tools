@@ -385,13 +385,27 @@ display_args() {
 }
 
 mask_secret () {
-    # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11)
+    # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11),
+    # in both its raw and its double-quote-escaped (dq_escape) form.
     local text="$1"
     if [[ -n "$REG_PASS" ]]; then
-        echo "${text//$REG_PASS/********}"
-    else
-        echo "$text"
+        text="${text//$REG_PASS/********}"
+        local esc
+        esc=$(dq_escape "$REG_PASS")
+        [[ "$esc" != "$REG_PASS" ]] && text="${text//$esc/********}"
     fi
+    echo "$text"
+}
+
+dq_escape () {
+    # dq_escape <value> - escapes \ " $ and backtick so <value> can sit inside a double-quoted
+    # shell string verbatim (the generated install-upgrade.sh command blocks quote every value).
+    local v="$1"
+    v="${v//\\/\\\\}"
+    v="${v//\"/\\\"}"
+    v="${v//\$/\\\$}"
+    v="${v//\`/\\\`}"
+    printf '%s' "$v"
 }
 
 build_command_syntax() {
@@ -2812,7 +2826,7 @@ sudo $WORKING_DIR/bundle/install-upgrade.sh \\
   PORTAL_COOKIE_DOMAIN="$PORTAL_COOKIE_DOMAIN" \\
   IMAGE_REG_URL="$REGISTRY_INFO/$REGISTRY_PROJECT_NAME" \\
   IMAGE_REG_USERNAME="$REG_USER" \\
-  IMAGE_REG_PASSWORD="$REG_PASS" \\
+  IMAGE_REG_PASSWORD="$(dq_escape "$REG_PASS")" \\
   REGISTRY_CERT_FILE_PATH="$REG_CERT_FILE_PATH" \\
   SKIP_IMAGES_LOADER="$SKIP_IMAGES_LOADER" \\
   IMAGE_LOADER_THREAD_COUNT="$IMAGE_LOADER_THREAD_COUNT" \\
@@ -2846,7 +2860,7 @@ EOF
     if [[ $REGISTRY_MODE == "1" ]]; then
       cmd_block="$cmd_block
   IMAGE_REG_USERNAME=\"$REG_USER\" \\
-  IMAGE_REG_PASSWORD=\"$REG_PASS\" \\
+  IMAGE_REG_PASSWORD=\"$(dq_escape "$REG_PASS")\" \\
   REGISTRY_CERT_FILE_PATH=\"$REG_CERT_FILE_PATH\" \\"
       reg_note="Registry: $DDPC_REG_URL with the -registry credentials (DDPC creates its own pull secret, distpvtcloud-docker-secret)."
       if [[ -n "$DDPC_SECRET_REG_URL" && "$DDPC_SECRET_REG_URL" != "$DDPC_REG_URL" ]]; then

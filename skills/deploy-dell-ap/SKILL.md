@@ -21,6 +21,7 @@ for. Surface these three things up front (details in the linked references):
 
 | # | Phase | What runs | Where | Rough time |
 |:--|:--|:--|:--|:--|
+| – | *(optional)* DNS server | `install dns-server` — only when the user has **no DNS** for the required records; seeds them from `DNS_DAP_IP` & co. | a **separate** small host (never an RKE2 node) | 2–5 min |
 | 0 | Preflight | `scripts/preflight.sh` (OS/CPU/RAM/disk/DNS) | every node | seconds |
 | 1 | RKE2 cluster | `install rke2` (+`-tls-san` multi-node) | first node | 5–15 min |
 | 2 | Registry | `install harbor` **or** point at an external registry | first node / external | 0–10 min |
@@ -32,7 +33,9 @@ for. Surface these three things up front (details in the linked references):
 
 **2. The hard prerequisites** (the install aborts without them — see [reference/prerequisites.md](reference/prerequisites.md)
 and [reference/dns-and-certs.md](reference/dns-and-certs.md)): the right-sized host(s); the four DNS records
-(`portal.` / `orchestrator.` / `mtls-orchestrator.` / `mtls-recovery-orchestrator.`) resolving **before** phase 4;
+(`portal.` / `orchestrator.` / `mtls-orchestrator.` / `mtls-recovery-orchestrator.`) resolving **before** phase 4
+(no DNS server? `ap-tools install dns-server` on a separate host creates them — see
+[reference/dns-and-certs.md](reference/dns-and-certs.md));
 a reachable OCI registry; accurate NTP; and — if you connect over SSH with a **password** — `sshpass` on **your**
 (controller) machine. Offer to install it (`apt-get install -y sshpass` / `dnf install -y sshpass`); with an SSH
 key you don't need it.
@@ -65,6 +68,11 @@ credentials — if something is missing, ask.
 Never skip RKE2 first. The exact flags and env vars are in
 [reference/commands.md](reference/commands.md) — read it; do not guess flag names.
 
+0. *(only if the user has no DNS)* **DNS server** — on a **separate** small host (never an RKE2 node):
+   `BASE_DOMAIN=<domain> DNS_DAP_FQDN=<host-or-cluster fqdn> DNS_DAP_IP=<host IP | ingress VIP> [DNS_DAP_NODE_IPS="<node IPs>"]
+   [DNS_REGISTRY_IP=…] [DNS_SWFS_IP=…] [DNS_FORWARDERS=…] DNS_ADMIN_PASSWORD=<ref> install dns-server`, then point every
+   DAP/registry host at it (`config static-ip … -dns <dns-host-ip>`) and confirm `getent hosts portal.<fqdn>` resolves.
+   Details in [reference/dns-and-certs.md](reference/dns-and-certs.md) ("Option B").
 1. **RKE2 cluster** — `install rke2` (add `-tls-san <cluster-name>` for multi-node; set `CLUSTER_TYPE=multi-node`
    and, for a dedicated ingress VIP, `LB_IP=<vip>` — see the multi-node box below).
 2. **Registry** — either `install harbor` on this host, or point at an external registry you run. If the
@@ -110,7 +118,8 @@ Then: phase 1 `install rke2 -tls-san <cluster>` with `CLUSTER_TYPE=multi-node LB
    ingress — do not point it at a pre-existing cluster that already has a different ingress controller.
 4. **DNS must resolve before `install ap-bundle`.** Its pre-flight aborts if the portal / orchestrator /
    `mtls-` records don't resolve. **Multi-node:** it derives them from `HOST_FQDN`, so set
-   `HOST_FQDN=<cluster-name>` (step 4 above). See [reference/dns-and-certs.md](reference/dns-and-certs.md).
+   `HOST_FQDN=<cluster-name>` (step 4 above). No DNS server at all? `install dns-server` on a separate host
+   seeds exactly these records. See [reference/dns-and-certs.md](reference/dns-and-certs.md).
 5. **The VIP is for ingress, not the API.** `LB_IP` fronts only the portal/orchestrator. The `-tls-san`
    cluster name must resolve to node IPs and you **join via a node IP** — see the multi-node box above.
 6. **36 GB RAM single-node, 20 GB/node multi-node — and 850 GB disk per node.** RKE2 reserves ~2 GB, so a
@@ -179,7 +188,8 @@ Suggested order when used: install `swfs` any time after `rke2`; install `ddpc-b
 `monitoring` after DAP is verified up.
 
 ## Scope — what this skill does NOT do
-- It does **not** provision infrastructure (VMs, networks, DNS zones) — you create those first; the
-  skill tells you what to create.
+- It does **not** provision infrastructure (VMs, networks) — you create those first; the skill tells
+  you what to create. DNS is the one exception: `install dns-server` can stand up the zone and records on a
+  host you provide.
 - It does **not** manage DAP after install (blueprints, day-2 operations).
 - It does **not** modify the `ap-tools` script itself.

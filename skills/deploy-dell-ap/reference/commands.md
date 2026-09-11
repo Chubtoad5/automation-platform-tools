@@ -17,6 +17,8 @@ ap-tools [COMMAND] [OPTIONS]
 | `install rke2` | RKE2 cluster + MetalLB + HAProxy ingress + Longhorn + k9s | none (optional `-tls-san`, `-registry`, `push`) |
 | `install harbor` | Harbor registry with self-signed certs + projects | none |
 | `install swfs` | Single-node SeaweedFS (S3 / Filer, optional SMB/NFS) | none (optional `-registry`, `push`) |
+| `install dns-server` | Bare-metal Technitium DNS Server on **this** host + seeded DAP/registry/SWFS A records | `DNS_DAP_IP` (+ `DNS_DAP_FQDN` on a dedicated host) to seed the DAP records; **no** `-registry`/`push`/`-tls-san`; refuses an active RKE2 node unless `DNS_ALLOW_COLOCATION=true` |
+| `uninstall dns-server` | Remove the DNS server and restore the host resolver (`/etc/dns` kept unless `PURGE_DATA=true`) | none (`AP_ASSUME_YES=true` skips the prompt) |
 | `install velero` | Velero backups to a SeaweedFS S3 bucket | `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, `VELERO_S3_SECRET_KEY` (multi-cluster: also `VELERO_BUCKET=<cluster-id>`) |
 | `install monitoring` | kube-prometheus-stack + Fluent Bit | `MONITORING_HOST` |
 | `install ap-bundle` | Stage the DAP bundle; emit `ap-install-upgrade-cmd.txt` | `-registry <host:port> <user> <pass>` |
@@ -35,8 +37,9 @@ ap-tools [COMMAND] [OPTIONS]
   with `install rke2`, `install ap-bundle`, `install ddpc-bundle`, `install swfs`, `push`, `join`, `upgrade rke2`.
 
 ## Install order
-`rke2` → (`harbor` and/or `swfs`) → join nodes (multi-node) → `ap-bundle` → run `install-upgrade.sh`
-→ optionally `ddpc-bundle` → run its `install-upgrade.sh` → optionally `velero`, `monitoring`.
+(`dns-server` on a separate host, only when the user has no DNS) → `rke2` → (`harbor` and/or `swfs`) → join nodes
+(multi-node) → `ap-bundle` → run `install-upgrade.sh` → optionally `ddpc-bundle` → run its `install-upgrade.sh`
+→ optionally `velero`, `monitoring`.
 
 ## Key environment variables
 Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
@@ -63,6 +66,14 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 | `SKIP_IMAGES_LOADER` | `false` | `true` if the DAP images are already in your registry (skips re-pushing ~126 images at `install ap-bundle`). |
 | `DOWNLOAD_AP_BUNDLE` | `false` | `true` to download the (~19 GB) bundle during offline-prep/install. |
 | `MGMT_IP` | auto-detected | Override on multi-homed hosts. |
+| `DNS_ZONE` | `$BASE_DOMAIN` | `install dns-server`: the primary zone to create. |
+| `DNS_DAP_FQDN` / `DNS_DAP_IP` | `$HOST_FQDN` / _(empty)_ | `install dns-server`: the DAP host or cluster FQDN and its **ingress** IP (host IP single-node, `LB_IP` multi-node). Empty `DNS_DAP_IP` = DAP records not seeded. On a dedicated DNS host **set `DNS_DAP_FQDN`** (the default is the DNS host's own name). |
+| `DNS_DAP_NODE_IPS` | `$DNS_DAP_IP` | `install dns-server`, multi-node: node IPs for the bare cluster/`-tls-san` name (round-robin). |
+| `DNS_REGISTRY_IP` / `DNS_SWFS_IP` / `DNS_FDO_RV_IP` | _(empty)_ | `install dns-server`: also seed `HARBOR_COMMON_NAME`, the four `SWFS_*_FQDN` names, `rv.dell.fdo`. |
+| `DNS_EXTRA_RECORDS` | _(empty)_ | `install dns-server`: `name=ip,name=ip` extras (FQDN under the zone or bare label). |
+| `DNS_FORWARDERS` | _(empty)_ | `install dns-server`: upstream resolvers for everything outside the zone (`"1.1.1.1, 8.8.8.8"`); empty = root hints. |
+| `DNS_ADMIN_PASSWORD` | `$SWFS_HARBOR_PASS` | `install dns-server`: Technitium `admin` console password (pass by reference / at run time). |
+| `DNS_ALLOW_COLOCATION` | `false` | `install dns-server`: override the refuse-on-RKE2-node gate. Leave `false`. |
 
 > Env-var overrides for the above are honored on the current `main`. (Older revisions hardcoded some of
 > them — if you are on an old checkout and an override is silently ignored, update the repo.)
@@ -83,4 +94,5 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
    `ap-offline.tar.gz`.
 2. Transfer `ap-offline.tar.gz` + `ap-tools` to the target.
 3. On the target: `tar xzf ap-offline.tar.gz` then run `install …` as usual — offline mode is
-   auto-detected by the presence of the archive.
+   auto-detected by the presence of the archive. The Technitium DNS bundle is always inside, so
+   `install dns-server` works from the same archive on the (separate) DNS host.

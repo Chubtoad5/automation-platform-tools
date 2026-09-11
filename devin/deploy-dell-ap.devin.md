@@ -17,6 +17,10 @@ the job.
 - Base domain, and confirmation these A records resolve: `portal.`, `orchestrator.`, `mtls-orchestrator.`,
   `mtls-recovery-orchestrator.`. Single-node → host IP. **Multi-node → the ingress VIP**, plus a cluster/API
   name for `-tls-san` that resolves to the **node IPs** (not the VIP).
+- **No DNS server?** Offer `ap-tools install dns-server` (Technitium) on a **separate** small host — never an
+  RKE2 node. Then collect: that host's IP/SSH; `DNS_DAP_FQDN` (DAP host or cluster FQDN) + `DNS_DAP_IP` (host IP
+  single-node, the VIP multi-node) + `DNS_DAP_NODE_IPS` (multi-node node IPs); `DNS_REGISTRY_IP`/`DNS_SWFS_IP`
+  if those names are wanted; `DNS_FORWARDERS` for everything else; the console password by reference.
 - Multi-node only: whether to use a dedicated floating ingress VIP (`LB_IP`) — a free L2 IP, not a node IP —
   for HA. If used, `portal.`/`orchestrator.`/`mtls-*` DNS point at the VIP. The VIP is **ingress-only**;
   `ap-tools` does not load-balance the Kubernetes API server.
@@ -42,6 +46,7 @@ the job.
 - Wait for explicit user confirmation ("proceed") before changing anything.
 - Run `bash skills/deploy-dell-ap/scripts/preflight.sh --dns <portal,orchestrator,mtls,mtls-recovery> [--multi-node]` on each host and resolve every failure.
 - Clone or checkout this repository on the target host and run `chmod +x ap-tools`.
+- *(only if the user has no DNS)* On the **separate** DNS host: `sudo BASE_DOMAIN=<domain> DNS_DAP_FQDN=<host-or-cluster-fqdn> DNS_DAP_IP=<host-ip|vip> [DNS_DAP_NODE_IPS="<node ips>"] [DNS_REGISTRY_IP=<ip>] [DNS_FORWARDERS="<upstreams>"] DNS_ADMIN_PASSWORD=<pw> ./ap-tools install dns-server`, then point every DAP/registry host at it (`sudo ./ap-tools config static-ip … -dns <dns-host-ip> -domain <domain> --apply`) and confirm `getent hosts portal.<fqdn>` resolves before continuing.
 - Install the cluster: `sudo BASE_DOMAIN=<domain> [NTP_SERVERS=<servers>] ./ap-tools install rke2` (add `-tls-san <cluster-name>`, `CLUSTER_TYPE=multi-node`, and `LB_IP=<free-ingress-vip>` for multi-node HA). Pass the same `NTP_SERVERS` on every node.
 - If no external registry exists, run `sudo BASE_DOMAIN=<domain> ./ap-tools install harbor`.
 - For multi-node, join each additional node with `sudo [NTP_SERVERS=<servers>] ./ap-tools join server|agent <FIRST-NODE-IP> <token> [-tls-san <cluster-name>]` (token at `/var/lib/rancher/rke2/server/node-token`). **Join via the first server's node IP**, not the cluster/VIP name (the cluster name resolves to the ingress VIP or round-robins → the join fails).
@@ -74,5 +79,6 @@ the job.
   cluster/`-tls-san` name → the node IPs. A `*.<cluster>` wildcard → VIP covers the four service records and
   leaves the bare `<cluster>` name free for the node IPs. The VIP is ingress-only, not the API server.
 - DNS must resolve before `install ap-bundle`; multi-node derives the names from `HOST_FQDN`, so set
-  `HOST_FQDN=<cluster-name>`.
+  `HOST_FQDN=<cluster-name>`. With no DNS at all, `install dns-server` on a separate host seeds exactly the
+  required records (it refuses to run on an RKE2 node — Technitium takes over port 53 and the host resolver).
 - The full CLI contract, DNS examples, and a troubleshooting tree live in `skills/deploy-dell-ap/reference/`.

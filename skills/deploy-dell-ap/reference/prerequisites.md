@@ -59,6 +59,9 @@ Primary test matrix: Ubuntu 22.04+, RHEL 9.2+, SLES 15 SP7.
 - **Harbor** (only if you don't already have a registry): ~4 vCPU / 8 GB / 500 GB. Can be a separate
   host.
 - **SeaweedFS** (only if you want Velero backups): ~2–4 vCPU / 4–8 GB, storage sized to your artifacts.
+- **DNS server** (only if you have no DNS for the required records — `install dns-server`): ~2 vCPU / 2–4 GB /
+  20 GB, static IP, ports 53 (tcp/udp) + 5380 reachable. **Must be its own host, never an RKE2 node** (it takes
+  over port 53 and the host resolver). See [dns-and-certs.md](dns-and-certs.md) "Option B".
 
 Co-locating a registry or storage service on the RKE2 host is discouraged — port and resource
-contention with the platform services.
+contention with the platform services. Co-locating the DNS server there is refused by the tool.

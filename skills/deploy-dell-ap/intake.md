@@ -35,6 +35,14 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
   (`LB_VIP` is a deprecated alias for `LB_IP`.) See [reference/topology.md](reference/topology.md).
 - A wildcard `*.<cluster>` → the VIP covers the four service records, while the bare `<cluster>` name stays a
   separate record set → the node IPs. See [reference/dns-and-certs.md](reference/dns-and-certs.md).
+- **No DNS server at all?** Offer `ap-tools install dns-server` (a Technitium DNS Server) on a **separate**
+  small host — never on an RKE2 node. Then collect: that host's IP + SSH access; the zone (`DNS_ZONE`, default
+  = base domain); the DAP host/cluster FQDN (`DNS_DAP_FQDN`) and its ingress IP (`DNS_DAP_IP` = host IP single-node,
+  the VIP multi-node) plus the node IPs (`DNS_DAP_NODE_IPS`, multi-node); the registry / SeaweedFS IPs if those
+  names should be seeded (`DNS_REGISTRY_IP` / `DNS_SWFS_IP`); upstream resolvers for everything else
+  (`DNS_FORWARDERS`, empty in a closed air-gap); and the console password **by reference** (`DNS_ADMIN_PASSWORD`).
+  Every DAP/registry host must then use that server as its resolver (`config static-ip … -dns <ip>`).
+  See "Option B" in [reference/dns-and-certs.md](reference/dns-and-certs.md).
 
 ## 4. Container registry
 - Install Harbor via ap-tools on this host, **or** use an external OCI registry?

@@ -27,6 +27,7 @@ user_set_harbor_port="${HARBOR_PORT+x}"
 user_set_harbor_version="${HARBOR_VERSION+x}"
 user_set_purge_data="${PURGE_DATA+x}"
 user_set_swfs_remove_images="${SWFS_REMOVE_IMAGES+x}"
+user_set_dns_remove_dotnet="${DNS_REMOVE_DOTNET+x}"
 
 # --- USER DEFINED CONFIGURATION VARIABLES --- #
 # Every variable in this section is override-friendly (VAR="${VAR:-default}"): set it
@@ -121,6 +122,52 @@ ARTIFACTS_TO_DOWNLOAD="${ARTIFACTS_TO_DOWNLOAD:-https://cloud-images.ubuntu.com/
 ENABLE_MONITORING="${ENABLE_MONITORING:-true}"
 MON_CLUSTER_NAME=${MON_CLUSTER_NAME:-"edge-lab"}
 
+# DNS Server (Technitium) Configuration - used by 'install dns-server' / 'uninstall dns-server'.
+# A bare-metal Technitium DNS Server via technitium_dns_installer.sh (no containers, no registry).
+# Meant for its OWN host: it binds :53 and points this host's resolver at 127.0.0.1, which breaks
+# in-cluster DNS on an RKE2 node (see dns_server_preflight). The DAP/registry/SWFS hosts then use
+# it as their resolver ('config static-ip ... -dns <this host>'). Pass-through variables carry a
+# DNS_ prefix here where the installer's own name is generic (ENABLE_HTTPS, ENABLE_DNSSEC, ...).
+DNS_ADMIN_PASSWORD="${DNS_ADMIN_PASSWORD:-$SWFS_HARBOR_PASS}"   # Technitium 'admin' console password (defaults to the Harbor/SeaweedFS password). Never printed.
+DNS_ADMIN_CURRENT_PASSWORD="${DNS_ADMIN_CURRENT_PASSWORD:-}"   # Rotation: the previous password when re-running with a NEW DNS_ADMIN_PASSWORD
+DNS_WEB_PORT="${DNS_WEB_PORT:-5380}"                            # Web console HTTP port
+DNS_ENABLE_HTTPS="${DNS_ENABLE_HTTPS:-false}"                   # Serve the console over self-signed HTTPS (installer: ENABLE_HTTPS)
+DNS_HTTPS_PORT="${DNS_HTTPS_PORT:-53443}"                       # HTTPS console port when DNS_ENABLE_HTTPS=true
+DNS_FORWARDERS="${DNS_FORWARDERS:-}"                            # Comma list of upstream resolvers, e.g. "1.1.1.1, 8.8.8.8"; empty = root-hint recursion (air-gap: the site resolver, or empty)
+DNS_FORWARDER_PROTOCOL="${DNS_FORWARDER_PROTOCOL:-Udp}"         # Udp | Tcp | Tls | Https
+DNS_ENABLE_DNSSEC="${DNS_ENABLE_DNSSEC:-false}"                 # Sign the zones created from the template (installer: ENABLE_DNSSEC)
+DNSSEC_ALGORITHM="${DNSSEC_ALGORITHM:-ECDSA}"                   # ECDSA | RSA | EDDSA
+DNSSEC_CURVE="${DNSSEC_CURVE:-P256}"                            # for ECDSA: P256 | P384
+DNS_RECORD_TTL="${DNS_RECORD_TTL:-3600}"                        # TTL of the A records created from the template
+DNS_DISABLE_SYSTEMD_RESOLVED="${DNS_DISABLE_SYSTEMD_RESOLVED:-true}"  # true = stop systemd-resolved and point this host at 127.0.0.1 (installer: DISABLE_SYSTEMD_RESOLVED)
+DNS_ALLOW_COLOCATION="${DNS_ALLOW_COLOCATION:-false}"           # true = allow 'install dns-server' on a host running rke2 (NOT recommended - breaks in-cluster DNS for the lab names)
+DNS_ZONES_TEMPLATE="${DNS_ZONES_TEMPLATE:-}"                    # Path to your own Technitium zone/record template; when set it REPLACES the generated one (the seeding inputs below are ignored)
+DNS_ENABLE_DHCP="${DNS_ENABLE_DHCP:-false}"                     # Create + enable a DHCP scope (installer: ENABLE_DHCP; needs DHCP_START_ADDRESS/DHCP_END_ADDRESS). Forwarded as-is, not exercised by ap-tools' own tests.
+DHCP_SCOPE_NAME="${DHCP_SCOPE_NAME:-Default}"                   # DHCP_* are passed through to technitium_dns_installer.sh unchanged
+DHCP_START_ADDRESS="${DHCP_START_ADDRESS:-}"
+DHCP_END_ADDRESS="${DHCP_END_ADDRESS:-}"
+DHCP_SUBNET_MASK="${DHCP_SUBNET_MASK:-255.255.255.0}"
+DHCP_ROUTER="${DHCP_ROUTER:-}"
+DHCP_DNS_SERVERS="${DHCP_DNS_SERVERS:-}"                        # empty = advertise this DNS server
+DHCP_DOMAIN="${DHCP_DOMAIN:-}"
+DHCP_DNS_SEARCH="${DHCP_DNS_SEARCH:-}"
+DHCP_NTP_SERVERS="${DHCP_NTP_SERVERS:-}"
+DHCP_DNS_UPDATES="${DHCP_DNS_UPDATES:-true}"
+DHCP_LEASE_DAYS="${DHCP_LEASE_DAYS:-1}"
+DHCP_SCOPE_ENABLED="${DHCP_SCOPE_ENABLED:-true}"
+DNS_REMOVE_DOTNET="${DNS_REMOVE_DOTNET:-false}"                 # 'uninstall dns-server' also removes /opt/dotnet (installer: REMOVE_DOTNET)
+# Record seeding: ap-tools generates the installer's zone template with the DAP / registry / SWFS
+# names so the platform's DNS pre-flights pass without hand-made records. Every seeded name must
+# sit under DNS_ZONE. The template is regenerated on every run, so a changed IP converges.
+DNS_ZONE="${DNS_ZONE:-$BASE_DOMAIN}"                            # Primary zone to create
+DNS_DAP_FQDN="${DNS_DAP_FQDN:-$HOST_FQDN}"                      # The DAP host (single-node) or cluster (multi-node) FQDN the portal/orchestrator/mtls names hang off. On a dedicated DNS host set this (or HOST_FQDN) explicitly.
+DNS_DAP_IP="${DNS_DAP_IP:-}"                                    # DAP ingress IP: the DAP host IP (single-node) or LB_IP (multi-node). Empty = the DAP records are not seeded
+DNS_DAP_NODE_IPS="${DNS_DAP_NODE_IPS:-}"                        # Space/comma list of node IPs for the bare DNS_DAP_FQDN record (the multi-node -tls-san name, round-robin). Empty = DNS_DAP_IP
+DNS_REGISTRY_IP="${DNS_REGISTRY_IP:-}"                          # IP for HARBOR_COMMON_NAME. Empty = not seeded
+DNS_SWFS_IP="${DNS_SWFS_IP:-}"                                  # IP for the four SWFS_*_FQDN names. Empty = not seeded
+DNS_FDO_RV_IP="${DNS_FDO_RV_IP:-}"                              # IP for rv.dell.fdo (local FDO rendezvous for air-gapped device onboarding). Empty = not seeded
+DNS_EXTRA_RECORDS="${DNS_EXTRA_RECORDS:-}"                      # Extra A records "name=ip,name=ip": a FQDN under DNS_ZONE, a bare label, or '*.label' (deeper relative names must be FQDNs); repeat a name for round-robin
+
 # Velero Backup Configuration
 VELERO_VERSION=${VELERO_VERSION:-"v1.18.0"}
 VELERO_AWS_PLUGIN_VERSION=${VELERO_AWS_PLUGIN_VERSION:-"v1.14.0"}
@@ -213,6 +260,7 @@ base_dir=$(pwd)
 mgmt_if=$(ip -o -4 addr show | awk -v ip="$MGMT_IP" '$4 ~ "^"ip"/" {print $2; exit}')
 WORKING_DIR="$base_dir/ap-install"
 DDPC_BUNDLE_DIR="$WORKING_DIR/ddpc-bundle"   # install-time extraction of the DDPC zip (sibling of ap-install/bundle)
+DNS_SERVER_DIR="$WORKING_DIR/ap-utilities/dns"   # technitium_dns_installer.sh, its save archive and the generated zone template
 UPGRADE_MODE=0
 UPGRADE_TYPE=""
 UPGRADE_VERSION=""
@@ -235,6 +283,7 @@ DDPC_REG_SOURCE=""       # where DDPC_REG_URL came from: '-registry' or 'docker-
 DDPC_SECRET_REG_URL=""   # registry recorded in the orchestrator's docker-secret (what DAP itself pulls from)
 DDPC_EXISTING_RELEASE="" # '<status> <version>' of an already-present DDPC helm release, empty when none
 DDPC_DAP_VERSION=""      # deployed DAP orchestrator app version found by the DDPC pre-flight
+DNS_ZONES_FILE=""        # zone template handed to technitium_dns_installer.sh ('' = nothing to seed)
 # jq helpers shared by the resource gates (AP-2): normalise every Kubernetes quantity to a
 # NUMBER - millicores -> cores; memory/ephemeral-storage -> GB (Ki/Mi/Gi/Ti binary suffixes,
 # K/M/G/T decimal, bare = bytes) - so multi-node 'add' sums instead of concatenating strings.
@@ -267,12 +316,13 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 swfs_feature_branch="${swfs_feature_branch:-main}"
 rke2_feature_branch="${rke2_feature_branch:-main}"
 harbor_feature_branch="${harbor_feature_branch:-main}"
+dns_feature_branch="${dns_feature_branch:-main}"
 
 # --- USAGE FUNCTION --- #
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [install rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring] [uninstall rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring] [uninstall rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -287,13 +337,17 @@ Commands:
                  omitted, the orchestrator's existing docker-secret registry is reused.
     [harbor]     Installs the harbor registry.
     [swfs]       Installs a single-node SeaweedFS server for artifact storage.
+    [dns-server] Installs a bare-metal Technitium DNS Server on THIS host (technitium_dns_installer.sh) and seeds
+                 the DAP / registry / SWFS A records from DNS_DAP_IP, DNS_REGISTRY_IP, DNS_SWFS_IP, DNS_EXTRA_RECORDS.
+                 Meant for a dedicated DNS host: refuses an active rke2 node unless DNS_ALLOW_COLOCATION=true.
+                 Cannot be combined with [-registry], [push] or [-tls-san] (no images, no cluster role).
     [velero]     Installs Velero backup with CSI snapshot support, Longhorn integration, and SeaweedFS S3 storage.
                  Delegates to rke2_installer.sh. Requires VELERO_S3_ACCESS_KEY, VELERO_S3_SECRET_KEY, and VELERO_S3_URL.
     [monitoring] Installs kube-prometheus-stack + Fluent Bit in the RKE2 cluster and configures ServiceMonitor auto-discovery.
 
   uninstall    : Uninstalls the specified component, reverting only what ap-tools/its sub-installers changed
                  (recorded in /var/lib/ap-tools/state.env and the sub-installers' own state files).
-                 Destructive targets (rke2, harbor, swfs) require typing 'yes-destroy' to confirm;
+                 Destructive targets (rke2, harbor, swfs, dns-server) require typing 'yes-destroy' to confirm;
                  set AP_ASSUME_YES=true to skip the prompt in automation.
     [rke2]       Tears down this cluster node via rke2_installer.sh uninstall. DESTROYS Longhorn PVs.
     [ap-bundle]  Removes the DAP staging: bundle tree, ap-install-upgrade-cmd.txt, registry CA trust and
@@ -304,13 +358,15 @@ Commands:
                  other than DAP's own. Does NOT uninstall DDPC itself - it prints the helm/kubectl commands that do.
     [harbor]     Delegates to install_harbor.sh uninstall-harbor.
     [swfs]       Delegates to install-seaweedfs uninstall.
+    [dns-server] Delegates to technitium_dns_installer.sh uninstall: removes the DNS server and restores this host's
+                 resolver. PURGE_DATA=true also deletes /etc/dns; DNS_REMOVE_DOTNET=true also removes /opt/dotnet.
     [velero]     Removes Velero from the cluster (S3 backups are kept).
     [monitoring] Removes kube-prometheus-stack + Fluent Bit from the cluster.
     [--purge-cache]  Also remove the ~20GB working cache (\$PWD/ap-install: bundle zip, cached
                  sub-installers, helm charts). Valid with any uninstall target.
 
   offline-prep : Creates an offline tar package which contains all dependencies for an air-gapped installation.
-                 Includes Velero CLI and container images.
+                 Includes Velero CLI, container images and the Technitium DNS Server bundle.
                  Cannot be used with [install] [push] [join].
 
   push         : Pushes all kubernetes and utility container images to the specified registry.
@@ -604,6 +660,225 @@ run_install_harbor () {
   COUNTRY=$COUNTRY STATE=$STATE LOCATION=$LOCATION ORGANIZATION=$ORGANIZATION DURATION_DAYS=$DURATION_DAYS REGISTRY_COMMON_NAME=$HARBOR_COMMON_NAME \
   DEBUG=$DEBUG ./install_harbor.sh install-harbor
   cd $base_dir
+}
+
+# -- DNS server (Technitium) -- #
+# technitium_dns_installer.sh is consumed through its documented contract: 'install' (online
+# wraps upstream install.sh; offline auto-selected by the technitium-save-version.txt sentinel
+# next to the script), 'save' (air-gap bundle) and 'uninstall' (state-driven, restores the
+# resolver). Its configuration is env-driven; the DAP-facing records are handed over as a
+# generated ZONES_TEMPLATE file.
+
+dns_server_preflight () {
+  # Co-location gate: Technitium binds :53 and rewrites this host's resolver to 127.0.0.1.
+  # On an RKE2 node that leaves CoreDNS with a loopback-only resolv.conf, so rke2 substitutes
+  # a public fallback (8.8.8.8) and pods can no longer resolve the lab names; systemd-resolved's
+  # stub listener also collides on :53. A dedicated DNS host avoids all of it.
+  local unit
+  for unit in rke2-server rke2-agent; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+      if [[ "${DNS_ALLOW_COLOCATION,,}" == "true" ]]; then
+        echo "  WARNING: $unit is active on this host and DNS_ALLOW_COLOCATION=true - continuing."
+        echo "  Expect in-cluster lookups of the DAP/registry names to break once this host's resolver is 127.0.0.1."
+      else
+        echo "Error: $unit is active on this host. 'install dns-server' is meant for a dedicated DNS host:"
+        echo "  Technitium binds :53 and points this host's resolver at 127.0.0.1; rke2 then hands CoreDNS a"
+        echo "  loopback-free fallback (8.8.8.8), so pods can no longer resolve the DAP/registry names, and"
+        echo "  systemd-resolved's stub listener collides on :53."
+        echo "  Install the DNS server on another host, then point the cluster nodes at it"
+        echo "  ('config static-ip ... -dns <dns-host-ip>'). Set DNS_ALLOW_COLOCATION=true to override."
+        exit 1
+      fi
+    fi
+  done
+  # Port 53 must be free apart from systemd-resolved (the installer stops it) and Technitium
+  # itself (a re-run). Anything else (dnsmasq, bind/named, unbound, ...) is a real conflict.
+  if command -v ss >/dev/null 2>&1; then
+    local holders
+    holders=$(ss -Hlntup 'sport = :53' 2>/dev/null | grep -oE 'users:\(\("[^"]+"' | cut -d'"' -f2 | sort -u \
+              | grep -vE '^(systemd-resolve|systemd-resolved|dotnet|DnsService)$' || true)
+    if [[ -n "$holders" ]]; then
+      echo "Error: port 53 is already in use by: $(echo "$holders" | xargs)."
+      echo "  Stop/remove that resolver before installing Technitium on this host (it must own :53)."
+      exit 1
+    fi
+  else
+    echo "  NOTE: 'ss' not found - skipping the port-53 conflict check."
+  fi
+  if [[ "${DNS_DISABLE_SYSTEMD_RESOLVED,,}" != "true" ]] && systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+    echo "  WARNING: DNS_DISABLE_SYSTEMD_RESOLVED=false while systemd-resolved is active: its stub listener"
+    echo "  (127.0.0.53:53) can keep Technitium from binding port 53. Disable the stub listener yourself."
+  fi
+  if [[ "$DNS_ADMIN_PASSWORD" == "changeme" ]]; then
+    echo "  WARNING: DNS_ADMIN_PASSWORD is the default 'changeme' - set it (or SWFS_HARBOR_PASS) before exposing the console."
+  fi
+  if [[ ! "$DNS_ZONE" =~ $fqdn_pattern ]]; then
+    echo "Error: DNS_ZONE '$DNS_ZONE' is not a valid zone name (e.g. edge.lab)."
+    exit 1
+  fi
+  if [[ -n "$DNS_ZONES_TEMPLATE" ]]; then
+    if [[ ! -f "$DNS_ZONES_TEMPLATE" ]]; then
+      echo "Error: DNS_ZONES_TEMPLATE '$DNS_ZONES_TEMPLATE' does not exist."
+      exit 1
+    fi
+    # The installer runs from ap-utilities/dns/, so a path relative to the invoking
+    # directory would silently miss there (the installer only warns and skips zones).
+    DNS_ZONES_TEMPLATE=$(readlink -f "$DNS_ZONES_TEMPLATE")
+    if [[ -n "$DNS_DAP_IP$DNS_REGISTRY_IP$DNS_SWFS_IP$DNS_FDO_RV_IP$DNS_EXTRA_RECORDS" ]]; then
+      echo "  NOTE: DNS_ZONES_TEMPLATE is set - the DNS_DAP_IP / DNS_REGISTRY_IP / DNS_SWFS_IP / DNS_FDO_RV_IP / DNS_EXTRA_RECORDS seeding inputs are ignored."
+    fi
+  fi
+}
+
+dns_zone_relative () {
+  # dns_zone_relative <name> - prints <name> relative to DNS_ZONE in the installer's template
+  # format ('@' = the zone apex, dotted labels allowed); a bare label is already relative.
+  # Fails when a dotted name is not under DNS_ZONE.
+  local fqdn="${1%.}"
+  fqdn="${fqdn,,}"
+  if [[ "$fqdn" == "$DNS_ZONE" ]]; then
+    echo "@"
+  elif [[ "$fqdn" == *".$DNS_ZONE" ]]; then
+    echo "${fqdn%".$DNS_ZONE"}"
+  elif [[ "$fqdn" != *.* ]]; then
+    echo "$fqdn"
+  elif [[ "$fqdn" == \*.* && "${fqdn#\*.}" != *.* ]]; then
+    echo "$fqdn"          # '*.label' - a single-level zone-relative wildcard
+  else
+    echo "Error: '$fqdn' is not under DNS_ZONE '$DNS_ZONE'. Give a FQDN under the zone, a bare label, or '*.label'; or set DNS_ZONE to the zone these names live in." >&2
+    return 1
+  fi
+}
+
+dns_seed_add () {
+  # dns_seed_add <zone> <name> <ipv4> - queues one A record for the generated template (deduped).
+  # Uses the caller's (generate_dns_zone_template) dns_seed_* arrays via bash dynamic scoping.
+  local zone="$1" name="$2" ip="$3" rel
+  if [[ ! "$ip" =~ $ipv4_pattern ]]; then
+    echo "Error: '$ip' (for $name) is not a valid IPv4 address." >&2
+    return 1
+  fi
+  if [[ "$zone" == "$DNS_ZONE" ]]; then
+    rel=$(dns_zone_relative "$name") || return 1
+  else
+    rel="$name"
+  fi
+  local key="$zone|$rel $ip"
+  [[ -n "${dns_seed_seen[$key]:-}" ]] && return 0
+  dns_seed_seen[$key]=1
+  if [[ "$zone" == "$DNS_ZONE" ]]; then
+    dns_seed_zone+=("$rel $ip")
+  else
+    dns_seed_fdo+=("$rel $ip")
+  fi
+}
+
+generate_dns_zone_template () {
+  # Writes the zone/record template technitium_dns_installer.sh consumes ('# <zone>' header,
+  # '<name> <ipv4>' lines relative to the zone, '@' = apex, ';' = comment) from the DNS_*
+  # seeding inputs. Regenerated on every run: the installer converges each name's A-record set
+  # to the template, so a changed IP replaces the stale record. Sets DNS_ZONES_FILE ('' when
+  # there is nothing to seed).
+  local -A dns_seed_seen=()
+  local -a dns_seed_zone=() dns_seed_fdo=()
+  local ip name entry
+  DNS_ZONES_FILE=""
+  if [[ -n "$DNS_DAP_IP" ]]; then
+    for name in "portal.$DNS_DAP_FQDN" "orchestrator.$DNS_DAP_FQDN" "mtls-orchestrator.$DNS_DAP_FQDN" "mtls-recovery-orchestrator.$DNS_DAP_FQDN"; do
+      dns_seed_add "$DNS_ZONE" "$name" "$DNS_DAP_IP" || exit 1
+    done
+    local -a node_ips=()
+    IFS=', ' read -r -a node_ips <<< "${DNS_DAP_NODE_IPS:-$DNS_DAP_IP}"
+    for ip in "${node_ips[@]}"; do
+      [[ -n "$ip" ]] || continue
+      dns_seed_add "$DNS_ZONE" "$DNS_DAP_FQDN" "$ip" || exit 1
+    done
+  fi
+  if [[ -n "$DNS_REGISTRY_IP" ]]; then
+    dns_seed_add "$DNS_ZONE" "$HARBOR_COMMON_NAME" "$DNS_REGISTRY_IP" || exit 1
+  fi
+  if [[ -n "$DNS_SWFS_IP" ]]; then
+    for name in "$SWFS_ADMIN_FQDN" "$SWFS_MASTER_FQDN" "$SWFS_FILER_FQDN" "$SWFS_S3_FQDN"; do
+      dns_seed_add "$DNS_ZONE" "$name" "$DNS_SWFS_IP" || exit 1
+    done
+  fi
+  if [[ -n "$DNS_FDO_RV_IP" ]]; then
+    dns_seed_add "dell.fdo" "rv" "$DNS_FDO_RV_IP" || exit 1
+  fi
+  if [[ -n "$DNS_EXTRA_RECORDS" ]]; then
+    # read -a (not an unquoted $(...) expansion): a '*.apps...' entry must never be globbed
+    local -a extra_entries=()
+    IFS=', ' read -r -a extra_entries <<< "$DNS_EXTRA_RECORDS"
+    for entry in "${extra_entries[@]}"; do
+      [[ -n "$entry" ]] || continue
+      if [[ "$entry" != *=* ]]; then
+        echo "Error: DNS_EXTRA_RECORDS entry '$entry' must be name=ip."
+        exit 1
+      fi
+      dns_seed_add "$DNS_ZONE" "${entry%%=*}" "${entry#*=}" || exit 1
+    done
+  fi
+  if [[ ${#dns_seed_zone[@]} -eq 0 && ${#dns_seed_fdo[@]} -eq 0 ]]; then
+    echo "  No DNS records to seed (DNS_DAP_IP / DNS_REGISTRY_IP / DNS_SWFS_IP / DNS_FDO_RV_IP / DNS_EXTRA_RECORDS are all empty)."
+    echo "  The server is installed without zones; add them in the web console or re-run with the DNS_* inputs set."
+    return 0
+  fi
+  DNS_ZONES_FILE="$DNS_SERVER_DIR/zones.txt"
+  {
+    echo "; ap-tools generated Technitium zone template - $(date)"
+    echo "; Regenerated on every 'install dns-server' from the DNS_* inputs - edit those, not this file."
+    if [[ ${#dns_seed_zone[@]} -gt 0 ]]; then
+      echo ""
+      echo "# $DNS_ZONE"
+      printf '%s\n' "${dns_seed_zone[@]}"
+    fi
+    if [[ ${#dns_seed_fdo[@]} -gt 0 ]]; then
+      echo ""
+      echo "# dell.fdo"
+      printf '%s\n' "${dns_seed_fdo[@]}"
+    fi
+  } > "$DNS_ZONES_FILE"
+  echo "  Generated zone template $DNS_ZONES_FILE:"
+  sed 's/^/    /' "$DNS_ZONES_FILE"
+}
+
+run_install_dns_server () {
+  cd "$DNS_SERVER_DIR"
+  if [[ $AIR_GAPPED_MODE == "0" ]]; then
+    fetch_subtool "$DNS_SERVER_DIR/technitium_dns_installer.sh" \
+      "https://github.com/Chubtoad5/technitium-dns-installer/raw/refs/heads/$dns_feature_branch/technitium_dns_installer.sh" "$dns_feature_branch"
+  else
+    # The save archive carries the installer, the technitium-save-version.txt sentinel and the
+    # bundle at its top level, and the installer anchors sentinel detection to its own
+    # directory - extracting here is all the offline path needs.
+    tar xzf "$DNS_SERVER_DIR/technitium-save.tar.gz"
+  fi
+  local zones_template="$DNS_ZONES_TEMPLATE"
+  if [[ -z "$zones_template" ]]; then
+    generate_dns_zone_template
+    zones_template="$DNS_ZONES_FILE"
+  else
+    DNS_ZONES_FILE="$zones_template"
+    echo "  Using the user-supplied zone template $zones_template"
+  fi
+  # Prefix assignments are quoted: the password and the forwarder list may contain spaces or
+  # shell metacharacters. The installer never logs or puts DNS_ADMIN_PASSWORD on a command line.
+  DEBUG="$DEBUG" DNS_ADMIN_PASSWORD="$DNS_ADMIN_PASSWORD" DNS_ADMIN_CURRENT_PASSWORD="$DNS_ADMIN_CURRENT_PASSWORD" \
+  DNS_WEB_PORT="$DNS_WEB_PORT" ENABLE_HTTPS="$DNS_ENABLE_HTTPS" DNS_HTTPS_PORT="$DNS_HTTPS_PORT" \
+  DISABLE_SYSTEMD_RESOLVED="$DNS_DISABLE_SYSTEMD_RESOLVED" \
+  ZONES_TEMPLATE="$zones_template" DNS_RECORD_TTL="$DNS_RECORD_TTL" \
+  DNS_FORWARDERS="$DNS_FORWARDERS" DNS_FORWARDER_PROTOCOL="$DNS_FORWARDER_PROTOCOL" \
+  ENABLE_DNSSEC="$DNS_ENABLE_DNSSEC" DNSSEC_ALGORITHM="$DNSSEC_ALGORITHM" DNSSEC_CURVE="$DNSSEC_CURVE" \
+  ENABLE_DHCP="$DNS_ENABLE_DHCP" DHCP_SCOPE_NAME="$DHCP_SCOPE_NAME" DHCP_START_ADDRESS="$DHCP_START_ADDRESS" \
+  DHCP_END_ADDRESS="$DHCP_END_ADDRESS" DHCP_SUBNET_MASK="$DHCP_SUBNET_MASK" DHCP_ROUTER="$DHCP_ROUTER" \
+  DHCP_DNS_SERVERS="$DHCP_DNS_SERVERS" DHCP_DOMAIN="$DHCP_DOMAIN" DHCP_DNS_SEARCH="$DHCP_DNS_SEARCH" \
+  DHCP_NTP_SERVERS="$DHCP_NTP_SERVERS" DHCP_DNS_UPDATES="$DHCP_DNS_UPDATES" DHCP_LEASE_DAYS="$DHCP_LEASE_DAYS" \
+  DHCP_SCOPE_ENABLED="$DHCP_SCOPE_ENABLED" \
+  ./technitium_dns_installer.sh install
+  cd $base_dir
+  state_set DNS_SERVER_INSTALLED "true"
+  state_set DNS_WEB_PORT "$DNS_WEB_PORT"
+  state_set DNS_ZONES_FILE "$DNS_ZONES_FILE"
 }
 
 run_install_velero () {
@@ -1409,6 +1684,10 @@ firewalld_selinux_preflight () {
       ap-bundle|ddpc-bundle)
         echo "  DAP ingress (80/443 via HAProxy) and the registry port must be reachable from clients."
         ;;
+      dns-server)
+        echo "  DNS needs 53/udp+tcp and the console port ($DNS_WEB_PORT) reachable from clients;"
+        echo "  technitium_dns_installer.sh opens them itself (firewalld/UFW) and records them for uninstall."
+        ;;
       *)
         echo "  Cluster traffic (6443/9345, CNI, ingress 80/443) must not be blocked between nodes;"
         echo "  rke2_installer.sh disables firewalld on cluster nodes during install/join."
@@ -1863,6 +2142,34 @@ run_uninstall_swfs () {
   echo "  swfs uninstall complete."
 }
 
+run_uninstall_dns_server () {
+  confirm_destructive "'uninstall dns-server' removes the Technitium DNS Server from this host and hands the host resolver back to its pre-install state." \
+    "Zone/config data in /etc/dns is preserved unless PURGE_DATA=true; the .NET runtime in /opt/dotnet stays unless DNS_REMOVE_DOTNET=true." \
+    "Hosts that use this server as their resolver lose name resolution."
+  if [[ ! -f $DNS_SERVER_DIR/technitium_dns_installer.sh ]]; then
+    if [[ $AIR_GAPPED_MODE == "1" && -f $DNS_SERVER_DIR/technitium-save.tar.gz ]]; then
+      cd "$DNS_SERVER_DIR"
+      tar xzf technitium-save.tar.gz
+      cd $base_dir
+    else
+      fetch_subtool "$DNS_SERVER_DIR/technitium_dns_installer.sh" \
+        "https://github.com/Chubtoad5/technitium-dns-installer/raw/refs/heads/$dns_feature_branch/technitium_dns_installer.sh" "$dns_feature_branch"
+    fi
+  fi
+  cd "$DNS_SERVER_DIR"
+  # Forward ONLY user-set values: the installer's own /opt/technitium/.installer-state governs
+  # the resolver/firewall restore, and its uninstall is a no-op on a never-installed host.
+  local fwd=("DEBUG=$DEBUG")
+  [[ -n "$user_set_purge_data" ]] && fwd+=("PURGE_DATA=$PURGE_DATA")
+  [[ -n "$user_set_dns_remove_dotnet" ]] && fwd+=("REMOVE_DOTNET=$DNS_REMOVE_DOTNET")
+  env "${fwd[@]}" ./technitium_dns_installer.sh uninstall
+  cd $base_dir
+  state_unset DNS_SERVER_INSTALLED
+  state_unset DNS_WEB_PORT
+  state_unset DNS_ZONES_FILE
+  echo "  dns-server uninstall complete."
+}
+
 run_uninstall_velero () {
   echo "  Uninstalling Velero from the cluster (backups stored on S3 are NOT deleted)..."
   export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
@@ -2017,6 +2324,7 @@ run_uninstall () {
     rke2)       run_uninstall_rke2 ;;
     harbor)     run_uninstall_harbor ;;
     swfs)       run_uninstall_swfs ;;
+    dns-server) run_uninstall_dns_server ;;
     velero)     run_uninstall_velero ;;
     monitoring) run_uninstall_monitoring ;;
     ap-bundle)  run_uninstall_ap_bundle ;;
@@ -2081,6 +2389,8 @@ run_offline_prep () {
     run_debug download_swfs
     echo "  Downloading Harbor binaries..."
     run_debug download_harbor
+    echo "  Downloading Technitium DNS Server binaries..."
+    run_debug download_dns_server
     echo "  Downloading dependancy helm charts..."
     run_debug download_helm_binaries
     run_debug image_pull_push_check
@@ -2118,6 +2428,17 @@ download_harbor () {
     "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
   cd $WORKING_DIR/ap-utilities/harbor
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
+  cd $base_dir
+}
+
+download_dns_server () {
+  # technitium_dns_installer.sh save -> technitium-save.tar.gz next to the script (DNS package,
+  # ASP.NET Core runtime, libicu via install-packages, the installer + sentinel, its own LICENSES/).
+  # The bundle is OS-family/arch specific, like the rest of ap-offline.tar.gz.
+  fetch_subtool "$DNS_SERVER_DIR/technitium_dns_installer.sh" \
+    "https://github.com/Chubtoad5/technitium-dns-installer/raw/refs/heads/$dns_feature_branch/technitium_dns_installer.sh" "$dns_feature_branch"
+  cd "$DNS_SERVER_DIR"
+  DEBUG="$DEBUG" LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./technitium_dns_installer.sh save
   cd $base_dir
 }
 
@@ -2326,12 +2647,19 @@ generate_bundle_licenses () {
         echo "  Grafana ........................................ AGPL-3.0          (see WRITTEN_OFFER.txt)"
         echo "  HAProxy (within haproxytech ingress image v${HAPROXY_APP_VERSION}) GPL-2.0-or-later (see WRITTEN_OFFER.txt)"
         echo ""
+        echo "Bare-metal components bundled for 'install dns-server' (ap-utilities/dns/technitium-save.tar.gz,"
+        echo "which carries its own LICENSES/ manifest and offer):"
+        echo ""
+        echo "  Technitium DNS Server (DnsServerPortable) ...... GPL-3.0           (see WRITTEN_OFFER.txt)"
+        echo "  .NET / ASP.NET Core runtime .................... MIT"
+        echo "  libicu (OS package) ............................ Unicode/ICU"
+        echo ""
         echo "The Dell Automation Platform bundle itself is proprietary Dell software (you must"
         echo "be entitled to it; it is NOT redistributed by this project). The installer scripts"
         echo "are Apache-2.0 (Chubtoad5). Each bundled image carries its own license/notice."
     } > "$dir/THIRD_PARTY_NOTICES.txt"
     cat > "$dir/WRITTEN_OFFER.txt" <<EOF
-WRITTEN OFFER FOR CORRESPONDING SOURCE CODE (AGPL-3.0 / GPL-2.0+)
+WRITTEN OFFER FOR CORRESPONDING SOURCE CODE (AGPL-3.0 / GPL-2.0+ / GPL-3.0)
 
 This air-gap bundle redistributes, in object (image) form, components under copyleft
 licenses:
@@ -2341,6 +2669,8 @@ licenses:
     Kubernetes Ingress image,
     app v${HAPROXY_APP_VERSION}) ............ GPL-2.0-or-later  https://www.haproxy.org/
                                     https://github.com/haproxytech/kubernetes-ingress
+  Technitium DNS Server (binary, in
+    ap-utilities/dns/technitium-save.tar.gz) GPL-3.0          https://github.com/TechnitiumSoftware/DnsServer
 
 In accordance with GPLv2 section 3 and GPLv3/AGPLv3 section 6, the distributor of this
 bundle hereby makes a written offer, valid for three (3) years from the date this bundle
@@ -2355,7 +2685,7 @@ To request the source on a physical medium, contact: ${LICENSE_OFFER_CONTACT}
 
 This offer is independent of the Apache-2.0 license covering the installer scripts.
 EOF
-    echo "  Wrote LICENSES/ (manifest + AGPL/GPL written offer for Grafana + HAProxy)."
+    echo "  Wrote LICENSES/ (manifest + AGPL/GPL written offer for Grafana, HAProxy and Technitium DNS Server)."
 }
 
 create_offline_prep_archive () {
@@ -2518,6 +2848,7 @@ create_working_dir () {
     [ -d "$WORKING_DIR/ap-utilities/packages" ] || mkdir -p "$WORKING_DIR/ap-utilities/packages"
     [ -d "$WORKING_DIR/ap-utilities/harbor" ] || mkdir -p "$WORKING_DIR/ap-utilities/harbor"
     [ -d "$WORKING_DIR/ap-utilities/swfs" ] || mkdir -p "$WORKING_DIR/ap-utilities/swfs"
+    [ -d "$WORKING_DIR/ap-utilities/dns" ] || mkdir -p "$WORKING_DIR/ap-utilities/dns"
     [ -d "$WORKING_DIR/ap-utilities/helm/haproxy" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/haproxy"
     [ -d "$WORKING_DIR/ap-utilities/helm/metallb" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/metallb"
     [ -d "$WORKING_DIR/ap-utilities/helm/longhorn" ] || mkdir -p "$WORKING_DIR/ap-utilities/helm/longhorn"
@@ -2854,6 +3185,29 @@ runtime_outputs () {
         echo "  - From a server node, run'kubectl get nodes' and 'kubectl get pods -A' to confirm the agent is ready"
     fi
   fi
+  if [[ $INSTALL_TYPE == "dns-server" ]]; then
+    echo ""
+    echo "### DNS SERVER INSTALL FLOW COMPLETED ###"
+    echo "###         PRINTING OUTPUTS          ###"
+    echo ""
+    echo "Technitium DNS Server is serving on $MGMT_IP:53 (udp/tcp)."
+    echo "  Web console : http://$MGMT_IP:$DNS_WEB_PORT/  (user admin; password = DNS_ADMIN_PASSWORD, not printed)"
+    if [[ "${DNS_ENABLE_HTTPS,,}" == "true" ]]; then
+      echo "  HTTPS console: https://$MGMT_IP:$DNS_HTTPS_PORT/  (self-signed)"
+    fi
+    if [[ -n "$DNS_ZONES_FILE" ]]; then
+      echo "  Zone template: $DNS_ZONES_FILE (records converged to it):"
+      { grep -vE '^[[:space:]]*($|;)' "$DNS_ZONES_FILE" || true; } | sed 's/^/    /'
+    else
+      echo "  No zones were seeded (see the DNS_* inputs)."
+    fi
+    echo "Next steps:"
+    echo "  - Point the DAP / registry / SWFS hosts at this server: on each host run"
+    echo "    'config static-ip -ip <addr>/<prefix> -gw <gateway> -dns $MGMT_IP -domain $DNS_ZONE --apply'"
+    echo "    (or set nameserver $MGMT_IP in its netplan/NetworkManager config), then verify with"
+    echo "    'getent hosts portal.$DNS_DAP_FQDN' before 'install ap-bundle'."
+    echo "  - Re-run 'install dns-server' after changing any DNS_* input: the records converge to the new template."
+  fi
   if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
     # AP-11: the generated command file contains registry credentials - 0600 it and
     # print only a masked rendering to stdout (stdout ends up in install logs).
@@ -2982,8 +3336,8 @@ while [[ "$#" -gt 0 ]]; do
         install)
             INSTALL_MODE=1
             INSTALL_TYPE="${2:-}"
-            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "ddpc-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "velero" && "$INSTALL_TYPE" != "monitoring" ]]; then
-                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring]"
+            if [[ -z "$INSTALL_TYPE" || "$INSTALL_TYPE" != "ap-bundle" && "$INSTALL_TYPE" != "ddpc-bundle" && "$INSTALL_TYPE" != "rke2" && "$INSTALL_TYPE" != "harbor" && "$INSTALL_TYPE" != "swfs" && "$INSTALL_TYPE" != "dns-server" && "$INSTALL_TYPE" != "velero" && "$INSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'install' command requires an install type. Format: install [rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -3007,8 +3361,8 @@ while [[ "$#" -gt 0 ]]; do
         uninstall)
             UNINSTALL_MODE=1
             UNINSTALL_TYPE="${2:-}"
-            if [[ -z "$UNINSTALL_TYPE" || "$UNINSTALL_TYPE" != "ap-bundle" && "$UNINSTALL_TYPE" != "ddpc-bundle" && "$UNINSTALL_TYPE" != "rke2" && "$UNINSTALL_TYPE" != "harbor" && "$UNINSTALL_TYPE" != "swfs" && "$UNINSTALL_TYPE" != "velero" && "$UNINSTALL_TYPE" != "monitoring" ]]; then
-                echo "Error: 'uninstall' command requires a type. Format: uninstall [rke2|ap-bundle|ddpc-bundle|harbor|swfs|velero|monitoring] [--purge-cache]"
+            if [[ -z "$UNINSTALL_TYPE" || "$UNINSTALL_TYPE" != "ap-bundle" && "$UNINSTALL_TYPE" != "ddpc-bundle" && "$UNINSTALL_TYPE" != "rke2" && "$UNINSTALL_TYPE" != "harbor" && "$UNINSTALL_TYPE" != "swfs" && "$UNINSTALL_TYPE" != "dns-server" && "$UNINSTALL_TYPE" != "velero" && "$UNINSTALL_TYPE" != "monitoring" ]]; then
+                echo "Error: 'uninstall' command requires a type. Format: uninstall [rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring] [--purge-cache]"
                 echo "Type './$SCRIPT_NAME -h' for help."
                 exit 1
             fi
@@ -3179,6 +3533,15 @@ if [[ "$INSTALL_TYPE" == "velero" ]]; then
     fi
 fi
 
+# Verify 'dns-server' params: bare-metal, no images, no cluster role
+if [[ "$INSTALL_TYPE" == "dns-server" ]]; then
+    if [[ "$PUSH_MODE" == "1" || "$REGISTRY_MODE" == "1" || "$TLS_SAN_MODE" == "1" ]]; then
+        echo "Error: 'install dns-server' has no container images or cluster role: it cannot be combined with 'push', '-registry' or '-tls-san'."
+        echo "Type './$SCRIPT_NAME -h' for help."
+        exit 1
+    fi
+fi
+
 # Verify CONFIG_MODE is not combined with other commands or options
 if [[ "$CONFIG_MODE" == "1" ]]; then
     if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $UPGRADE_MODE == "1" || $UNINSTALL_MODE == "1" || $TLS_SAN_MODE == "1" || $REGISTRY_MODE == "1" ]]; then
@@ -3268,7 +3631,7 @@ if [[ $OFFLINE_PREP_MODE == "1" ]]; then
   run_offline_prep
   echo "Offline archive 'ap-offline.tar.gz' created. Copy the archive to an air-gapped host running the same version of $OS_ID"
 fi
-if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "ddpc-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "velero" && $INSTALL_TYPE != "monitoring") ]]; then
+if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INSTALL_TYPE != "ap-bundle" && $INSTALL_TYPE != "ddpc-bundle" && $INSTALL_TYPE != "harbor" && $INSTALL_TYPE != "swfs" && $INSTALL_TYPE != "dns-server" && $INSTALL_TYPE != "velero" && $INSTALL_TYPE != "monitoring") ]]; then
   [[ $TLS_SAN_MODE == "0" ]] || dns_pre_flight_checks $TLS_SAN
   if [[ $REGISTRY_MODE == "1" ]]; then
     if [[ $REG_FQDN =~ $fqdn_pattern ]]; then
@@ -3319,6 +3682,12 @@ if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."
   firewalld_selinux_preflight
   run_install_harbor
+fi
+if [[ $INSTALL_TYPE == "dns-server" ]]; then
+  echo "  Installing Technitium DNS Server..."
+  dns_server_preflight
+  firewalld_selinux_preflight
+  run_install_dns_server
 fi
 if [[ $INSTALL_TYPE == "velero" ]]; then
   echo "  Installing Velero backup with Longhorn CSI and SeaweedFS S3..."

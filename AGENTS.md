@@ -13,7 +13,8 @@ Playbook is at [`devin/deploy-dell-ap.devin.md`](devin/deploy-dell-ap.devin.md).
 
 ## Conventions
 - `ap-tools` runs as **root on the target host**. From a remote machine, SSH in to run each step.
-- Install components in order: `install rke2` → (`install harbor`) → `install ap-bundle` → run the
+- Install components in order: (`install dns-server` on a **separate** host when the user has no DNS for the
+  required records) → `install rke2` → (`install harbor`) → `install ap-bundle` → run the
   generated `install-upgrade.sh`. `install ap-bundle` stages the bundle but does **not** deploy DAP by
   itself. The optional **Dell Distributed Private Cloud** add-on comes last: `install ddpc-bundle
   [-registry …]` on a verified-healthy DAP, then run `ddpc-install-upgrade-cmd.txt` (same
@@ -25,8 +26,8 @@ Playbook is at [`devin/deploy-dell-ap.devin.md`](devin/deploy-dell-ap.devin.md).
 - A fill-in intake worksheet lives at `skills/deploy-dell-ap/dap-deploy-template.env`.
 - Never commit secrets. Pass registry and SSH credentials at run time, not in files.
 - The companion installers (`rke2-installer`, `harbor-registry-installer`, `seaweedfs-installer`,
-  `images-pull-push`, `install-packages`) are separate Chubtoad5 repositories that `ap-tools` fetches
-  and calls at runtime.
+  `technitium-dns-installer`, `images-pull-push`, `install-packages`) are separate Chubtoad5 repositories
+  that `ap-tools` fetches and calls at runtime.
 
 ## Repo map
 - `ap-tools` — the orchestrator script (the thing you run).

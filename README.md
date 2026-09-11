@@ -66,6 +66,12 @@ authentication:
 > Avoid `.local` domains. (Multi-node also needs a shared cluster/API name — see
 > [Network Requirements](#network-requirements).)
 
+> **No DNS server?** `ap-tools` can run one for you. On a **separate** small host:
+> `sudo BASE_DOMAIN=mydomain.lab HOST_FQDN=myhost.mydomain.lab DNS_DAP_IP=<DAP host IP> ./ap-tools install dns-server`
+> installs a Technitium DNS Server and seeds all four records (plus the registry / SeaweedFS names when you
+> give `DNS_REGISTRY_IP` / `DNS_SWFS_IP`). Then point the DAP host at it and continue — see
+> [DNS Server (Technitium)](#dns-server-technitium).
+
 ### Step 3 — Have a container registry ready
 
 DAP pulls its images from an OCI registry. Either:
@@ -191,6 +197,7 @@ preflight script — it does **not** modify `ap-tools` itself.
 | `rke2_installer.sh` | `rke2-installer` | RKE2 install, join, push, save, upgrade, Velero, and monitoring |
 | `install_harbor.sh` | `harbor-registry-installer` | Harbor OCI registry deployment |
 | `install-seaweedfs` | `seaweedfs-installer` | SeaweedFS object/file storage deployment |
+| `technitium_dns_installer.sh` | `technitium-dns-installer` | Bare-metal Technitium DNS Server (zones/records, forwarders, DNSSEC, DHCP) |
 
 ## Feature Summary
 
@@ -200,6 +207,7 @@ preflight script — it does **not** modify `ap-tools` itself.
 | **Dell AP Bundle** | Downloads, extracts, and prepares the Automation Platform install bundle; outputs the final install command. |
 | **Harbor Registry** | Deploys a Harbor OCI registry with self-signed TLS and pre-created project paths. |
 | **SeaweedFS** | Deploys a single-node SeaweedFS instance providing S3, Filer, SMB, and NFS interfaces for artifact storage. |
+| **DNS Server** | Deploys a bare-metal Technitium DNS Server on a dedicated host and seeds the DAP portal/orchestrator/`mtls-*`, registry and SeaweedFS A records from a few IP inputs — no hand-made records needed. |
 | **Velero Backup** | Installs Velero with AWS/S3 plugin, Longhorn CSI snapshot support, and scheduled backups to SeaweedFS S3. |
 | **Monitoring** | Deploys kube-prometheus-stack and Fluent Bit with remote-write to an external Prometheus/Loki host and ServiceMonitor auto-discovery. |
 | **Air-Gapped / Offline** | Packages all binaries, images, and charts into `ap-offline.tar.gz` for fully disconnected installations. |
@@ -236,12 +244,13 @@ Installs a component and its dependencies. When `ap-offline.tar.gz` is present, 
 | `ddpc-bundle` | Stages the **Dell Distributed Private Cloud** add-on on top of an existing, healthy DAP install: pre-checks the cluster, the deployed DAP version, the registry and the resource headroom, extracts the bundle, and outputs its `install-upgrade.sh` command (`ddpc-install-upgrade-cmd.txt`). | None (optional: `-registry` — omitted, the orchestrator's `docker-secret` registry is reused) |
 | `harbor` | Deploys a Harbor registry with auto-generated self-signed certificates and pre-created projects. | None |
 | `swfs` | Deploys a single-node SeaweedFS server with S3, Filer, optional SMB/NFS, and Caddy reverse proxy. | None (optional: `-registry`, `push`) |
+| `dns-server` | Deploys a bare-metal **Technitium DNS Server** on this host via `technitium_dns_installer.sh` and seeds the DAP / registry / SeaweedFS A records from `DNS_DAP_IP`, `DNS_REGISTRY_IP`, `DNS_SWFS_IP`, `DNS_EXTRA_RECORDS`. Meant for a **dedicated** host: it binds `:53` and takes over the host resolver, so an active RKE2 node is refused unless `DNS_ALLOW_COLOCATION=true`. | None. `-registry`, `push` and `-tls-san` are rejected (no images, no cluster role). |
 | `velero` | Installs Velero with CSI snapshot support, Longhorn integration, and SeaweedFS S3 backend. | Requires `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, `VELERO_S3_SECRET_KEY` set in script. Optional: `push`, `-registry`. |
 | `monitoring` | Deploys kube-prometheus-stack and Fluent Bit; configures remote-write and ServiceMonitor auto-discovery. | Requires `MONITORING_HOST` set in script. |
 
 #### `offline-prep`
 
-Creates `ap-offline.tar.gz` containing all binaries, container images, Helm charts, and OS packages for a fully disconnected installation. Cannot be combined with `install`, `push`, or `join`. Requires an active internet connection.
+Creates `ap-offline.tar.gz` containing all binaries, container images, Helm charts, OS packages and the Technitium DNS Server bundle for a fully disconnected installation. Cannot be combined with `install`, `push`, or `join`. Requires an active internet connection (including `download.technitium.com` and `dot.net` for the DNS bundle, which is always included).
 
 #### `upgrade rke2 <server|agent|both> <stable|version>`
 
@@ -286,12 +295,13 @@ own state files for the same purpose.
 | `rke2` | **Destructive.** Delegates to `rke2_installer.sh uninstall` (tears down the node; on the last server this destroys ALL Longhorn PVs, i.e. all of DAP's data), then reverts ap-tools' own host changes per the state file. |
 | `harbor` | **Destructive.** Delegates to `install_harbor.sh uninstall-harbor`. Only explicitly-set env values are forwarded so Harbor's own recorded `.install-env` stays authoritative. `PURGE_DATA=true` passes through. |
 | `swfs` | **Destructive.** Delegates to `install-seaweedfs uninstall` (its recorded install state governs SMB/NFS/user cleanup). `SWFS_REMOVE_IMAGES=true` passes through. |
+| `dns-server` | **Destructive.** Delegates to `technitium_dns_installer.sh uninstall`: stops and removes the DNS server and restores this host's resolver from the installer's own recorded state. Zone/config data in `/etc/dns` is kept unless `PURGE_DATA=true`; the .NET runtime stays unless `DNS_REMOVE_DOTNET=true`. Only explicitly-set values are forwarded. Hosts that resolve through this server lose name resolution. **Reinstalling after a keep-data uninstall:** the preserved `/etc/dns` still holds the admin password, so the next `install dns-server` must use the same `DNS_ADMIN_PASSWORD` (or pass the old one as `DNS_ADMIN_CURRENT_PASSWORD`); `PURGE_DATA=true` resets to factory. |
 | `velero` | Removes Velero from the cluster (namespace, CRDs, VolumeSnapshotClass, CLI). **S3 backups are kept.** |
 | `monitoring` | `helm uninstall` of kube-prometheus-stack + Fluent Bit and removal of the `monitoring` namespace. The external monitoring host is not touched. |
 | `ap-bundle` | Removes the DAP **staging**: registry CA from the system trust store, the docker `certs.d` entry, the extracted `bundle/` tree, and `ap-install-upgrade-cmd.txt`. It does **not** uninstall DAP itself — DAP runs inside the cluster and is removed with `uninstall rke2` (or Dell's own procedure) — and does **not** remove docker. |
 | `ddpc-bundle` | Removes the DDPC **staging**: the extracted `ddpc-bundle/` tree, `ddpc-install-upgrade-cmd.txt` (the zip is kept unless `--purge-cache`), and the registry CA / docker `certs.d` entry **only if** `install ddpc-bundle -registry` targeted a registry other than the one DAP itself uses (the ap-bundle registry trust stays). It does **not** uninstall DDPC itself — it prints the `helm uninstall` + configmap/secret cleanup commands that do. |
 
-Destructive targets (`rke2`, `harbor`, `swfs`) require typing `yes-destroy` at a prompt.
+Destructive targets (`rke2`, `harbor`, `swfs`, `dns-server`) require typing `yes-destroy` at a prompt.
 Set `AP_ASSUME_YES=true` to skip the prompt in automation.
 
 `--purge-cache` additionally deletes the ~20 GB working cache (`$PWD/ap-install`: bundle
@@ -361,6 +371,7 @@ The script validates argument combinations at startup. The following table shows
 | `install ddpc-bundle -registry <r> <u> <p>` | `./ap-tools install ddpc-bundle -registry reg.lab:443 admin pass` |
 | `install harbor` | `./ap-tools install harbor` |
 | `install swfs` | `./ap-tools install swfs` |
+| `install dns-server` | `DNS_DAP_IP=10.0.0.50 ./ap-tools install dns-server` (no `push`/`-registry`/`-tls-san`) |
 | `install velero` | `./ap-tools install velero` |
 | `install monitoring` | `./ap-tools install monitoring` |
 | `push -registry <r> <u> <p>` | `./ap-tools push -registry reg.lab:443 admin pass` |
@@ -527,6 +538,47 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `ENABLE_MONITORING` | `true` | Expose Prometheus metrics from the SeaweedFS instance. |
 | `MON_CLUSTER_NAME` | `edge-lab` | Cluster label applied to SeaweedFS metrics. |
 
+### DNS Server (Technitium)
+
+`install dns-server` delegates to [`technitium_dns_installer.sh`](https://github.com/Chubtoad5/technitium-dns-installer)
+(bare-metal, no containers). Where the installer's own variable name is generic (`ENABLE_HTTPS`,
+`ENABLE_DNSSEC`, `ENABLE_DHCP`, `DISABLE_SYSTEMD_RESOLVED`, `REMOVE_DOTNET`) ap-tools exposes it with a `DNS_`
+prefix; everything else passes through under its own name.
+
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| `DNS_ADMIN_PASSWORD` | `$SWFS_HARBOR_PASS` | Password set on Technitium's built-in `admin` console account. Never printed or logged. |
+| `DNS_ADMIN_CURRENT_PASSWORD` | _(empty)_ | Rotation: when re-running with a **new** `DNS_ADMIN_PASSWORD`, the previous one so the installer can authenticate. |
+| `DNS_WEB_PORT` | `5380` | Web console HTTP port. |
+| `DNS_ENABLE_HTTPS` / `DNS_HTTPS_PORT` | `false` / `53443` | Serve the console over self-signed HTTPS. |
+| `DNS_FORWARDERS` / `DNS_FORWARDER_PROTOCOL` | _(empty)_ / `Udp` | Comma list of upstream resolvers (e.g. `1.1.1.1, 8.8.8.8`) and the protocol (`Udp` / `Tcp` / `Tls` / `Https`). Empty = root-hint recursion (an air-gapped site normally sets its own resolver here, or leaves it empty). |
+| `DNS_ENABLE_DNSSEC` / `DNSSEC_ALGORITHM` / `DNSSEC_CURVE` | `false` / `ECDSA` / `P256` | Sign the zones created from the template. |
+| `DNS_RECORD_TTL` | `3600` | TTL of the A records created from the template. |
+| `DNS_DISABLE_SYSTEMD_RESOLVED` | `true` | Stop `systemd-resolved` and point this host's own resolver at `127.0.0.1` (upstream behaviour). |
+| `DNS_ALLOW_COLOCATION` | `false` | Allow `install dns-server` on a host where `rke2-server`/`rke2-agent` is active. **Not recommended** — see [Co-location Constraints](#co-location-constraints). |
+| `DNS_ZONES_TEMPLATE` | _(empty)_ | Path to your **own** Technitium zone/record template (format in the installer's `zones.template.txt`). When set it replaces the generated template and the seeding inputs below are ignored. |
+| `DNS_ENABLE_DHCP` + `DHCP_*` | `false` | Create and enable a DHCP scope (`DHCP_SCOPE_NAME`, `DHCP_START_ADDRESS`, `DHCP_END_ADDRESS`, `DHCP_SUBNET_MASK`, `DHCP_ROUTER`, `DHCP_DNS_SERVERS`, `DHCP_DOMAIN`, `DHCP_DNS_SEARCH`, `DHCP_NTP_SERVERS`, `DHCP_DNS_UPDATES`, `DHCP_LEASE_DAYS`, `DHCP_SCOPE_ENABLED`). Passed through unchanged. |
+| `DNS_REMOVE_DOTNET` | `false` | `uninstall dns-server` also deletes `/opt/dotnet`. `PURGE_DATA=true` (shared with Harbor) also deletes `/etc/dns`. |
+| `dns_feature_branch` | `main` | Branch of `technitium-dns-installer` to fetch (testing pre-merge changes). |
+
+Other installer knobs (`DNS_ADMIN_USER`, `FORCE_ONLINE`, `DOTNET_VERSION`, `DOTNET_INSTALL_URL`, `TECHNITIUM_*_URL`, `INSTALL_PACKAGES_URL`) are not defined by ap-tools; they reach `technitium_dns_installer.sh` only when exported in the environment.
+
+**Record seeding.** ap-tools writes the installer's zone template itself from the inputs below, so the DAP
+pre-flights pass without hand-made records. Every seeded name must sit under `DNS_ZONE`; the template is
+regenerated on every run and the installer converges each name's A-record set to it, so a changed IP replaces
+the stale record.
+
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| `DNS_ZONE` | `$BASE_DOMAIN` | Primary zone to create. |
+| `DNS_DAP_FQDN` | `$HOST_FQDN` | The DAP host (single-node) or cluster (multi-node) FQDN the `portal.` / `orchestrator.` / `mtls-orchestrator.` / `mtls-recovery-orchestrator.` names hang off. On a dedicated DNS host set this (or `HOST_FQDN`) explicitly — the default is the DNS host's own name. |
+| `DNS_DAP_IP` | _(empty)_ | The DAP **ingress** IP those four names point at: the DAP host IP (single-node) or `LB_IP` (multi-node). Empty = the DAP records are not seeded. |
+| `DNS_DAP_NODE_IPS` | `$DNS_DAP_IP` | Space/comma list of node IPs for the **bare** `DNS_DAP_FQDN` record — the multi-node `-tls-san` / API name, one A record per IP (round-robin). |
+| `DNS_REGISTRY_IP` | _(empty)_ | IP for `HARBOR_COMMON_NAME` (default `registry.$HOST_FQDN`). |
+| `DNS_SWFS_IP` | _(empty)_ | IP for the four `SWFS_*_FQDN` names (default `admin.`/`master.`/`filer.`/`s3.$HOST_FQDN`). |
+| `DNS_FDO_RV_IP` | _(empty)_ | IP for `rv.dell.fdo` (zone `dell.fdo`) — the local FDO rendezvous for air-gapped device onboarding. |
+| `DNS_EXTRA_RECORDS` | _(empty)_ | Any other A records as `name=ip,name=ip` — a FQDN under `DNS_ZONE`, a bare zone-relative label, or a single-level `*.label` wildcard (deeper relative names such as `portal.aio` must be written as FQDNs); repeat a name for round-robin. |
+
 ### Velero Backup
 
 | Variable | Default | Description |
@@ -628,6 +680,37 @@ sudo ./ap-tools install harbor
 sudo ./ap-tools install swfs
 ```
 
+### DNS Server (Technitium)
+
+Run this on a **dedicated** small host (not on an RKE2 node), before `install rke2` on the DAP host(s).
+
+```bash
+# Single-node DAP host myhost.mydomain.lab at 10.0.0.50, Harbor on the same host, upstream resolvers 1.1.1.1/8.8.8.8:
+sudo BASE_DOMAIN=mydomain.lab HOST_FQDN=myhost.mydomain.lab DNS_DAP_IP=10.0.0.50 DNS_REGISTRY_IP=10.0.0.50 \
+     DNS_FORWARDERS="1.1.1.1, 8.8.8.8" DNS_ADMIN_PASSWORD='S3cret!' ./ap-tools install dns-server
+# -> zone mydomain.lab with portal/orchestrator/mtls-orchestrator/mtls-recovery-orchestrator.myhost -> 10.0.0.50,
+#    myhost -> 10.0.0.50, registry.myhost -> 10.0.0.50
+
+# Multi-node: cluster name cl.mydomain.lab, nodes .11/.12/.13, ingress VIP .20 (LB_IP):
+sudo BASE_DOMAIN=mydomain.lab DNS_DAP_FQDN=cl.mydomain.lab DNS_DAP_IP=10.0.0.20 \
+     DNS_DAP_NODE_IPS="10.0.0.11 10.0.0.12 10.0.0.13" ./ap-tools install dns-server
+# -> portal/orchestrator/mtls-* .cl -> .20 (the VIP); bare cl -> .11 .12 .13 (round-robin, the -tls-san/API name)
+
+# Point the DAP host(s) at it, then verify before 'install ap-bundle':
+sudo ./ap-tools config static-ip -ip 10.0.0.50/24 -gw 10.0.0.1 -dns <dns-host-ip> -domain mydomain.lab --apply
+getent hosts portal.myhost.mydomain.lab
+
+# Changed an IP? Re-run with the new value - the records converge to the regenerated template:
+sudo BASE_DOMAIN=mydomain.lab HOST_FQDN=myhost.mydomain.lab DNS_DAP_IP=10.0.0.51 ./ap-tools install dns-server
+
+# Remove it (keeps /etc/dns unless PURGE_DATA=true):
+sudo ./ap-tools uninstall dns-server
+```
+
+The console is at `http://<dns-host>:5380/` (user `admin`). Bring your own zone file instead with
+`DNS_ZONES_TEMPLATE=<path>`; forward other zones with `DNS_FORWARDERS`. Air-gapped hosts install from the
+same `ap-offline.tar.gz` (the Technitium bundle is always included by `offline-prep`).
+
 ### Velero Backup
 
 Before running, set `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, and `VELERO_S3_SECRET_KEY` in the script.
@@ -691,6 +774,8 @@ sudo ./ap-tools offline-prep
 # Copy ap-offline.tar.gz and ap-tools to the air-gapped host, then:
 tar xzf ap-offline.tar.gz
 sudo ./ap-tools install rke2
+# The same archive serves every component on the air-gapped side, e.g. on the DNS host:
+sudo DNS_DAP_IP=<dap-ip> ./ap-tools install dns-server
 ```
 
 ### Multi-Homed Hosts
@@ -754,6 +839,15 @@ Resource checks are performed against Kubernetes allocatable capacity (`kubectl 
 | CPU | 4 vCPU |
 | Memory | 8 GB |
 | Storage | 500 GB SSD or larger |
+
+#### DNS server host (`install dns-server`)
+
+| Resource | Recommendation |
+|:---------|:---------------|
+| CPU | 2 vCPU |
+| Memory | 2–4 GB |
+| Storage | 20 GB |
+| Network | Static IP; TCP/UDP 53 and the console port reachable from the DAP, registry and SWFS hosts. Must **not** be an RKE2 node (see [Co-location Constraints](#co-location-constraints)). |
 
 ---
 
@@ -843,6 +937,7 @@ DNS A records are required for Automation Platform and strongly recommended for 
 - The `rv.dell.fdo` record is only required when Global Rendezvous (`rv.dell.com`) is unavailable (e.g., air-gapped FDO onboarding).
 - Avoid DNS zones named `.local` (conflicts with RFC 6762 mDNS) or `local.edge` (per Dell guidance).
 - Wildcard DNS is supported. For example, `*.myhost.mydomain.lab` resolving to the AP host IP covers all four AP records with a single entry.
+- **No DNS server?** `install dns-server` on a separate host creates exactly this schema from `DNS_DAP_IP` (+ `DNS_DAP_NODE_IPS` for the multi-node cluster name), `DNS_REGISTRY_IP`, `DNS_SWFS_IP`, `DNS_FDO_RV_IP` and `DNS_EXTRA_RECORDS` — see [DNS Server (Technitium)](#dns-server-technitium).
 
 ### Local Registry
 
@@ -918,6 +1013,7 @@ Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set 
 
 - Harbor and SeaweedFS may coexist on the same host provided they use different TCP ports.
 - Running `install rke2` on the same host as Harbor or SeaweedFS should be used **with caution** due to potential port and resource conflicts with Automation Platform services.
+- **Never co-locate `install dns-server` with RKE2.** Technitium binds `:53` and rewrites the host's `/etc/resolv.conf` to `127.0.0.1`; RKE2 then hands CoreDNS a loopback-free fallback (`8.8.8.8`), so pods stop resolving the DAP/registry names, and `systemd-resolved`'s stub listener collides on `:53`. `install dns-server` refuses a host with an active `rke2-server`/`rke2-agent` unless `DNS_ALLOW_COLOCATION=true`. A Harbor or SeaweedFS host is fine (different ports) — their names are simply seeded via `DNS_REGISTRY_IP` / `DNS_SWFS_IP`.
 
 ### Debug Mode
 
@@ -943,6 +1039,7 @@ Set `DEBUG=1` (default) for verbose output from all helper scripts. Set `DEBUG=0
 - [HAProxy Tech Kubernetes Ingress](https://www.haproxy.com/documentation/kubernetes-ingress/)
 - [Harbor](https://goharbor.io/)
 - [SeaweedFS](https://github.com/seaweedfs/seaweedfs)
+- [Technitium DNS Server](https://technitium.com/dns/)
 - [Velero](https://velero.io/)
 - [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
 - [Fluent Bit](https://fluentbit.io/)
@@ -969,6 +1066,9 @@ authors. See [NOTICE](NOTICE) for the full list + licenses.
 
 - Rancher RKE2 (Apache-2.0), Longhorn (Apache-2.0), Helm (Apache-2.0), Velero (Apache-2.0), Fluent Bit (Apache-2.0), Docker (Apache-2.0)
 - HAProxy ingress — **GPL-2.0-or-later** (provide source/offer if its binary is bundled)
+- Technitium DNS Server — **GPL-3.0** (bundled in binary form by `offline-prep` for `install dns-server`; the archive's
+  `LICENSES/` carries the written source offer), via the sibling
+  [technitium-dns-installer](https://github.com/Chubtoad5/technitium-dns-installer) (Apache-2.0)
 
 ## License
 

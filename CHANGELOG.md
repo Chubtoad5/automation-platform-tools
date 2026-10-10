@@ -1,5 +1,22 @@
 # Changelog — automation-platform-tools
 
+## 2026-10-10 — Docs: node hard-down troubleshooting for DAP 2.1.1.0 (docs/node-down-dap-2110)
+
+Documentation only; no script change. From the first 3-node DAP 2.1.1.0 + DDPC node-failure test.
+
+### Added
+- README "Node hard-down: stuck pods and portal login (DAP 2.1.1.0)" and skill troubleshooting #20. When a
+  node is confirmed powered off, `kubectl taint node <n> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute`
+  clears the volume-less StatefulSet pods (`dsp-iam-login-svc`, `hzp-eoproxy-svc`) stuck `Terminating`.
+  Remove the taint once the node is back.
+- The DAP 2.1.1.0 defect where portal login fails whenever `postgresql-postgresql-0` is not the Postgres
+  primary (pgpool relays `in_hot_standby` from node 0; Keycloak needs a primary), with the manual
+  re-promotion procedure.
+
+### Changed
+- The README and `topology.md` now say that Longhorn `nodeDownPodDeletionPolicy: delete-statefulset-pod` only
+  covers pods with Longhorn volumes. `topology.md` no longer promises "no manual steps after a node fails".
+
 ## 2026-09-11 — `install dns-server`: Technitium DNS Server as an ap-tools component (feature/dns-server)
 
 Adds the sibling [technitium-dns-installer](https://github.com/Chubtoad5/technitium-dns-installer) as a

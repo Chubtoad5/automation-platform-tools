@@ -80,5 +80,40 @@ Walk this tree top-down; most failures match the early branches.
     default 600 s) leaves the release `failed` — simply re-run the same command: the image push is skipped
     (recorded in the `distpvtcloud-image-push-status` configmap) and helm retries the install.
 
+20. **A node is hard-down and pods stay `Terminating` / portal login fails (multi-node) — DAP 2.1.1.0 issue.**
+    Seen on DAP **2.1.1.0** (3 nodes, Longhorn 1.11) after a node was powered off. Three separate things happen:
+    - **Pods with Longhorn volumes recover by themselves.** ap-tools sets Longhorn
+      `nodeDownPodDeletionPolicy: delete-statefulset-pod`, so Longhorn force-deletes those pods about 5–7 min
+      after the node goes `NotReady` and they restart on a surviving node.
+    - **StatefulSet pods without volumes stay `Terminating` until the node returns.** On 2.1.1.0 these are
+      `dell-portal/dsp-iam-login-svc-*` (Keycloak) and `dell-orchestrator/hzp-eoproxy-svc-*`. Kubernetes never
+      force-deletes a StatefulSet pod on an unreachable node, and Longhorn only acts on pods with its volumes.
+      Both run several replicas, so service continues on the others. To clear them while the node stays down,
+      **first confirm the node is really powered off** (hypervisor or BMC; a node that only lost its network
+      would keep running the old pod beside the new one), then apply the Kubernetes non-graceful-shutdown taint:
+      ```bash
+      kubectl taint node <dead-node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
+      # Kubernetes force-deletes its pods and detaches its volumes; replacements schedule elsewhere.
+      # Once the node is back up and Ready, remove the taint (trailing '-'):
+      kubectl taint node <dead-node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute-
+      ```
+      Don't leave the taint on a running node: nothing without a matching toleration will schedule there.
+    - **Portal login can stay down even after every node is healthy (DAP 2.1.1.0 defect).** If Keycloak logs
+      `Could not find a server with specified targetServerType: primary`, the portal Postgres failed over and
+      `postgresql-postgresql-0` is no longer the primary. pgpool relays `in_hot_standby` from node 0, and
+      Keycloak refuses a standby. Neither the taint nor time fixes this. Check with
+      `kubectl -n dell-portal exec postgresql-postgresql-0 -c postgresql -- /opt/bitnami/scripts/postgresql-repmgr/entrypoint.sh repmgr -f /opt/bitnami/repmgr/conf/repmgr.conf cluster show`.
+      If node 0 is a standby, make it primary again (about 15 min of portal database downtime):
+      1. `kubectl -n dell-portal scale sts postgresql-postgresql --replicas=1`
+      2. In `postgresql-postgresql-0`, run `… repmgr -f /opt/bitnami/repmgr/conf/repmgr.conf standby promote`,
+         then `… primary register --force`. Use the same `entrypoint.sh repmgr` wrapper as above. The pod may
+         crash-loop, so run each command while the container is up.
+      3. `kubectl -n dell-portal scale sts postgresql-postgresql --replicas=3`. Nodes 1 and 2 rejoin as
+         standbys within a few minutes and login recovers.
+
+      Don't try to force it by deleting the primary pod: it returns within repmgr's 200 s failover window, so
+      nothing changes. `repmgr standby switchover` is unavailable because the image has no `ssh`. Report it to
+      Dell support; it is a defect in the bundled Postgres/pgpool/Keycloak, not in ap-tools.
+
 > Note: env-var overrides (`BASE_DOMAIN`, the identity vars, `SKIP_IMAGES_LOADER`, …) are honored on the
 > current `main`. If an override seems ignored, update your checkout rather than editing the script.

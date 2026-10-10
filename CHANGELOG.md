@@ -1,5 +1,18 @@
 # Changelog — automation-platform-tools
 
+## 2026-10-10 — Docs: Single Sign-On (OIDC) guidelines (docs/oidc-sso)
+
+Documentation only; no script change. Written from wiring a DAP 2.1.1.0 portal to an external Authentik IdP.
+
+### Added
+- README "Single Sign-On (OIDC)". The setup is generic, with Authentik as the worked example:
+  - IdP client settings: a confidential client, a **UUID client ID** (DAP's schema expects one), the strict
+    redirect URI `…/auth/realms/<tenant-id>/broker/oidc/endpoint`, and a groups scope.
+  - The portal OIDC Connect dialog and claim-to-role mappers.
+  - Network and CA requirements, plus the reverse-proxy `Host`-header requirement.
+  - A troubleshooting table keyed on the Keycloak broker log. It includes the Authentik 2026.8 empty
+    grant-type list, which fails every login with "The request is otherwise malformed".
+
 ## 2026-10-10 — Docs: node hard-down troubleshooting for DAP 2.1.1.0 (docs/node-down-dap-2110)
 
 Documentation only; no script change. From the first 3-node DAP 2.1.1.0 + DDPC node-failure test.

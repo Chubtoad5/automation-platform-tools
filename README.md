@@ -17,6 +17,7 @@ An unofficial prerequisite toolkit for deploying [Dell Automation Platform](http
 - [Usage Examples](#usage-examples)
 - [Host Prerequisites](#host-prerequisites)
 - [Registry CA Certificate guidance](#registry-ca-certificate-guidance)
+- [Single Sign-On (OIDC)](#single-sign-on-oidc)
 - [Network Requirements](#network-requirements)
 - [Operational Notes](#operational-notes)
 - [Open-Source References](#open-source-references)
@@ -902,6 +903,136 @@ sudo systemctl restart rke2-server.service
 # RKE2 Agent
 sudo systemctl restart rke2-agent.service
 ```
+
+## Single Sign-On (OIDC)
+
+DAP can hand user sign-in to an external OpenID Connect (OIDC) identity provider (IdP). The examples
+below use [Authentik](https://goauthentik.io/), but any standards-compliant OIDC IdP works the same
+way: Keycloak, Entra ID, Okta, and others. Dell officially names only Entra ID and Keycloak. This is
+DAP configuration, not an `ap-tools` step: do it in the portal after the install is verified.
+
+### How it fits together
+
+- **DAP is the OIDC client and your IdP is the provider.** The portal's identity service is Keycloak
+  underneath. It *brokers* the login to your IdP, then creates a matching federated DAP user on first
+  sign-in.
+- **One configuration covers both UIs.** The orchestrator UI signs in through the portal's realm, so
+  you configure OIDC once, in the portal.
+- **Roles come from claims.** A *mapper* turns "claim X contains value Y" into a DAP role. Users with no
+  matching mapper can sign in but get no role.
+- **Local accounts keep working.** The sign-in page gains an SSO option next to the username/password
+  form. Keep the local administrator account as a break-glass fallback; Dell documents an explicit
+  fallback only for LDAP, so do not disable it.
+
+### 1. Create the client in your IdP
+
+Create an OIDC application/provider in the IdP with these settings:
+
+| Setting | Value |
+|---|---|
+| Client type | **Confidential** (DAP sends a client secret) |
+| Client ID | **A UUID.** DAP's API schema types the client ID as `uuid`. Many IdPs generate random non-UUID IDs by default, so set one explicitly (e.g. from `uuidgen`). |
+| Redirect URI | `https://portal.myhost.mydomain.lab/auth/realms/<tenant-id>/broker/oidc/endpoint` (strict match). DAP shows the exact value, with a copy button, in its OIDC dialog. On a default install `<tenant-id>` is `f47ac10b-58cc-4372-a567-0e02b2c3d479`. |
+| Grant types | `authorization_code` (and `refresh_token`) |
+| Scopes | `openid`, `email`, `profile`, plus a scope that emits **group membership** (commonly `groups`) |
+| Signing | Asymmetric (RS256 or similar) with a published JWKS, so DAP can validate signatures |
+
+Also create the groups you want to map to DAP roles, for example `dap-access` (allowed to sign in) and
+`dap-admins` (full admin). Restrict the application to `dap-access` in the IdP if you want an explicit
+login gate.
+
+**For example, Authentik (2026.x):**
+- Create an *OAuth2/OpenID Provider* plus an *Application* bound to it.
+- Set the Client ID field to your UUID and keep the client type *Confidential*.
+- Add the redirect URI with *Strict* matching.
+- Add the `openid`, `email`, `profile` and a `groups` scope mapping. A typical mapping expression is
+  `return {"groups": [g.name for g in request.user.ak_groups.all()]}`. It emits **direct** group
+  memberships only, so put admins directly in the admin group.
+- Bind the Application to the `dap-access` group, which makes it the login gate.
+- Make sure the provider's allowed grant types include `authorization_code`. In Authentik 2026.8 a
+  provider created through the API or `ak shell` can end up with an empty grant-type list, which rejects
+  every login (see Troubleshooting).
+- The discovery URL is `https://auth.mydomain.lab/application/o/<app-slug>/.well-known/openid-configuration`.
+
+### 2. Configure the connector in DAP
+
+In the portal: **Home → Identity Management tile → Go to Settings → OIDC Connect → Configure**.
+
+| Field | Value |
+|---|---|
+| Redirect URI | Read-only. It must match what you registered in the IdP. |
+| Use Discovery Endpoint | ✅ Your IdP's `/.well-known/openid-configuration` URL. This auto-fills the issuer, authorization, token, userinfo, JWKS and logout URLs. |
+| Authentication Method | *Use Client Secret with POST Method* (or Basic, if your IdP prefers it) |
+| ID / Secret | The UUID client ID and the secret from the IdP |
+| Scopes | Comma-separated, e.g. `openid,email,profile,groups`. Without this the scope is only `openid`, and no groups arrive. |
+| Validate Signatures | ✅ |
+| Use PKCE | ✅ if the IdP supports S256 (most do) |
+
+Then open the **Mapper** tab and add one mapper per role:
+
+| Claim Name | Claim Value | Role |
+|---|---|---|
+| `groups` | `dap-admins` | `SuperAdmin` |
+| `groups` | `dap-viewers` (example) | `Portal Viewer` / `Orchestrator Viewer` |
+
+The predefined roles are `SuperAdmin`, `Portal Administrator`, `Portal Operational Manager`,
+`Portal Viewer`, `Orchestrator Administrator`, `Orchestrator Application Admin`,
+`Orchestrator Operational Manager` and `Orchestrator Viewer`.
+- Dell's docs say the claim is read from the **access token**. Make sure your IdP puts the groups claim
+  there; Authentik's access-token JWT carries the same claims as the ID token.
+- Changing a mapper logs out signed-in OIDC users who are affected by the change.
+
+### 3. Test
+
+1. In a private browser window, open `https://portal.myhost.mydomain.lab`, choose the SSO option and sign
+   in at the IdP. You land back in the portal with the mapped role.
+2. Open `https://orchestrator.myhost.mydomain.lab`; it signs in through the same session.
+3. Confirm the federated user and its role:
+   ```bash
+   dapctl portal get users -o json    # the new user should show the mapped role
+   ```
+
+### Requirements and gotchas
+
+- **Network:** DAP's Keycloak pod must reach the IdP's discovery, token and JWKS URLs over HTTPS. That
+  means cluster DNS must resolve the IdP and egress must allow it. On air-gapped sites, run the IdP inside
+  the air-gap.
+- **Private IdP certificate:** if the IdP's TLS certificate comes from a private CA, upload that CA in the
+  portal (**Settings → Entitlement → Certificates → Upload**, *Used for* = **OIDC**). A publicly trusted
+  IdP certificate needs no upload.
+- **Reverse proxies in front of DAP:** if a proxy terminates TLS for the portal, it must pass the
+  original `Host` header to DAP. DAP builds its OIDC `redirect_uri` from `Host`, so a proxy that rewrites
+  it to the upstream address breaks the login. For example, Caddy needs `header_up Host {host}` when the
+  upstream is HTTPS.
+- **Users managed by OIDC** can't be edited for the fields the IdP owns; manage them in the IdP.
+- **API clients are separate.** Service accounts and API clients (client-credentials tokens from
+  `/rest/v1/oidc/token`) are DAP's own token issuer and are not affected by the external IdP.
+
+### Troubleshooting
+
+When SSO fails, first work out which side refused the login.
+
+1. Read DAP's Keycloak broker log:
+   ```bash
+   kubectl -n dell-portal logs dsp-iam-login-svc-0 -c keycloak --since=30m \
+     | grep -E 'IDENTITY_PROVIDER|LOGIN_ERROR|Redirection URL contains an error|broker'
+   ```
+2. A line `Redirection URL contains an error ... error=...&error_description=...` means **the IdP**
+   rejected the authorize request, and the description says why. Check the IdP's own log for the same
+   timestamp.
+
+| Symptom | Likely cause |
+|---|---|
+| `error=invalid_request`, "The request is otherwise malformed"; Authentik logs "Invalid grant_type for provider" | The provider's allowed grant types are empty or lack `authorization_code` |
+| IdP shows "Redirect URI Error" | The redirect URI registered in the IdP doesn't exactly match DAP's (host, tenant ID, trailing path) |
+| Login succeeds but the user has no role | No mapper matches: the scope list lacks `groups`, the claim isn't in the access token, the value is misspelled, or the user is only an *indirect* (nested) group member |
+| Redirect goes to an IP or internal host name | A reverse proxy isn't passing the original `Host` header |
+| Timeouts or TLS errors fetching discovery/JWKS | Keycloak can't reach the IdP, or the IdP's certificate is untrusted (upload its CA as an **OIDC** certificate) |
+| Local admin login also fails | Unrelated to OIDC. On DAP 2.1.1.0, check that `postgresql-postgresql-0` is the Postgres primary (see [Node hard-down](#node-hard-down-stuck-pods-and-portal-login-dap-2110)). |
+
+Dell references:
+- [Configure OpenID Connect in Dell Automation Platform](https://www.dell.com/support/manuals/en-us/dell-automation-platform-components/dap_p_security_cg/configure-openid-connect-in-dell-automation-platform?guid=guid-a963db96-271d-47c4-8a58-1e17dd2126ae&lang=en-us)
+- [Add an OIDC Connect mapper](https://www.dell.com/support/manuals/en-us/dell-automation-platform-components/dap_p_security_cg/add-an-oidc-connect-mapper?guid=guid-3fc99dcf-29b1-48bb-891e-ed693378277f&lang=en-us)
 
 ## Network Requirements
 

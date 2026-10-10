@@ -112,8 +112,8 @@ Walk this tree top-down; most failures match the early branches.
          standbys within a few minutes and login recovers.
 
       Don't try to force it by deleting the primary pod: it returns within repmgr's 200 s failover window, so
-      nothing changes. `repmgr standby switchover` is unavailable because the image has no `ssh`. Report it to
-      Dell support; it is a defect in the bundled Postgres/pgpool/Keycloak, not in ap-tools.
+      nothing changes. `repmgr standby switchover` is unavailable because the image has no `ssh`. It is a defect
+      in the bundled Postgres/pgpool/Keycloak, not in ap-tools.
 
 > Note: env-var overrides (`BASE_DOMAIN`, the identity vars, `SKIP_IMAGES_LOADER`, …) are honored on the
 > current `main`. If an override seems ignored, update your checkout rather than editing the script.

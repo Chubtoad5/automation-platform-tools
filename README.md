@@ -946,7 +946,7 @@ login gate.
 - Set the Client ID field to your UUID and keep the client type *Confidential*.
 - Add the redirect URI with *Strict* matching.
 - Add the `openid`, `email`, `profile` and a `groups` scope mapping. A typical mapping expression is
-  `return {"groups": [g.name for g in request.user.ak_groups.all()]}`. It emits **direct** group
+  `return {"groups": [g.name for g in request.user.groups.all()]}`. It emits **direct** group
   memberships only, so put admins directly in the admin group.
 - Bind the Application to the `dap-access` group, which makes it the login gate.
 - Make sure the provider's allowed grant types include `authorization_code`. In Authentik 2026.8 a

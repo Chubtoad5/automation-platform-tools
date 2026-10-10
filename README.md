@@ -1012,7 +1012,7 @@ Observed on DAP **2.1.1.0** (3-node cluster, Longhorn 1.11) when a node was powe
   kubectl taint node <dead-node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute-
   ```
   This is Kubernetes' non-graceful node shutdown: it force-deletes the node's pods and detaches its volumes. Never apply it to a node that might still be running, such as one that only lost its network: the old and new pods would run side by side.
-- **Portal login can stay down after a Postgres failover, even once all nodes are healthy (DAP 2.1.1.0 defect).** Keycloak logs `Could not find a server with specified targetServerType: primary` whenever `postgresql-postgresql-0` is not the portal Postgres primary. pgpool relays the `in_hot_standby` flag from node 0, and Keycloak refuses a standby. The taint does not fix this. Recovery: make `postgresql-postgresql-0` the primary again. The steps are in the bundled skill's [troubleshooting #20](skills/deploy-dell-ap/reference/troubleshooting.md). Report it to Dell support.
+- **Portal login can stay down after a Postgres failover, even once all nodes are healthy (DAP 2.1.1.0 defect).** Keycloak logs `Could not find a server with specified targetServerType: primary` whenever `postgresql-postgresql-0` is not the portal Postgres primary. pgpool relays the `in_hot_standby` flag from node 0, and Keycloak refuses a standby. The taint does not fix this. Recovery: make `postgresql-postgresql-0` the primary again. The steps are in the bundled skill's [troubleshooting #20](skills/deploy-dell-ap/reference/troubleshooting.md).
 
 ### Time Synchronization (NTP)
 

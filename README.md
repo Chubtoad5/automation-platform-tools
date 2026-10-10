@@ -987,10 +987,20 @@ The predefined roles are `SuperAdmin`, `Portal Administrator`, `Portal Operation
 1. In a private browser window, open `https://portal.myhost.mydomain.lab`, choose the SSO option and sign
    in at the IdP. You land back in the portal with the mapped role.
 2. Open `https://orchestrator.myhost.mydomain.lab`; it signs in through the same session.
-3. Confirm the federated user and its role:
+3. Confirm the federated user and its role. Check *Identity Management → Users* in the portal, or use
+   the REST API with a portal API client (client ID/secret with an admin role):
    ```bash
-   dapctl portal get users -o json    # the new user should show the mapped role
+   PORTAL=https://portal.myhost.mydomain.lab
+   TENANT=f47ac10b-58cc-4372-a567-0e02b2c3d479   # your tenant/org ID
+   TOKEN=$(curl -s "$PORTAL/rest/v1/oidc/token" \
+     -d grant_type=client_credentials -d scope=portal -d org_id="$TENANT" \
+     -d client_id="$CLIENT_ID" --data-urlencode client_secret="$CLIENT_SECRET" | jq -r .access_token)
+   # Note: the Authorization header is the raw token, with no "Bearer " prefix.
+   curl -s -H "Authorization: $TOKEN" "$PORTAL/rest/v1/iam/users" \
+     | jq '.results[] | {username, email, roles: [.roles[].name]}'
    ```
+   The new user appears with the role(s) from your mapper. Add `-k` to both `curl` calls only if the
+   portal still uses DAP's self-signed certificate.
 
 ### Requirements and gotchas
 

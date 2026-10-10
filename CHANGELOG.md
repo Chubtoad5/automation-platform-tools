@@ -12,6 +12,8 @@ Documentation only; no script change. Written from wiring a DAP 2.1.1.0 portal t
   - Network and CA requirements, plus the reverse-proxy `Host`-header requirement.
   - A troubleshooting table keyed on the Keycloak broker log. It includes the Authentik 2026.8 empty
     grant-type list, which fails every login with "The request is otherwise malformed".
+- The OIDC test step verifies the federated user with plain REST calls (`/rest/v1/oidc/token` +
+  `/rest/v1/iam/users`) instead of an internal CLI.
 
 ## 2026-10-10 — Docs: node hard-down troubleshooting for DAP 2.1.1.0 (docs/node-down-dap-2110)
 

@@ -998,8 +998,21 @@ Multi-node has **two distinct addresses** that must be different records — con
 For a cluster that tolerates a single node failure without manual recovery:
 
 - **Floating ingress VIP** — set `LB_IP` to a dedicated free IP in the nodes' L2 subnet (not a node IP) and point `portal.*`/`orchestrator.*`/`mtls-*` DNS at it. MetalLB announces the VIP from one node and re-elects a new speaker within seconds if that node fails, so the portal stays reachable. Left at its default (`LB_IP` = a single node's IP) the VIP would be lost while that node is down. This VIP fronts **ingress only** — the Kubernetes API is not load-balanced by this tool, so the `-tls-san` cluster name must resolve to the node IPs (see "Multi-node DNS" below), not this VIP.
-- **Automatic pod recovery** — on multi-node installs Longhorn is configured with `nodeDownPodDeletionPolicy: delete-statefulset-pod`. When a node fails ungracefully, StatefulSet pods on the dead node are deleted automatically so replacements can start on healthy nodes without manual force-deletion (which otherwise blocks on `Multi-Attach` errors).
+- **Automatic pod recovery** — on multi-node installs Longhorn is configured with `nodeDownPodDeletionPolicy: delete-statefulset-pod`. When a node fails ungracefully, StatefulSet pods **that use Longhorn volumes** on the dead node are deleted automatically so replacements can start on healthy nodes without manual force-deletion (which otherwise blocks on `Multi-Attach` errors). StatefulSet pods **without** volumes are not covered; see "Node hard-down: stuck pods and portal login (DAP 2.1.1.0)" below.
 - **CSI registration check** — after Longhorn installs, `install rke2` verifies the `driver.longhorn.io` CSI driver registered on every node and bounces `longhorn-csi-plugin` if a node's `CSINode` is empty (a known post-rejoin condition that otherwise fails all volume attaches).
+
+### Node hard-down: stuck pods and portal login (DAP 2.1.1.0)
+
+Observed on DAP **2.1.1.0** (3-node cluster, Longhorn 1.11) when a node was powered off:
+
+- **StatefulSet pods without volumes stay `Terminating` on the dead node until it returns.** These are `dell-portal/dsp-iam-login-svc-*` (Keycloak) and `dell-orchestrator/hzp-eoproxy-svc-*`. Kubernetes never force-deletes them, and Longhorn's policy only covers pods with Longhorn volumes. Both run several replicas, so service continues. To clear them while the node stays down, **first confirm the node is actually powered off**, then:
+  ```bash
+  kubectl taint node <dead-node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
+  # after the node is back and Ready:
+  kubectl taint node <dead-node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute-
+  ```
+  This is Kubernetes' non-graceful node shutdown: it force-deletes the node's pods and detaches its volumes. Never apply it to a node that might still be running, such as one that only lost its network: the old and new pods would run side by side.
+- **Portal login can stay down after a Postgres failover, even once all nodes are healthy (DAP 2.1.1.0 defect).** Keycloak logs `Could not find a server with specified targetServerType: primary` whenever `postgresql-postgresql-0` is not the portal Postgres primary. pgpool relays the `in_hot_standby` flag from node 0, and Keycloak refuses a standby. The taint does not fix this. Recovery: make `postgresql-postgresql-0` the primary again. The steps are in the bundled skill's [troubleshooting #20](skills/deploy-dell-ap/reference/troubleshooting.md).
 
 ### Time Synchronization (NTP)
 

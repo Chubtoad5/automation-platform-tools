@@ -51,5 +51,7 @@ For a cluster that survives a single node failure without manual recovery, set t
   is down. (On single-node, `LB_IP` defaults to the host IP — correct, leave it.) `LB_VIP` is a deprecated
   alias for `LB_IP` and still honored, but use `LB_IP`.
 - The tool also auto-configures Longhorn `nodeDownPodDeletionPolicy: delete-statefulset-pod` (StatefulSet
-  pods on a dead node are deleted so replacements start automatically) and verifies the Longhorn CSI driver
-  registered on every node — no manual steps after a node fails or rejoins.
+  pods **that use Longhorn volumes** on a dead node are deleted so replacements start automatically) and
+  verifies the Longhorn CSI driver registered on every node. StatefulSet pods without volumes stay
+  `Terminating` until the node returns, and on DAP **2.1.1.0** a Postgres failover can leave portal login
+  down. See [troubleshooting.md](troubleshooting.md) #20 for the `out-of-service` taint and the Postgres fix.

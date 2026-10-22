@@ -24,6 +24,7 @@ Playbook is at [`devin/deploy-dell-ap.devin.md`](devin/deploy-dell-ap.devin.md).
   `-tls-san` name points at the **node IPs** (the VIP is ingress-only, not an API LB). Join via a node IP,
   and set `HOST_FQDN=<cluster-name>` on `install ap-bundle`. See the skill's `reference/dns-and-certs.md`.
 - A fill-in intake worksheet lives at `skills/deploy-dell-ap/dap-deploy-template.env`.
+- `docs/` holds manual step-by-step guides **for humans**. Agents follow the skill, not those guides.
 - Never commit secrets. Pass registry and SSH credentials at run time, not in files.
 - The companion installers (`rke2-installer`, `harbor-registry-installer`, `seaweedfs-installer`,
   `technitium-dns-installer`, `images-pull-push`, `install-packages`) are separate Chubtoad5 repositories

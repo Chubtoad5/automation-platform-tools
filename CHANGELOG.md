@@ -1,5 +1,26 @@
 # Changelog — automation-platform-tools
 
+## 2026-10-21 — Docs: manual install guide for DAP + DDPC on Ubuntu 24.04 (docs/dap-manual-install)
+
+Documentation only; no script change.
+
+Tested end to end by hand on a fresh Ubuntu 24.04 VM (DAP 2.1.1.0 + DDPC 4.3.0.0 deployed). Fixes from that run:
+an explicit test push into the registry project before the DAP install, a "clean up before re-running" note
+(the installer resumes from its `checkpoint-data` ConfigMap), a troubleshooting row for the image loader's
+`exit status 125`, `longhornctl --kubeconfig` with its expected output, and `screen` clean-up.
+
+### Added
+- New top-level `docs/` folder for human step-by-step guides, with an index (`docs/README.md`) listing the
+  planned guides (Harbor, air-gapped, RHEL/SLES, multi-node).
+- `docs/dap-install/ubuntu-dap-ddpc-manual-install.md`: installing RKE2 `v1.34.5+rke2r1`, MetalLB 0.15.3,
+  HAProxy ingress 1.49.0/3.2.6, Longhorn 1.11.1, DAP 2.1.1.0 and DDPC 4.3.0.0 by hand on one connected
+  Ubuntu 24.04 host. It mirrors `install rke2` + `install ap-bundle` + `install ddpc-bundle` (single-node):
+  requirements checklist, host preparation, RKE2 config, the three charts, registry trust + Docker, both Dell
+  installers (with SHA-384 signature verification of the bundles), verification, troubleshooting, uninstall,
+  and a map from each step to the ap-tools function it replaces.
+- README: a "Manual Installation Guides" section and a pointer from the Quick Start; AGENTS.md notes that
+  `docs/` is for humans.
+
 ## 2026-10-10 — Docs: Single Sign-On (OIDC) guidelines (docs/oidc-sso)
 
 Documentation only; no script change. Written from wiring a DAP 2.1.1.0 portal to an external Authentik IdP.

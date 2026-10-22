@@ -10,6 +10,7 @@ An unofficial prerequisite toolkit for deploying [Dell Automation Platform](http
 
 - [Quick Start (single-node)](#quick-start-single-node)
 - [Using the Integrated Skills](#using-the-integrated-skills)
+- [Manual Installation Guides](#manual-installation-guides)
 - [Architecture Overview](#architecture-overview)
 - [Feature Summary](#feature-summary)
 - [CLI Reference](#cli-reference)
@@ -128,6 +129,10 @@ Then run the `install-upgrade.sh` command from `ddpc-install-upgrade-cmd.txt`. `
 here — without it the orchestrator's existing `docker-secret` registry is reused. See
 [Dell Distributed Private Cloud Add-on](#dell-distributed-private-cloud-add-on).
 
+> **Prefer to do it by hand?** The [manual installation guides](docs/README.md) walk through the same
+> install step by step without the script — starting with
+> [DAP + DDPC on Ubuntu 24.04](docs/dap-install/ubuntu-dap-ddpc-manual-install.md).
+
 That is the single-node happy path. For multi-node, the optional components (Velero backups,
 monitoring, SeaweedFS), air-gapped installs, the full CLI reference, and every configuration variable,
 read on.
@@ -184,6 +189,17 @@ All four entry points run the **same** procedure and never install before you co
 → preflight validation on each host → ordered install (`install rke2` → optional `install harbor` →
 `install ap-bundle` → run the generated `install-upgrade.sh`). The skill is documentation plus a
 preflight script — it does **not** modify `ap-tools` itself.
+
+---
+
+## Manual Installation Guides
+
+The [`docs/`](docs/README.md) folder holds step-by-step guides for installing DAP **by hand**, using the
+same versions and settings as `ap-tools`:
+
+- [Manual Install: DAP + DDPC on Ubuntu 24.04 (connected, single-node)](docs/dap-install/ubuntu-dap-ddpc-manual-install.md)
+
+Guides for Harbor, air-gapped installs, other Linux distributions and multi-node clusters are planned.
 
 ---
 

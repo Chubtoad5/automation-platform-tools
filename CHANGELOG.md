@@ -16,6 +16,13 @@
   Appendix A clean-up keeps Docker. Sizing note: 20 vCPU / 44 GB.
 - README "Co-location Constraints": the tested Harbor-before-RKE2 layout and why it is safe.
 
+### Removed
+- `controller.hostNetwork: true` from the HAProxy values (ap-tools and manual guide Step 3.3). Chart 1.49.0 never
+  read it (its key is `controller.daemonset.useHostNetwork`, default false), so the rendered manifests are
+  identical and HAProxy keeps running on the pod network behind the MetalLB `LoadBalancer`. Applied to a live
+  3-node cluster with `helm upgrade`: same manifest, no pod restarts. Do not turn real host networking on while
+  Harbor shares the host: HAProxy would then bind 8443.
+
 ## 2026-10-23 — CoreDNS: correct the guide, add optional `COREDNS_HOSTS` (split-horizon)
 
 ### Fixed

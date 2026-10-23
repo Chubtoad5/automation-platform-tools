@@ -627,7 +627,6 @@ controller:
     externalTrafficPolicy: Local
   config:
     ssl-passthrough: "true"
-  hostNetwork: true
   kind: DaemonSet
   defaultTLSSecret:
      enabled: false

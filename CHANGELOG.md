@@ -1,5 +1,21 @@
 # Changelog — automation-platform-tools
 
+## 2026-10-23 — Service names no longer double up on hosts named after a service (GitHub #8)
+
+### Fixed
+- On a host already named after a service, the default name repeated it: `HOST_FQDN=registry.lab.edge` gave
+  `HARBOR_COMMON_NAME=registry.registry.lab.edge`. The registry and SeaweedFS (`admin`/`master`/`filer`/`s3`)
+  defaults now use `HOST_FQDN` itself in that case. Names you set are unchanged, and an existing Harbor or
+  SeaweedFS install keeps the name it was built with (a re-run prints a note instead of renaming it).
+
+### Added
+- `install rke2` (single-node), `install harbor` and `install swfs` print the service names they will use and warn,
+  without stopping, about names that repeat their first label, a host named `portal`/`orchestrator` (suggesting
+  `HOST_FQDN=<domain>`), and names that don't resolve yet. Before, a wrong DAP name surfaced only at
+  `install ap-bundle`, after RKE2 was installed.
+- README "Naming Conventions" (per-host, flat, multi-node and custom layouts); corrected the `HOST_FQDN` default
+  description.
+
 ## 2026-10-23 — SeaweedFS images follow the installer's pins; Harbor on the DAP host documented
 
 ### Fixed

@@ -23,6 +23,10 @@ fi
 # 'uninstall harbor' forwards ONLY explicitly-set values so install_harbor.sh's own
 # recorded /opt/harbor/.install-env keeps authority over what was actually installed.
 user_set_harbor_cn="${HARBOR_COMMON_NAME+x}"
+user_set_swfs_admin_fqdn="${SWFS_ADMIN_FQDN+x}"
+user_set_swfs_master_fqdn="${SWFS_MASTER_FQDN+x}"
+user_set_swfs_filer_fqdn="${SWFS_FILER_FQDN+x}"
+user_set_swfs_s3_fqdn="${SWFS_S3_FQDN+x}"
 user_set_harbor_port="${HARBOR_PORT+x}"
 user_set_harbor_version="${HARBOR_VERSION+x}"
 user_set_purge_data="${PURGE_DATA+x}"
@@ -49,6 +53,12 @@ if [[ "$host_name_default" == *.* ]]; then
 else
   HOST_FQDN="${HOST_FQDN:-$host_name_default.$BASE_DOMAIN}"  # Host FQDN for Automation Platform, Harbor, and SeaweedFS
 fi
+# Service names default to '<service>.$HOST_FQDN', except when this host is already named after
+# the service: HOST_FQDN=registry.lab.edge gives registry.lab.edge, not registry.registry.lab.edge
+# (GitHub #8). Applies to the registry and SeaweedFS names; a value you set always wins.
+svc_fqdn () {
+  if [[ "${HOST_FQDN%%.*}" == "$1" ]]; then echo "$HOST_FQDN"; else echo "$1.$HOST_FQDN"; fi
+}
 SWFS_HARBOR_USER="${SWFS_HARBOR_USER:-admin}"          # Username for Harbor and SeaweedFS basic auth
 SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and SeaweedFS basic auth
 AP_ASSUME_YES="${AP_ASSUME_YES:-false}"                # true = skip the typed 'yes-destroy' confirmation on destructive 'uninstall' commands (for automation)
@@ -99,7 +109,7 @@ COUNTRY="${COUNTRY:-US}"
 STATE="${STATE:-MA}"
 LOCATION="${LOCATION:-EDGE}"
 ORGANIZATION="${ORGANIZATION:-LAB}"
-HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-registry.$HOST_FQDN}"
+HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-$(svc_fqdn registry)}"  # Default registry.$HOST_FQDN, or HOST_FQDN itself on a host named 'registry.'
 DURATION_DAYS="${DURATION_DAYS:-3650}"
 PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
 
@@ -108,10 +118,10 @@ PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library f
 # the installer's pins) and air-gapped installs all use the same tags. Set to override.
 SWFS_IMAGE="${SWFS_IMAGE:-}"
 CADDY_IMAGE="${CADDY_IMAGE:-}"
-SWFS_ADMIN_FQDN="${SWFS_ADMIN_FQDN:-admin.$HOST_FQDN}"      # FQDN for SeaweedFS Admin UI and Caddy landing page
-SWFS_MASTER_FQDN="${SWFS_MASTER_FQDN:-master.$HOST_FQDN}"   # FQDN for SeaweedFS Master UI/API
-SWFS_FILER_FQDN="${SWFS_FILER_FQDN:-filer.$HOST_FQDN}"      # FQDN for SeaweedFS Filer UI/API
-SWFS_S3_FQDN="${SWFS_S3_FQDN:-s3.$HOST_FQDN}"               # FQDN for SeaweedFS S3 API
+SWFS_ADMIN_FQDN="${SWFS_ADMIN_FQDN:-$(svc_fqdn admin)}"     # FQDN for SeaweedFS Admin UI and Caddy landing page (default admin.$HOST_FQDN)
+SWFS_MASTER_FQDN="${SWFS_MASTER_FQDN:-$(svc_fqdn master)}"  # FQDN for SeaweedFS Master UI/API (default master.$HOST_FQDN)
+SWFS_FILER_FQDN="${SWFS_FILER_FQDN:-$(svc_fqdn filer)}"     # FQDN for SeaweedFS Filer UI/API (default filer.$HOST_FQDN)
+SWFS_S3_FQDN="${SWFS_S3_FQDN:-$(svc_fqdn s3)}"              # FQDN for SeaweedFS S3 API (default s3.$HOST_FQDN)
 ENABLE_SMB="${ENABLE_SMB:-true}"                            # Enable an SMB share with basic authentication
 ENABLE_NFS="${ENABLE_NFS:-true}"                            # Enable an NFS export with NFSv3, no authentication
 SWFS_ADMIN_PORT="${SWFS_ADMIN_PORT:-9443}"
@@ -2810,6 +2820,83 @@ ntp_preflight_check () {
     fi
   fi
 }
+keep_installed_service_names () {
+  # An existing install keeps the name it was built with: on a host named after a service, older
+  # ap-tools defaulted to the doubled '<service>.$HOST_FQDN', and a re-run must not rename it.
+  local legacy recorded=""
+  legacy="registry.$HOST_FQDN"
+  if [[ -z "$user_set_harbor_cn" && "$HARBOR_COMMON_NAME" != "$legacy" ]]; then
+    [[ -f /opt/harbor/.install-env ]] && recorded=$(sed -n 's|^REGISTRY_COMMON_NAME=||p' /opt/harbor/.install-env 2>/dev/null | head -n 1)
+    if [[ "$recorded" == "$legacy" || ( -z "$recorded" && -d /opt/harbor ) ]]; then
+      echo "  NOTE: keeping the installed registry name $legacy (set HARBOR_COMMON_NAME to change it)."
+      HARBOR_COMMON_NAME="$legacy"
+    fi
+  fi
+  [[ -d /opt/seaweedfs ]] || return 0
+  if [[ -z "$user_set_swfs_admin_fqdn" && "$SWFS_ADMIN_FQDN" != "admin.$HOST_FQDN" ]]; then
+    echo "  NOTE: keeping the installed SeaweedFS name admin.$HOST_FQDN (set SWFS_ADMIN_FQDN to change it)."
+    SWFS_ADMIN_FQDN="admin.$HOST_FQDN"
+  fi
+  if [[ -z "$user_set_swfs_master_fqdn" && "$SWFS_MASTER_FQDN" != "master.$HOST_FQDN" ]]; then
+    echo "  NOTE: keeping the installed SeaweedFS name master.$HOST_FQDN (set SWFS_MASTER_FQDN to change it)."
+    SWFS_MASTER_FQDN="master.$HOST_FQDN"
+  fi
+  if [[ -z "$user_set_swfs_filer_fqdn" && "$SWFS_FILER_FQDN" != "filer.$HOST_FQDN" ]]; then
+    echo "  NOTE: keeping the installed SeaweedFS name filer.$HOST_FQDN (set SWFS_FILER_FQDN to change it)."
+    SWFS_FILER_FQDN="filer.$HOST_FQDN"
+  fi
+  if [[ -z "$user_set_swfs_s3_fqdn" && "$SWFS_S3_FQDN" != "s3.$HOST_FQDN" ]]; then
+    echo "  NOTE: keeping the installed SeaweedFS name s3.$HOST_FQDN (set SWFS_S3_FQDN to change it)."
+    SWFS_S3_FQDN="s3.$HOST_FQDN"
+  fi
+}
+service_names_preflight () {
+  # Show the names this run will use, warn about naming mistakes, and check DNS without failing,
+  # so a wrong name shows up before anything is installed (GitHub #8). $1 = dap | harbor | swfs,
+  # $2 = soft (also run the warn-only DNS check) or empty.
+  local scope=$1 dns_mode=${2:-} name first rest second label names=() expect=()
+  label="${HOST_FQDN%%.*}"
+  case "$scope" in
+    dap)    names=("$PORTAL_FQDN" "$ORCHESTRATOR_FQDN" "mtls-$ORCHESTRATOR_FQDN" "mtls-recovery-$ORCHESTRATOR_FQDN")
+            expect=("$LB_IP" "$MGMT_IP") ;;
+    harbor) names=("$HARBOR_COMMON_NAME"); expect=("$MGMT_IP") ;;
+    swfs)   names=("$SWFS_ADMIN_FQDN" "$SWFS_MASTER_FQDN" "$SWFS_FILER_FQDN" "$SWFS_S3_FQDN"); expect=("$MGMT_IP") ;;
+  esac
+  echo "  Service names for this run (HOST_FQDN=$HOST_FQDN):"
+  for name in "${names[@]}"; do echo "    $name"; done
+  for name in "${names[@]}"; do
+    first=${name%%.*}; rest=${name#*.}; second=${rest%%.*}
+    if [[ "$rest" == *.* && "$first" == "$second" ]]; then
+      echo "  WARNING: '$name' repeats its first label. Check HOST_FQDN and any *_FQDN / HARBOR_COMMON_NAME you set."
+    fi
+  done
+  if [[ $scope == "dap" && ( $label == "portal" || $label == "orchestrator" ) && \
+        ( "$PORTAL_FQDN" == *".$HOST_FQDN" || "$ORCHESTRATOR_FQDN" == *".$HOST_FQDN" ) ]]; then
+    echo "  WARNING: HOST_FQDN starts with '$label.', so the DAP names hang off it ($PORTAL_FQDN, $ORCHESTRATOR_FQDN)."
+    echo "  For portal.<domain> / orchestrator.<domain>, set HOST_FQDN=<domain> (here: HOST_FQDN=${HOST_FQDN#*.}),"
+    echo "  or set PORTAL_FQDN and ORCHESTRATOR_FQDN."
+  fi
+  [[ "$dns_mode" == "soft" ]] || return 0
+  local ip unresolved=0
+  for name in "${names[@]}"; do
+    ip=$(getent hosts "$name" 2>/dev/null | awk '{ print $1; exit }') || true
+    if [[ -z "$ip" ]]; then
+      echo "  WARNING: $name does not resolve yet."
+      unresolved=1
+    elif [[ " ${expect[*]} " != *" $ip "* ]]; then
+      echo "  NOTE: $name resolves to $ip, not to this host (${expect[*]}). Fine if a proxy or load balancer fronts it."
+    else
+      echo "  $name resolves to $ip"
+    fi
+  done
+  if [[ $unresolved == "1" ]]; then
+    case "$scope" in
+      dap)    echo "  Add the missing records before 'install ap-bundle', which stops when they do not resolve." ;;
+      *)      echo "  Clients reach the service by these names (the certificate is issued for them): add the missing records." ;;
+    esac
+  fi
+  return 0
+}
 dns_pre_flight_checks () {
   # Use this function to check DNS resolution where $1, $2, $3, etc... are the FQDNs to lookup
   # local mtls_dns="mtls-$ORCHESTRATOR_FQDN"
@@ -3610,6 +3697,9 @@ if [[ "$REGISTRY_MODE" == "1" ]]; then
 fi
 
 # --- Main Workflow --- $
+if [[ $INSTALL_MODE == "1" ]]; then
+  keep_installed_service_names
+fi
 
 os_check
 display_args
@@ -3640,6 +3730,14 @@ if [[ ($INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1") && ($INST
       dns_pre_flight_checks $REG_FQDN
     fi
   fi
+  # Preview the DAP names now (warn-only) instead of finding a wrong one at 'install ap-bundle'.
+  if [[ $INSTALL_MODE == "1" && $INSTALL_TYPE == "rke2" && $ORCHESTRATOR_FQDN != "$MGMT_IP" ]]; then
+    if [[ $CLUSTER_TYPE == "multi-node" ]]; then
+      echo "  Multi-node: the DAP names are checked at 'install ap-bundle' (run it with HOST_FQDN=<cluster name>)."
+    else
+      service_names_preflight dap soft
+    fi
+  fi
   if [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" ]]; then
     firewalld_selinux_preflight
   fi
@@ -3653,6 +3751,7 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   if [[ $ORCHESTRATOR_FQDN == "$MGMT_IP" ]]; then
     echo "  IP Based Install detected, skipping DNS checks..."
   else
+    service_names_preflight dap
     dns_pre_flight_checks $PORTAL_FQDN $ORCHESTRATOR_FQDN $mtls_dns $mtls_recovery_dns $REG_FQDN
   fi
   firewalld_selinux_preflight
@@ -3677,11 +3776,13 @@ if [[ $INSTALL_TYPE == "ddpc-bundle" ]]; then
 fi
 if [[ $INSTALL_TYPE == "swfs" ]]; then
   echo "  Installing SeaweedFS artifact server..."
+  service_names_preflight swfs soft
   firewalld_selinux_preflight
   run_install_swfs
 fi
 if [[ $INSTALL_TYPE == "harbor" ]]; then
   echo "  Installing Harbor registry..."
+  service_names_preflight harbor soft
   firewalld_selinux_preflight
   run_install_harbor
 fi

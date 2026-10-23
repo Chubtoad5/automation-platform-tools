@@ -442,7 +442,7 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 | `NTP_SERVERS` | _(empty)_ | Optional space/comma-separated NTP server list. Forwarded to `rke2_installer.sh`, which now owns NTP configuration on cluster nodes during `install rke2` and every `join` (chrony if present, else systemd-timesyncd; same `# ap-tools NTP` marker, so hosts configured by earlier ap-tools versions reconcile). Re-verified during `install ap-bundle`. Clock skew across nodes breaks etcd, TLS, and DAP tokens. When empty, the OS default time source is left unchanged. |
 | `COREDNS_HOSTS` | _(empty)_ | Optional in-cluster DNS pins for `install rke2`, as `<fqdn>=<ipv4>` (comma or space separated). Forwarded to `rke2_installer.sh`, which renders them as an extra CoreDNS server block (kept on re-runs). Only needed for **split-horizon** DNS: when LAN DNS points `portal.<HOST_FQDN>` / `orchestrator.<HOST_FQDN>` at a TLS-terminating reverse proxy (e.g. one with a publicly trusted certificate), pin both names to the ingress VIP so DAP's own services keep reaching the platform directly — they trust only DAP's CA, and routing them through the proxy makes every plugin call fail with 403. Example: `COREDNS_HOSTS="portal.dap.example.com=10.0.0.50,orchestrator.dap.example.com=10.0.0.50"`. |
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain appended to hostnames. |
-| `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` | Base FQDN the portal/orchestrator/`mtls-*` names derive from. **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (otherwise the pre-flight checks `portal.<hostname>` and aborts). |
+| `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` (a hostname that is already an FQDN is used as-is) | Base FQDN the portal/orchestrator/`mtls-*`, registry and SeaweedFS names derive from (see [Naming Conventions](#naming-conventions)). **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (otherwise the pre-flight checks `portal.<hostname>` and aborts). |
 | `SWFS_HARBOR_USER` | `admin` | Shared username for Harbor and SeaweedFS basic auth. |
 | `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. |
 | `AP_ASSUME_YES` | `false` | Set `true` to skip the typed `yes-destroy` confirmation on destructive `uninstall` commands (for automation). |
@@ -529,7 +529,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `STATE` | `MA` | Certificate subject: state. |
 | `LOCATION` | `EDGE` | Certificate subject: locality. |
 | `ORGANIZATION` | `LAB` | Certificate subject: organization. |
-| `HARBOR_COMMON_NAME` | `registry.$HOST_FQDN` | Certificate CN / Harbor FQDN. |
+| `HARBOR_COMMON_NAME` | `registry.$HOST_FQDN` | Certificate CN / Harbor FQDN. On a host already named `registry.` the default is `HOST_FQDN` itself (see [Naming Conventions](#naming-conventions)). |
 | `DURATION_DAYS` | `3650` | Self-signed certificate validity (days). |
 | `PROJECTS` | *(see script)* | Space-separated list of Harbor projects created at install time. |
 
@@ -542,7 +542,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `SWFS_ADMIN_FQDN` | `admin.$HOST_FQDN` | FQDN for the SeaweedFS Admin UI / Caddy landing page. |
 | `SWFS_MASTER_FQDN` | `master.$HOST_FQDN` | FQDN for the SeaweedFS Master API. |
 | `SWFS_FILER_FQDN` | `filer.$HOST_FQDN` | FQDN for the SeaweedFS Filer API. |
-| `SWFS_S3_FQDN` | `s3.$HOST_FQDN` | FQDN for the SeaweedFS S3 API. |
+| `SWFS_S3_FQDN` | `s3.$HOST_FQDN` | FQDN for the SeaweedFS S3 API. For all four SeaweedFS names: on a host already named after the service (e.g. `s3.`) the default is `HOST_FQDN` itself. |
 | `ENABLE_SMB` | `true` | Enable an SMB share with basic auth. |
 | `ENABLE_NFS` | `true` | Enable an NFS export (NFSv3, no auth). |
 | `SWFS_ADMIN_PORT` | `9443` | Caddy / Admin UI HTTPS port. |
@@ -1095,7 +1095,32 @@ DNS A records are required for Automation Platform and strongly recommended for 
 - The `rv.dell.fdo` record is only required when Global Rendezvous (`rv.dell.com`) is unavailable (e.g., air-gapped FDO onboarding).
 - Avoid DNS zones named `.local` (conflicts with RFC 6762 mDNS) or `local.edge` (per Dell guidance).
 - Wildcard DNS is supported. For example, `*.myhost.mydomain.lab` resolving to the AP host IP covers all four AP records with a single entry.
+- **Not sure which names ap-tools will use?** `install rke2` (single-node), `install harbor` and `install swfs` print them at the start and warn about any that don't resolve yet. See [Naming Conventions](#naming-conventions).
 - **No DNS server?** `install dns-server` on a separate host creates exactly this schema from `DNS_DAP_IP` (+ `DNS_DAP_NODE_IPS` for the multi-node cluster name), `DNS_REGISTRY_IP`, `DNS_SWFS_IP`, `DNS_FDO_RV_IP` and `DNS_EXTRA_RECORDS` — see [DNS Server (Technitium)](#dns-server-technitium).
+
+### Naming Conventions
+
+Every service name is a prefix in front of `HOST_FQDN`, which defaults to this host's name
+(`<hostname>.$BASE_DOMAIN`). Pick one of these layouts:
+
+| Layout | Set | Portal / Orchestrator | Registry | SeaweedFS |
+|:--|:--|:--|:--|:--|
+| Per host (default) | nothing (host `dap1`, `BASE_DOMAIN=mydomain.lab`) | `portal.dap1.mydomain.lab`, `orchestrator.dap1.mydomain.lab` | `registry.dap1.mydomain.lab` | `admin.dap1.mydomain.lab`, … |
+| Flat (one DAP per domain) | `HOST_FQDN=mydomain.lab` | `portal.mydomain.lab`, `orchestrator.mydomain.lab` | `registry.mydomain.lab` | `admin.mydomain.lab`, … |
+| Multi-node | `HOST_FQDN=<cluster name>` on `install ap-bundle` | `portal.<cluster>`, `orchestrator.<cluster>` | — | — |
+| Your own names | `PORTAL_FQDN`, `ORCHESTRATOR_FQDN`, `HARBOR_COMMON_NAME`, `SWFS_*_FQDN` | as set | as set | as set |
+
+The `mtls-` / `mtls-recovery-` names always derive from `ORCHESTRATOR_FQDN`.
+
+**Hosts named after a service.** A dedicated registry host is often named `registry`. Its registry name defaults to
+`HOST_FQDN` itself (`registry.mydomain.lab`, not `registry.registry.mydomain.lab`). The same applies to a SeaweedFS
+host named `admin`, `master`, `filer` or `s3`, for that one name. A host named `portal` or `orchestrator` is
+not changed (the other DAP name would still hang off it); ap-tools warns instead and suggests the flat layout.
+An existing install keeps the name it was built with; set the variable to rename it.
+
+**Checked early.** `install rke2` (single-node), `install harbor` and `install swfs` print the names they will use,
+warn when a name repeats its first label (`orchestrator.orchestrator.…`), and warn about names that don't
+resolve yet. These checks never stop the run. `install ap-bundle` still stops when a DAP name does not resolve.
 
 ### Local Registry
 

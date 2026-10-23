@@ -39,6 +39,7 @@ MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for ser
 LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB pool) for portal/orchestrator. Single-node: defaults to MGMT_IP. Multi-node: set to a dedicated free L2 IP (not a node IP). NOT an API-server load balancer.
 LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
 NTP_SERVERS=${NTP_SERVERS:-}                           # Optional space/comma-separated NTP server list applied during 'install rke2'/'join' and verified during 'install ap-bundle'; empty = leave the OS default time source unchanged
+COREDNS_HOSTS=${COREDNS_HOSTS:-}                       # Optional in-cluster DNS pins '<fqdn>=<ipv4>[,...]' for 'install rke2' (split-horizon: pods keep resolving e.g. the portal FQDN to the ingress VIP while LAN DNS points browsers at a reverse proxy); empty = none
 BASE_DOMAIN="${BASE_DOMAIN:-edge.lab}"                 # Base domain for environment
 # AP-22: when the hostname is already an FQDN (contains a dot), use it as-is instead of
 # appending BASE_DOMAIN again (node1.edge.lab -> node1.edge.lab.edge.lab).
@@ -559,7 +560,7 @@ run_install_join_push () {
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
-    NTP_SERVERS=$NTP_SERVERS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
+    NTP_SERVERS=$NTP_SERVERS COREDNS_HOSTS=$COREDNS_HOSTS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"
@@ -575,7 +576,7 @@ run_install_join_push () {
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
-    NTP_SERVERS=$NTP_SERVERS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
+    NTP_SERVERS=$NTP_SERVERS COREDNS_HOSTS=$COREDNS_HOSTS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
     PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
     cd $base_dir
     echo "  Kubernetes installation completed"

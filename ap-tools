@@ -104,8 +104,10 @@ DURATION_DAYS="${DURATION_DAYS:-3650}"
 PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
 
 # SeaweedFS Configuration
-SWFS_IMAGE="${SWFS_IMAGE:-chrislusf/seaweedfs:latest}"
-CADDY_IMAGE="${CADDY_IMAGE:-caddy:latest}"
+# Empty = install-seaweedfs's own pinned images, so online installs, 'offline-prep' (which saves
+# the installer's pins) and air-gapped installs all use the same tags. Set to override.
+SWFS_IMAGE="${SWFS_IMAGE:-}"
+CADDY_IMAGE="${CADDY_IMAGE:-}"
 SWFS_ADMIN_FQDN="${SWFS_ADMIN_FQDN:-admin.$HOST_FQDN}"      # FQDN for SeaweedFS Admin UI and Caddy landing page
 SWFS_MASTER_FQDN="${SWFS_MASTER_FQDN:-master.$HOST_FQDN}"   # FQDN for SeaweedFS Master UI/API
 SWFS_FILER_FQDN="${SWFS_FILER_FQDN:-filer.$HOST_FQDN}"      # FQDN for SeaweedFS Filer UI/API

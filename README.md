@@ -537,8 +537,8 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `SWFS_IMAGE` | `chrislusf/seaweedfs:latest` | SeaweedFS container image. |
-| `CADDY_IMAGE` | `caddy:latest` | Caddy reverse-proxy container image. |
+| `SWFS_IMAGE` | *(empty)* | SeaweedFS container image. Empty uses the seaweedfs-installer's pinned version, the same one `offline-prep` bundles; set it (e.g. `chrislusf/seaweedfs:4.48`) to override, and set it identically for `offline-prep` and the air-gapped install. |
+| `CADDY_IMAGE` | *(empty)* | Caddy reverse-proxy container image. Empty uses the seaweedfs-installer's pinned version; same override rule as `SWFS_IMAGE`. |
 | `SWFS_ADMIN_FQDN` | `admin.$HOST_FQDN` | FQDN for the SeaweedFS Admin UI / Caddy landing page. |
 | `SWFS_MASTER_FQDN` | `master.$HOST_FQDN` | FQDN for the SeaweedFS Master API. |
 | `SWFS_FILER_FQDN` | `filer.$HOST_FQDN` | FQDN for the SeaweedFS Filer API. |

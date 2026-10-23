@@ -1,5 +1,28 @@
 # Changelog — automation-platform-tools
 
+## 2026-10-23 — SeaweedFS images follow the installer's pins; Harbor on the DAP host documented
+
+### Fixed
+- `SWFS_IMAGE` / `CADDY_IMAGE` defaulted to `:latest` and were forwarded to `install-seaweedfs`, overriding its
+  pinned images (`chrislusf/seaweedfs:4.30`, `caddy:2.11.3`). `offline-prep` does not forward them, so the air-gap
+  bundle held the pinned images while the air-gapped `install swfs` asked for `:latest`. Both now default to empty,
+  so every path uses the installer's pins. Setting either still overrides; set it identically for `offline-prep`
+  and the air-gapped install.
+
+### Added
+- Manual install guide: **Step 1A — (Optional) Run Harbor on this host** (install it after Step 1 and before
+  RKE2, on port 8443), with what changes later. Step 4.1 is still needed (Harbor's CA plus an RKE2 restart, or
+  pulls fail with `ImagePullBackOff`), 4.2 is skipped (the Harbor installer already set up Docker), and the
+  Appendix A clean-up keeps Docker. Sizing note: 20 vCPU / 44 GB.
+- README "Co-location Constraints": the tested Harbor-before-RKE2 layout and why it is safe.
+
+### Removed
+- `controller.hostNetwork: true` from the HAProxy values (ap-tools and manual guide Step 3.3). Chart 1.49.0 never
+  read it (its key is `controller.daemonset.useHostNetwork`, default false), so the rendered manifests are
+  identical and HAProxy keeps running on the pod network behind the MetalLB `LoadBalancer`. Applied to a live
+  3-node cluster with `helm upgrade`: same manifest, no pod restarts. Do not turn real host networking on while
+  Harbor shares the host: HAProxy would then bind 8443.
+
 ## 2026-10-23 — CoreDNS: correct the guide, add optional `COREDNS_HOSTS` (split-horizon)
 
 ### Fixed

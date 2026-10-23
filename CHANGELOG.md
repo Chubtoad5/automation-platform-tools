@@ -1,5 +1,23 @@
 # Changelog — automation-platform-tools
 
+## 2026-10-23 — CoreDNS: correct the guide, add optional `COREDNS_HOSTS` (split-horizon)
+
+### Fixed
+- Manual install guide, step 2.2: the CoreDNS override was described as making CoreDNS "forward cluster-external names
+  to the host's DNS servers" (RKE2 already does that). Its real purpose is renaming the Service to `kube-dns`, which
+  DAP's nginx gateways hard-code as their resolver. The guide now writes only that override. The previous copy of the
+  full `servers:` list replaced RKE2's defaults wholesale and dropped DNS over TCP.
+
+### Added
+- `COREDNS_HOSTS="<fqdn>=<ip>[,...]"`, forwarded to `rke2_installer.sh` on `install rke2` (requires the matching
+  rke2-installer change). It pins names in-cluster for split-horizon DNS: LAN DNS can send browsers to a
+  TLS-terminating reverse proxy for `portal.`/`orchestrator.` while DAP's services keep reaching the ingress VIP. They
+  must, because `fusion-mgmtworker` fetches its service token from the portal FQDN and trusts only DAP's CA; through
+  the proxy every plugin call fails with `403` (`auth context is nil`). Documented in the README, `inputs.env.example`,
+  the guide's optional block and a new troubleshooting row.
+- Validated on a live 3-node DAP 2.1.1.0 cluster: pods resolve both names to the VIP while LAN clients get the proxy,
+  the service-token TLS call verifies, and a real `check_drift` execution (edge plugin → compute API) succeeds.
+
 ## 2026-10-21 — Docs: manual install guide for DAP + DDPC on Ubuntu 24.04 (docs/dap-manual-install)
 
 Documentation only; no script change.

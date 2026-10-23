@@ -380,8 +380,10 @@ What the settings do:
 
 ### 2.2 Configure CoreDNS
 
-This makes CoreDNS forward cluster-external names to the host's DNS servers. RKE2 applies files placed in
-its `manifests` directory automatically when it starts.
+RKE2's CoreDNS Service is named `rke2-coredns-rke2-coredns` by default. DAP's nginx gateways expect the conventional
+name `kube-dns` (their configuration hard-codes `resolver kube-dns.kube-system.svc.cluster.local`), so rename it.
+Leave everything else at RKE2's defaults. RKE2 applies files placed in its `manifests` directory automatically when it
+starts.
 
 ```bash
 mkdir -p /var/lib/rancher/rke2/server/manifests
@@ -395,32 +397,36 @@ spec:
   valuesContent: |-
     service:
       name: kube-dns
-    servers:
-    - zones:
-      - zone: .
-      port: 53
-      plugins:
-      - name: errors
-      - name: health
-        configBlock: |-
-          lameduck 5s
-      - name: ready
-      - name: kubernetes
-        parameters: cluster.local in-addr.arpa ip6.arpa
-        configBlock: |-
-          pods insecure
-          fallthrough in-addr.arpa ip6.arpa
-          ttl 30
-      - name: prometheus
-        parameters: 0.0.0.0:9153
-      - name: forward
-        parameters: . /etc/resolv.conf
-      - name: cache
-        parameters: 30
-      - name: loop
-      - name: reload
-      - name: loadbalance
 EOF
+```
+
+> **Don't add a `servers:` list here.** It replaces RKE2's default CoreDNS configuration as a whole instead of
+> merging with it, so anything you leave out (for example DNS over TCP) is silently lost.
+
+**Optional — split-horizon DNS.** You only need this if your LAN DNS points `portal.<HOST_FQDN>` and
+`orchestrator.<HOST_FQDN>` at a TLS-terminating reverse proxy (for example, to give browsers a publicly trusted
+certificate) rather than at the ingress IP. DAP's own services also call those names and trust only DAP's CA, so
+they must keep reaching the ingress directly, or every plugin call fails with `403`. Pin the two names inside the
+cluster by adding this under `valuesContent` (replace the names and `INGRESS_IP`):
+
+```yaml
+    extraConfig:
+      import:
+        parameters: /etc/coredns/coredns-hosts.server
+    zoneFiles:
+    - filename: coredns-hosts.server
+      domain: coredns-hosts
+      contents: |
+        portal.dap.example.com:53 orchestrator.dap.example.com:53 {
+          errors
+          hosts {
+            INGRESS_IP portal.dap.example.com
+            INGRESS_IP orchestrator.dap.example.com
+            fallthrough
+          }
+          forward . /etc/resolv.conf
+          cache 30
+        }
 ```
 
 ### 2.3 Install and start RKE2
@@ -1059,6 +1065,7 @@ When everything passes you can delete the extracted bundles to free about 25 GB:
 | The DAP install stops after `Pushing 116 images` with `failed to push image <registry>/<project>/busybox:1.37.0 ... exit status 125` and `EO Image Loader has failed ... Error code: 0x016030005` | the project in `IMAGE_REG_URL` doesn't exist in the registry (often a typo in `REG_PROJECT`), or the user can't push to it. The loader log only shows `exit status 125` | run the test push from [Step 4.2](#42-install-docker); fix the project name or the user's rights; clean up and re-run as described at the end of [Step 5.4](#54-run-the-dap-installer) |
 | The image push is very slow | registry or network throughput | raise `IMAGE_LOADER_THREAD_COUNT` (up to 20) and re-run; already-pushed images are skipped |
 | Browser refuses the portal certificate with no "proceed anyway" option | the domain uses an HSTS-preloaded TLD (`.dev`, `.app`, …) | use a different domain; this can't be fixed on the DAP side |
+| Every plugin call in a workflow fails with `403` / `auth context is nil` after LAN DNS was pointed at a reverse proxy | DAP's services resolve the portal name through the same DNS and now reach the proxy, whose certificate DAP doesn't trust, so they can't get a service token | pin the portal and orchestrator names to the ingress IP inside the cluster (optional block in [Step 2.2](#22-configure-coredns)) |
 | A pod in `Error` blocks the DDPC pre-checks | a failed first attempt of a Job that later completed | see [Step 6.1](#61-pre-checks); delete the stale pod |
 | The SSH session dropped during the install | long-running command over an unstable session | reconnect, `sudo -i`, `screen -r dap-install` (or `ddpc-install`) |
 

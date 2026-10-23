@@ -20,6 +20,7 @@ working system, the [Quick Start in the main README](../../README.md#quick-start
 - [Requirements checklist](#requirements-checklist)
 - [Step 0 — Record your values](#step-0--record-your-values)
 - [Step 1 — Prepare the host](#step-1--prepare-the-host)
+- [Step 1A — (Optional) Run Harbor on this host](#step-1a--optional-run-harbor-on-this-host)
 - [Step 2 — Install RKE2](#step-2--install-rke2)
 - [Step 3 — Install Helm and the platform charts](#step-3--install-helm-and-the-platform-charts)
 - [Step 4 — Trust the registry and install Docker](#step-4--trust-the-registry-and-install-docker)
@@ -73,13 +74,16 @@ Work through this list **before** you start. Each item has a command to check it
 ### Host
 
 - [ ] **Fresh Ubuntu 24.04 LTS, x86_64**, with nothing else installed on it (no other Kubernetes, no Docker
-  workloads, nothing listening on ports 80/443).
+  workloads, nothing listening on ports 80/443). The one exception is a Harbor registry installed with
+  [Step 1A](#step-1a--optional-run-harbor-on-this-host) (ports 80 and 8443).
   Check: `lsb_release -ds; uname -m`
 - [ ] **CPU: 18 vCPU or more** (20 recommended once DDPC is added).
   Check: `nproc`
 - [ ] **RAM: 36 GB or more.** DAP's pre-check measures the *allocatable* memory Kubernetes reports, which is
   about 2 GB below what you provision; 34 GB allocatable is the practical floor, so provision 36 GB. DDPC needs
-  about 4 GB more of free headroom; 40 GB gives comfortable room.
+  about 4 GB more of free headroom; 40 GB gives comfortable room. **Running Harbor on the same host
+  (Step 1A)?** Plan **20 vCPU / 44 GB**: ap-tools' tested all-in-one size for DAP + Harbor is 20 vCPU / 40 GB,
+  plus DDPC's headroom.
   Check: `free -g`
 - [ ] **Disk: 1 TB or more on the root filesystem (SSD).** DAP 2.1.1.0 refuses to install unless the node
   reports **850 GiB of allocatable ephemeral-storage**, and allocatable is always a bit below the raw size.
@@ -131,8 +135,8 @@ DAP and DDPC do not pull from Dell's servers. Their installers **push** the imag
 - [ ] The host can reach the registry.
   Check: `curl -s -o /dev/null -w '%{http_code}\n' https://<host>:<port>/v2/` → `401` (or `200`) means reachable.
 
-> Don't have a registry? A Harbor install guide is planned for this `docs/` folder. Until then,
-> `ap-tools install harbor` installs one for you (see the main README).
+> Don't have a registry? You can run Harbor on this same host: see
+> [Step 1A](#step-1a--optional-run-harbor-on-this-host). It also creates the project for you.
 
 ### Dell bundles
 
@@ -323,6 +327,63 @@ systemctl is-enabled iscsid.socket 2>/dev/null || systemctl is-enabled iscsid.se
 ufw status                                                                     # Status: inactive
 timedatectl show -p NTPSynchronized                                            # NTPSynchronized=yes
 ```
+
+---
+
+## Step 1A — (Optional) Run Harbor on this host
+
+Skip this step if you already have a registry. To run a **Harbor** registry on the DAP host itself, install it
+**now**: after Step 1 and **before** RKE2. This order is tested: Harbor first, then RKE2 and the ingress, then
+the image pushes, plus a reboot.
+
+**Why it can share the host:** Harbor listens on ports **80** and **8443**. DAP's ingress receives
+traffic on 80 and 443 through the MetalLB `LoadBalancer` (Kubernetes' rules take that traffic before Docker's),
+and the HAProxy pods run on the pod network, so they don't open ports on the host. Only Harbor's port matters:
+**use 8443, never 443**, because 443 is the DAP portal's port. The standalone Harbor installer defaults to 443, so
+set `HARBOR_PORT=8443` (the ap-tools default).
+
+**DNS:** add `registry.<HOST_FQDN>` → `<HOST_IP>` (the `*.<HOST_FQDN>` wildcard already covers it).
+
+Install it with [harbor-registry-installer](https://github.com/Chubtoad5/harbor-registry-installer). It installs
+Docker CE as well (with the same `bip` as Step 4.2), creates a CA and certificate for the registry name, and creates
+the project for Dell's images:
+
+```bash
+source /root/dap-install.env
+mkdir -p /opt/harbor-install && cd /opt/harbor-install
+curl -fsSLO https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/main/install_harbor.sh
+REGISTRY_COMMON_NAME="registry.$HOST_FQDN" HARBOR_PORT=8443 HARBOR_PASSWORD='<harbor-admin-password>' \
+  PROJECTS="dell-automation" bash install_harbor.sh install-harbor
+```
+
+(`ap-tools install harbor` does the same with ap-tools' defaults: port 8443, `registry.<HOST_FQDN>`, the
+`dell-automation` project.)
+
+Point the registry values in `/root/dap-install.env` at it (edit the `REGISTRY`/`REG_*` lines to these values):
+
+```bash
+export REGISTRY="registry.$HOST_FQDN:8443"   # write the real name, e.g. registry.dap1.example.lab:8443
+export REG_PROJECT="dell-automation"
+export REG_USER="admin"
+export REG_PASS='<harbor-admin-password>'
+```
+
+**Verify:**
+
+```bash
+source /root/dap-install.env
+curl -s --cacert /opt/harbor/certs/ca.crt "https://$REGISTRY/api/v2.0/ping"; echo   # Pong
+ss -ltnp | grep -E ':(80|8443) '                                                     # docker-proxy on 80 and 8443
+```
+
+**What changes later when Harbor is on this host:**
+
+| Step | What to do |
+|:--|:--|
+| 4.1 Trust the registry's certificate | **Still required**: RKE2's containerd must trust Harbor, or image pulls fail with `ImagePullBackOff`. Use Harbor's CA file instead of fetching the chain: `cp /opt/harbor/certs/ca.crt /usr/local/share/ca-certificates/${REGISTRY%%:*}.crt`, then run the rest of 4.1 as written (`update-ca-certificates`, the `REG_CERT_FILE` line, `systemctl restart rke2-server`). Docker needs no restart; the Harbor installer already put the CA in `/etc/docker/certs.d/` |
+| 4.2 Install Docker | **Skip it.** Docker is already installed and configured |
+| 4 Verify | Run it as written; the push test proves `dell-automation` exists and accepts pushes |
+| Appendix A | Keep the Docker and registry-trust steps (3 and 4) if Harbor stays on the host. To remove Harbor too, run `bash install_harbor.sh uninstall-harbor` from `/opt/harbor-install` first |
 
 ---
 
@@ -671,6 +732,10 @@ rm -f "$WORK_DIR/k9s" "$WORK_DIR/k9s.tar.gz"
 ---
 
 ## Step 4 — Trust the registry and install Docker
+
+> **Installed Harbor in Step 1A?** Do 4.1 with Harbor's CA file (`/opt/harbor/certs/ca.crt`), skip 4.2, and
+> run the Verify block. See the table at the end of
+> [Step 1A](#step-1a--optional-run-harbor-on-this-host).
 
 ### 4.1 Trust the registry's certificate
 
@@ -1077,7 +1142,8 @@ When everything passes you can delete the extracted bundles to free about 25 GB:
 
 ## Appendix A — Uninstall and clean-up
 
-This removes **everything**, including all DAP data. There is no undo.
+This removes **everything**, including all DAP data. There is no undo. If you ran Harbor on this host
+(Step 1A) and want to keep it, skip parts 3 and 4.
 
 ```bash
 sudo -i
@@ -1133,6 +1199,7 @@ change the same thing.
 | 1.3–1.4, 1.8 modules, swap, firewall | `rke2_installer.sh` host preparation |
 | 1.5 inotify sysctl, 1.6 multipathd | `configure_node_sysctl` |
 | 1.7 iscsid | `enable_iscsid` |
+| 1A Harbor on this host | `install harbor` → `install_harbor.sh install-harbor` [`HARBOR_PORT` (8443), `HARBOR_COMMON_NAME`, `PROJECTS`, `SWFS_HARBOR_USER`/`SWFS_HARBOR_PASS`] |
 | 2.1 RKE2 config | `rke2_installer.sh` `render_rke2_config` [`RKE2_VERSION`, `CNI_TYPE`, `MAX_PODS`, `CLUSTER_CIDR`, `SERVICE_CIDR`, `-tls-san`] |
 | 2.2 CoreDNS | `rke2_installer.sh` `create_config_files` |
 | 3.1 Helm | `install_helm` [`HELM_VERSION`] |

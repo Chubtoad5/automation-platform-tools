@@ -1183,7 +1183,7 @@ Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set 
 ### Co-location Constraints
 
 - Harbor and SeaweedFS may coexist on the same host provided they use different TCP ports.
-- Running `install rke2` on the same host as Harbor or SeaweedFS should be used **with caution** due to potential port and resource conflicts with Automation Platform services.
+- Running `install rke2` on the same host as Harbor or SeaweedFS should be used **with caution** due to potential port and resource conflicts with Automation Platform services. Tested combination (2026-10-23): `install harbor` **before** `install rke2` on one host, with Harbor on its default **8443** (never 443, which the DAP ingress uses). Harbor's `:80` does not collide either: the ingress receives 80/443 through the MetalLB `LoadBalancer` (Kubernetes' NAT rules run before Docker's, also after a reboot), and the HAProxy pods run on the pod network. Size an all-in-one host per [Minimum Resources](#minimum-resources). The manual guide's [Step 1A](docs/dap-install/ubuntu-dap-ddpc-manual-install.md#step-1a--optional-run-harbor-on-this-host) covers the same layout by hand.
 - **Never co-locate `install dns-server` with RKE2.** Technitium binds `:53` and rewrites the host's `/etc/resolv.conf` to `127.0.0.1`; RKE2 then hands CoreDNS a loopback-free fallback (`8.8.8.8`), so pods stop resolving the DAP/registry names, and `systemd-resolved`'s stub listener collides on `:53`. `install dns-server` refuses a host with an active `rke2-server`/`rke2-agent` unless `DNS_ALLOW_COLOCATION=true`. A Harbor or SeaweedFS host is fine (different ports) — their names are simply seeded via `DNS_REGISTRY_IP` / `DNS_SWFS_IP`.
 
 ### Debug Mode

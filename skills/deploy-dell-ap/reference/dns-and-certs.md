@@ -16,6 +16,10 @@ Create these pointing at the **target host's IP** (substitute your own base doma
 - **Wildcard shortcut:** `*.myhost.mydomain.lab` → host IP satisfies all four at once.
 - **Avoid** `.local` zones (mDNS conflict).
 - DNS must resolve **before** `install ap-bundle` — its pre-flight aborts on unresolved names.
+- **Names follow `HOST_FQDN`** (default `<hostname>.<BASE_DOMAIN>`). If the user wants `portal.<domain>` /
+  `orchestrator.<domain>` (no host label), set `HOST_FQDN=<domain>`. Don't run DAP on a host named `portal` or
+  `orchestrator` without that: the names become `orchestrator.orchestrator.<domain>`. `install rke2` (single-node)
+  prints the names and warns early.
 
 ## Option B — let ap-tools run the DNS server
 If the user has **no DNS server** for these records, `ap-tools install dns-server` installs a

@@ -48,7 +48,7 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 |:--|:--|:--|
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain for all service FQDNs. |
 | `CLUSTER_TYPE` | `single-node` | Set `multi-node` before the first `install rke2`. |
-| `HOST_FQDN` | `<hostname>.<BASE_DOMAIN>` | Base FQDN the portal/orchestrator/`mtls-*` names derive from. **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (else the pre-flight checks `portal.<hostname>` and aborts). |
+| `HOST_FQDN` | `<hostname>.<BASE_DOMAIN>` (an FQDN hostname is used as-is) | Base FQDN the portal/orchestrator/`mtls-*` names derive from. For `portal.<domain>` / `orchestrator.<domain>` set `HOST_FQDN=<domain>`. **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (else the pre-flight checks `portal.<hostname>` and aborts). |
 | `LB_IP` | host `MGMT_IP` | The MetalLB **ingress** VIP (portal/orchestrator HTTPS). Single-node: leave default (= host IP). Multi-node: set to a dedicated free L2 IP (not a node IP). **Not** an API-server LB. |
 | `LB_VIP` | _(empty)_ | **Deprecated alias for `LB_IP`** — still honored if set, but prefer `LB_IP`. |
 | `NTP_SERVERS` | _(empty)_ | NTP server(s) to configure on every node (`install rke2`/`join`) and verify at `install ap-bundle`. Empty = OS default. |

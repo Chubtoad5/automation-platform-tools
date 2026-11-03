@@ -33,9 +33,29 @@ sent() { grep -qxF -- "$1" "$STUB_LOG"; }
   sent 'REGISTRY_COMMON_NAME=reg.example'
   sent 'DURATION_DAYS=30'
 }
-@test "ap-tools turns off RKE2's built-in ingress, because it installs its own" {
-  [ "$INSTALL_INGRESS" = "false" ]
-  grep -q 'INSTALL_INGRESS=$INSTALL_INGRESS' "$BATS_TEST_DIRNAME/../../ap-tools"
+install_rke2_with_stubs() {
+  INSTALL_MODE=1; JOIN_MODE=0; PUSH_MODE=0; REGISTRY_MODE=0; INSTALL_TYPE=push-only
+  RKE2_CMD_ARGS="install"
+  run_debug() { :; }
+  check_rke2_service_running() { :; }
+  set_longhorn_packages() { longhorn_packages=""; }
+  install_packages_check() { fake "$WORKING_DIR/ap-utilities/packages/install_packages.sh"; }
+  rke2_installer_check() { fake "$WORKING_DIR/rke2/rke2_installer.sh"; }
+  run_install_join_push
+}
+@test "install rke2 sends INSTALL_INGRESS=false, because ap-tools installs its own ingress" {
+  install_rke2_with_stubs
+  sent 'ARGS install'
+  sent 'INSTALL_INGRESS=false'
+}
+@test "install rke2 forwards its other settings" {
+  RKE2_VERSION=v1.0.0+rke2r1; CNI_TYPE=calico; NTP_SERVERS=ntp.example; MAX_PODS=250; MGMT_IP=10.0.0.5
+  install_rke2_with_stubs
+  sent 'RKE2_VERSION=v1.0.0+rke2r1'
+  sent 'CNI_TYPE=calico'
+  sent 'NTP_SERVERS=ntp.example'
+  sent 'MAX_PODS=250'
+  sent 'MGMT_IP=10.0.0.5'
 }
 @test "the bundle's name and sentinel stay the same" {
   grep -q 'ap-offline.tar.gz' "$BATS_TEST_DIRNAME/../../ap-tools"

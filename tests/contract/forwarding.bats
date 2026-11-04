@@ -25,7 +25,7 @@ sent() { grep -qxF -- "$1" "$STUB_LOG"; }
   COUNTRY=US; STATE=MA; LOCATION=B; ORGANIZATION=O; DURATION_DAYS=30; HARBOR_COMMON_NAME=reg.example
   run_install_harbor
   sent 'ARGS install-harbor'
-  sent 'PROJECTS=a'
+  sent 'PROJECTS=a b'
   sent 'HARBOR_VERSION=2.15.0'
   sent 'HARBOR_PORT=8443'
   sent 'HARBOR_USERNAME=ops'

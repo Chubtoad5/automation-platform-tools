@@ -18,9 +18,14 @@ STUB
 called() { grep -qF -- "$1" "$STUB_LOG"; }
 # Source a script for its functions. Its strict mode and any EXIT trap would otherwise take over the test shell.
 load_script() {
+  local bats_traps
+  bats_traps=$(trap -p EXIT ERR)
   # shellcheck disable=SC1090
   source "$BATS_TEST_DIRNAME/../../$1"
-  trap - EXIT
-  set +eu
+  trap - EXIT ERR
+  eval "$bats_traps"
+  # Bats fails a test through errexit, so that stays on. The script's other strict settings don't belong here.
+  set -e
+  set +u
   set +o pipefail
 }

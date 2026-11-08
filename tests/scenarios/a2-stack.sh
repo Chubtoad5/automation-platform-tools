@@ -98,10 +98,46 @@ else
   bad "the HAProxy ingress over HTTP: '$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H 'Host: web.ci.test' "http://${lbip:-$IP}/")'"
   # What it takes to tell a network fault from a routing one
   curl -sv -m 5 "http://${lbip:-$IP}/" 2>&1 | grep -E '^(< HTTP|\* (Connected|Empty|Recv|Failed|connect))' | head -3
+  echo "  with Host web.ci.test: $(curl -s -m 10 -o /dev/null -w 'code %{http_code}, curl exit %{exitcode}, %{time_total}s' -H 'Host: web.ci.test' "http://${lbip:-$IP}/")"
   echo "  FORWARD policy: $(iptables -S FORWARD 2>/dev/null | head -1); docker: $(systemctl is-active docker 2>/dev/null)"
   $K get svc,pods -n haproxy-controller -o wide 2>&1 | cut -c1-160 | head -5
   $K logs -n haproxy-controller -l app.kubernetes.io/name=kubernetes-ingress --tail=6 2>&1 | cut -c1-170
 fi
+# TLS passthrough, the path DAP uses: HAProxy hands the TLS stream to the pod by SNI, and the pod's own certificate answers.
+$K apply -n ci-a2 -f - > "$W/k2" 2>&1 <<TLSEOF
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: tls }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: tls } }
+  template:
+    metadata: { labels: { app: tls } }
+    spec:
+      containers:
+        - name: tls
+          image: alpine:3.20
+          command: [sh, -c, "apk add -q --no-cache openssl >/dev/null && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=tls.ci.test -keyout /k -out /c >/dev/null 2>&1 && exec openssl s_server -quiet -accept 8443 -cert /c -key /k -www"]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: tls }
+spec: { selector: { app: tls }, ports: [{ port: 443, targetPort: 8443 }] }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: tls, annotations: { haproxy.org/ssl-passthrough: "true" } }
+spec:
+  ingressClassName: ${class:-haproxy}
+  rules:
+    - host: tls.ci.test
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: tls, port: { number: 443 } } } }] }
+TLSEOF
+$K wait -n ci-a2 --for=condition=Available deployment/tls --timeout=300s >/dev/null 2>&1 && ok "a TLS app is up" || bad "the TLS app isn't up"
+tls_cn() { openssl s_client -connect "${lbip:-$IP}:443" -servername tls.ci.test </dev/null 2>/dev/null | openssl x509 -noout -subject 2>/dev/null; }
+tls() { [[ "$(tls_cn)" == *tls.ci.test* ]]; }
+within 120 tls && ok "TLS passthrough through HAProxy reaches the pod, whose own certificate answers" \
+  || bad "TLS passthrough: the certificate at :443 for tls.ci.test is '$(tls_cn)'"
 grep -q "https://$R" /etc/rancher/rke2/registries.yaml 2>/dev/null && ok "registries.yaml points at the registry" || bad "registries.yaml doesn't name the registry"
 pulls=$(h "https://$R/api/v2.0/auditlog-exts?page_size=100&q=operation%3Dpull%2Cusername%3D$RU%2Cop_time%3D%5B$since~$(date -u +%Y-%m-%dT%H:%M:%SZ)%5D")
 n=$(grep -o '"resource":"[a-z0-9-]*/[^"@:]*' <<< "$pulls" | sort -u | wc -l)

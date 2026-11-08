@@ -246,7 +246,7 @@ Guides for Harbor, air-gapped installs, other Linux distributions and multi-node
 ap-tools [COMMAND] [OPTIONS]
 ```
 
-The script must be run as **root** (or via `sudo`). Air-gapped mode is auto-detected when `ap-offline.tar.gz` is present in the working directory.
+The script must be run as **root** (or via `sudo`), except `version` on its own. Air-gapped mode is auto-detected when `ap-offline.tar.gz` is present in the working directory.
 
 ### Commands
 
@@ -268,6 +268,12 @@ Installs a component and its dependencies. When `ap-offline.tar.gz` is present, 
 #### `offline-prep`
 
 Creates `ap-offline.tar.gz` containing all binaries, container images, Helm charts, OS packages and the Technitium DNS Server bundle for a fully disconnected installation. Cannot be combined with `install`, `push`, or `join`. Requires an active internet connection (including `download.technitium.com` and `dot.net` for the DNS bundle, which is always included).
+
+#### `version`
+
+Prints the `ap-tools` version and the release of each sub-tool it fetches, plus the releases an extracted
+`ap-offline.tar.gz` holds. It changes nothing, needs no root, and can't be combined with other commands or options. See
+[Sub-tool releases](#sub-tool-releases).
 
 #### `upgrade rke2 <server|agent|both> <stable|version>`
 
@@ -403,6 +409,7 @@ The script validates argument combinations at startup. The following table shows
 | `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` |
 | `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin pass` |
 | `offline-prep` | `./ap-tools offline-prep` |
+| `version` | `./ap-tools version` |
 | `uninstall <component>` | `./ap-tools uninstall rke2` |
 | `uninstall <component> --purge-cache` | `./ap-tools uninstall ap-bundle --purge-cache` |
 | `config hostname <fqdn>` | `./ap-tools config hostname node1.edge.lab` |
@@ -577,7 +584,7 @@ prefix; everything else passes through under its own name.
 | `DNS_ZONES_TEMPLATE` | _(empty)_ | Path to your **own** Technitium zone/record template (format in the installer's `zones.template.txt`). When set it replaces the generated template and the seeding inputs below are ignored. |
 | `DNS_ENABLE_DHCP` + `DHCP_*` | `false` | Create and enable a DHCP scope (`DHCP_SCOPE_NAME`, `DHCP_START_ADDRESS`, `DHCP_END_ADDRESS`, `DHCP_SUBNET_MASK`, `DHCP_ROUTER`, `DHCP_DNS_SERVERS`, `DHCP_DOMAIN`, `DHCP_DNS_SEARCH`, `DHCP_NTP_SERVERS`, `DHCP_DNS_UPDATES`, `DHCP_LEASE_DAYS`, `DHCP_SCOPE_ENABLED`). Passed through unchanged. |
 | `DNS_REMOVE_DOTNET` | `false` | `uninstall dns-server` also deletes `/opt/dotnet`. `PURGE_DATA=true` (shared with Harbor) also deletes `/etc/dns`. |
-| `dns_feature_branch` | `main` | Branch of `technitium-dns-installer` to fetch (testing pre-merge changes). |
+| `dns_feature_branch` | *(none)* | Branch of `technitium-dns-installer` to fetch, for testing pre-merge changes. Wins over the pinned release; see [Sub-tool releases](#sub-tool-releases). |
 
 Other installer knobs (`DNS_ADMIN_USER`, `FORCE_ONLINE`, `DOTNET_VERSION`, `DOTNET_INSTALL_URL`, `TECHNITIUM_*_URL`, `INSTALL_PACKAGES_URL`) are not defined by ap-tools; they reach `technitium_dns_installer.sh` only when exported in the environment.
 
@@ -630,6 +637,31 @@ the stale record.
 | `MONITORING_PROMETHEUS_PORT` | `9090` | Prometheus remote-write receiver port on the monitoring host. |
 | `MONITOR_EXCLUDE_NS` | `kube-system kube-public kube-node-lease default monitoring` | Space-separated namespaces excluded from ServiceMonitor auto-discovery. |
 | `MONITOR_PORT_NAMES` | `manager metrics http-metrics prometheus prom stat metrics-port` | Port names matched during ServiceMonitor auto-discovery. |
+
+### Sub-tool releases
+
+Each `ap-tools` release downloads the sub-tool releases it was tested with, never `main`, so a change in a sub-tool
+reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version` prints them.
+
+| Variable | Default | Sub-tool |
+|:---------|:--------|:---------|
+| `RKE2_INSTALLER_REF` | `v1.3.0` | `rke2_installer.sh` |
+| `HARBOR_INSTALLER_REF` | `v1.1.1` | `install_harbor.sh` |
+| `SWFS_INSTALLER_REF` | `v1.2.0` | `install-seaweedfs` |
+| `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |
+| `IMAGE_PULL_PUSH_REF` | `v1.1.1` | `image_pull_push.sh` |
+| `INSTALL_PACKAGES_REF` | `v1.1.2` | `install_packages.sh` |
+
+- **Each takes a tag, a branch or a commit.** `rke2_feature_branch`, `harbor_feature_branch`, `swfs_feature_branch`
+  and `dns_feature_branch` still work, for testing pre-merge changes, and win over the pin. A `*_REF` wins over both.
+  An `inputs.env` from before 1.1.0 that sets a `*_feature_branch` to `main` keeps that sub-tool on `main`: remove the
+  line.
+- **The cache:** a copy from the same tag or commit is reused. A branch can move, so it's downloaded again on every
+  online run. A copy from another ref is replaced.
+- **One set of pins covers the chain.** `ap-tools` passes `IMAGE_PULL_PUSH_REF` and `INSTALL_PACKAGES_REF` to every
+  installer it runs, which fetch their own helpers by them.
+- **Air-gapped:** `offline-prep` records the releases in `ap-install/subtool-pins.txt`. An air-gapped run uses the
+  copies in the bundle, prints the recorded releases, and downloads nothing.
 
 ---
 

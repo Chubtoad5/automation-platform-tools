@@ -1,0 +1,4 @@
+# Spec 09's A1: ap-tools' offline-prep bundle, built on one host, installs the stack on a second that can't reach outside.
+# Run by automation-ci's ci/scenario.sh: one clone per role, in this order, on the same distro.
+role build  4 8192  tests/scenarios/a1-build.sh
+role target 8 16384 tests/scenarios/a1-install.sh offline

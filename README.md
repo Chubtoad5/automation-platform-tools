@@ -654,6 +654,8 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 
 - **Each takes a tag, a branch or a commit.** `rke2_feature_branch`, `harbor_feature_branch`, `swfs_feature_branch`
   and `dns_feature_branch` still work, for testing pre-merge changes, and win over the pin. A `*_REF` wins over both.
+  An `inputs.env` from before 1.1.0 that sets a `*_feature_branch` to `main` keeps that sub-tool on `main`: remove the
+  line.
 - **The cache:** a copy from the same tag or commit is reused. A branch can move, so it's downloaded again on every
   online run. A copy from another ref is replaced.
 - **One set of pins covers the chain.** `ap-tools` passes `IMAGE_PULL_PUSH_REF` and `INSTALL_PACKAGES_REF` to every

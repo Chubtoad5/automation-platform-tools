@@ -3011,7 +3011,8 @@ print_version () {
         echo "Sub-tools in the extracted offline bundle ($WORKING_DIR/subtool-pins.txt):"
         grep -v '^#' "$WORKING_DIR/subtool-pins.txt" | awk '{printf "  %-28s %s\n", $1, $2}'
     elif [[ -f $base_dir/ap-offline.tar.gz ]]; then
-        echo "The offline bundle here recorded no sub-tool pins: it was built before ap-tools 1.1.0."
+        echo "The offline bundle here isn't extracted yet ('tar xzf ap-offline.tar.gz'), or was built before ap-tools 1.1.0,"
+        echo "  so it shows no sub-tool pins."
     fi
 }
 
@@ -3640,8 +3641,8 @@ done
 
 # 'version' prints and exits before anything else runs (spec 13)
 if [[ "${VERSION_MODE:-0}" == "1" ]]; then
-    if [[ $INSTALL_MODE == "1" || $UNINSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $CONFIG_MODE == "1" || $UPGRADE_MODE == "1" ]]; then
-        echo "Error: 'version' cannot be combined with other commands."
+    if [[ $INSTALL_MODE == "1" || $UNINSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $CONFIG_MODE == "1" || $UPGRADE_MODE == "1" || $TLS_SAN_MODE == "1" || $REGISTRY_MODE == "1" || $PURGE_CACHE == "1" ]]; then
+        echo "Error: 'version' cannot be combined with other commands or options."
         exit 1
     fi
     print_version

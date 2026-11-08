@@ -120,7 +120,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   rm "$WORKING_DIR/subtool-pins.txt"
   touch "$base_dir/ap-offline.tar.gz"
   run print_version
-  [[ "$output" == *"recorded no sub-tool pins"* ]]
+  [[ "$output" == *"isn't extracted yet"* ]]
 }
 @test "version on its own runs without root, and changes nothing" {
   cd "$BATS_TEST_TMPDIR"
@@ -135,6 +135,15 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   run bash "$BATS_TEST_DIRNAME/../../ap-tools" version install rke2
   [ "$status" -eq 1 ]
   [[ "$output" == *"'version' cannot be combined"* ]]
+}
+@test "version with an option is refused too" {
+  [ "$EUID" -eq 0 ] || skip "the root check comes first"
+  cd "$BATS_TEST_TMPDIR"
+  for opt in "-tls-san a.b" "-registry r:443 u p" "--purge-cache"; do
+    run bash "$BATS_TEST_DIRNAME/../../ap-tools" version $opt
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'version' cannot be combined"* ]]
+  done
 }
 @test "install ap-bundle's copy of image_pull_push.sh keeps rke2's ref record in step" {
   body=$(declare -f install_reg_docker)

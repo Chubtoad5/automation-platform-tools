@@ -21,8 +21,10 @@ The first release with `SCRIPT_VERSION`. `v1.0.0` was a baseline release.
   fix on a branch now reaches a host that already holds a copy. A copy from `main`, from before this release, is
   replaced once by its pinned release.
 - **`IMAGE_PULL_PUSH_REF` and `INSTALL_PACKAGES_REF` reach every installer `ap-tools` runs,** so one set of pins covers
-  the whole chain. Harbor run through `ap-tools` moves to `install-packages` `v1.1.2`, which only adds apt's reason when
-  an install fails.
+  the whole chain. Harbor run through `ap-tools`, and `image_pull_push.sh` run by `ap-tools` or rke2, move to
+  `install-packages` `v1.1.2`, which only adds apt's reason when an install fails.
+- **An `inputs.env` from before this release** that sets a `*_feature_branch` to `main` keeps that sub-tool on `main`,
+  unpinned. Remove the line. The log says "follows branch 'main'", and `version` shows it.
 - **Air-gapped, the copies in `ap-offline.tar.gz` are used, and nothing is downloaded,** even when a pin differs from
   the bundle's.
 - `install ap-bundle` copies its `image_pull_push.sh` into rke2's folder with rke2's ref record, so rke2 keeps that

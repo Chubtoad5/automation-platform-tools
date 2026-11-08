@@ -11,11 +11,14 @@ K="/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml"
 pods_ok() { local out; out=$($K get pods -n "$1" --no-headers 2>/dev/null); [ -n "$out" ] && ! grep -qvE ' (Running|Completed) ' <<< "$out"; }
 W=$(mktemp -d -p /var/tmp); cd "$W" || exit 1
 cp "$REPO/ap-tools" .; chmod +x ap-tools
-tar -xzf "$CI_HANDOFF/ap-offline.tar.gz" && ok "unpack the bundle" || { bad "unpack the bundle"; echo "=== exit 1"; exit 1; }
+# As the README says: ap-offline.tar.gz beside ap-tools, unpacked there. The archive itself is what turns air-gapped mode on.
+cp "$CI_HANDOFF/ap-offline.tar.gz" . && tar -xzf ap-offline.tar.gz && ok "copy the bundle beside ap-tools and unpack it" \
+  || { bad "copy and unpack the bundle"; echo "=== exit 1"; exit 1; }
 export HOST_FQDN=a1.ci.test BASE_DOMAIN=ci.test DEBUG=0
 ./ap-tools install rke2 > "$W/o" 2>&1 && ok "ap-tools install rke2 with no route out" || { bad "ap-tools install rke2 with no route out"; tail -10 "$W/o" | cut -c1-170; }
 nready() { $K get nodes --no-headers 2>/dev/null | grep -qw Ready; }
 within 300 nready && ok "the node is Ready" || bad "the node isn't Ready"
+grep -q "AIR_GAPPED_MODE: 1" "$W/o" && ok "it installs in air-gapped mode" || bad "it didn't install in air-gapped mode"
 for ns in kube-system haproxy-controller metallb-system longhorn-system; do
   within 300 pods_ok "$ns" && ok "$ns: every pod runs" || bad "$ns: $($K get pods -n "$ns" --no-headers 2>&1 | grep -vE ' (Running|Completed) ' | head -3)"
 done

@@ -427,7 +427,7 @@ Commands:
     [registry:port username password]
 
   version      : Prints this ap-tools version and the release of each sub-tool it fetches, and the releases an
-                 extracted ap-offline.tar.gz holds. Changes nothing. Cannot be combined with other commands.
+                 extracted ap-offline.tar.gz holds. Changes nothing. Cannot be combined with other commands or options.
                  Pins: RKE2_INSTALLER_REF, HARBOR_INSTALLER_REF, SWFS_INSTALLER_REF, DNS_INSTALLER_REF,
                  IMAGE_PULL_PUSH_REF, INSTALL_PACKAGES_REF (a tag, branch or commit; *_feature_branch still works).
 

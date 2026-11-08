@@ -272,7 +272,7 @@ Creates `ap-offline.tar.gz` containing all binaries, container images, Helm char
 #### `version`
 
 Prints the `ap-tools` version and the release of each sub-tool it fetches, plus the releases an extracted
-`ap-offline.tar.gz` holds. It changes nothing, needs no root, and can't be combined with other commands. See
+`ap-offline.tar.gz` holds. It changes nothing, needs no root, and can't be combined with other commands or options. See
 [Sub-tool releases](#sub-tool-releases).
 
 #### `upgrade rke2 <server|agent|both> <stable|version>`

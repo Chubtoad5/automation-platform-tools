@@ -92,8 +92,16 @@ within 300 done_ok && [ "$($K logs -n ci-a2 writer 2>/dev/null)" = ci-a2-volume 
   || { bad "the Longhorn writer pod: $($K get pod -n ci-a2 writer --no-headers 2>&1)"; $K get events -n ci-a2 --sort-by=.lastTimestamp 2>/dev/null | tail -4 | cut -c1-170; }
 $K wait -n ci-a2 --for=condition=Available deployment/web --timeout=300s >/dev/null 2>&1 && ok "the web app is up" || bad "the web app isn't up"
 web() { [ "$(curl -s -m 5 -H 'Host: web.ci.test' "http://${lbip:-$IP}/")" = ci-a2-web ]; }
-within 120 web && ok "a request through the HAProxy ingress reaches the app" \
-  || bad "the HAProxy ingress over HTTP: '$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H 'Host: web.ci.test' "http://${lbip:-$IP}/")'"
+if within 120 web; then
+  ok "a request through the HAProxy ingress reaches the app"
+else
+  bad "the HAProxy ingress over HTTP: '$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H 'Host: web.ci.test' "http://${lbip:-$IP}/")'"
+  # What it takes to tell a network fault from a routing one
+  curl -sv -m 5 "http://${lbip:-$IP}/" 2>&1 | grep -E '^(< HTTP|\* (Connected|Empty|Recv|Failed|connect))' | head -3
+  echo "  FORWARD policy: $(iptables -S FORWARD 2>/dev/null | head -1); docker: $(systemctl is-active docker 2>/dev/null)"
+  $K get svc,pods -n haproxy-controller -o wide 2>&1 | cut -c1-160 | head -5
+  $K logs -n haproxy-controller -l app.kubernetes.io/name=kubernetes-ingress --tail=6 2>&1 | cut -c1-170
+fi
 grep -q "https://$R" /etc/rancher/rke2/registries.yaml 2>/dev/null && ok "registries.yaml points at the registry" || bad "registries.yaml doesn't name the registry"
 pulls=$(h "https://$R/api/v2.0/auditlog-exts?page_size=100&q=operation%3Dpull%2Cusername%3D$RU%2Cop_time%3D%5B$since~$(date -u +%Y-%m-%dT%H:%M:%SZ)%5D")
 n=$(grep -o '"resource":"[a-z0-9-]*/[^"@:]*' <<< "$pulls" | sort -u | wc -l)

@@ -1,5 +1,48 @@
 # Changelog — automation-platform-tools
 
+## v1.1.0 — 2026-11-08 — Every sub-tool comes from a release
+
+The first release with `SCRIPT_VERSION`. `v1.0.0` was a baseline release.
+
+### Changed
+- **`ap-tools` downloads each sub-tool from the release it pins, instead of `main`** (spec 13). So a merge in a
+  sub-tool reaches `ap-tools` users only with a new `ap-tools` release. This release pins:
+
+  | Sub-tool | Release |
+  |---|---|
+  | `rke2-installer` | `v1.3.0` |
+  | `harbor-registry-installer` | `v1.1.1` |
+  | `seaweedfs-installer` | `v1.2.0` |
+  | `technitium-dns-installer` | `v1.3.0` |
+  | `images-pull-push` | `v1.1.1` |
+  | `install-packages` | `v1.1.2` |
+
+- **The cache:** a copy from the same tag or commit is reused. A branch is downloaded again on every online run, so a
+  fix on a branch now reaches a host that already holds a copy. A copy from `main`, from before this release, is
+  replaced once by its pinned release.
+- **`IMAGE_PULL_PUSH_REF` and `INSTALL_PACKAGES_REF` reach every installer `ap-tools` runs,** so one set of pins covers
+  the whole chain. Harbor run through `ap-tools` moves to `install-packages` `v1.1.2`, which only adds apt's reason when
+  an install fails.
+- **Air-gapped, the copies in `ap-offline.tar.gz` are used, and nothing is downloaded,** even when a pin differs from
+  the bundle's.
+- `install ap-bundle` copies its `image_pull_push.sh` into rke2's folder with rke2's ref record, so rke2 keeps that
+  copy instead of fetching its own.
+- The manual install guide downloads Harbor's installer from its `v1.1.1` release, as `ap-tools` does, not `main`.
+
+### Added
+- **`RKE2_INSTALLER_REF`, `HARBOR_INSTALLER_REF`, `SWFS_INSTALLER_REF`, `DNS_INSTALLER_REF`, `IMAGE_PULL_PUSH_REF`,
+  `INSTALL_PACKAGES_REF`:** a tag, branch or commit for each sub-tool. The `*_feature_branch` settings still work and win
+  over the pin. A `*_REF` wins over both.
+- **`./ap-tools version`** prints this version, the six pins, and the releases an extracted bundle holds. It changes
+  nothing and needs no root.
+- **`offline-prep` records the pins** in `ap-install/subtool-pins.txt`, and an air-gapped run prints them.
+
+### Tests
+- `tests/unit/pins.bats`: the pins, the override order, the export, the URL form, the cache rules, both air-gapped cases,
+  a failed download, the pins file, `version`, and rke2's ref record.
+- `tests/contract/forwarding.bats`: the helper pins reach Harbor's environment, every pin is a release tag, and the
+  `*_feature_branch` check now tests that each one still chooses what's fetched.
+
 ## 2026-10-23 — Service names no longer double up on hosts named after a service (GitHub #8)
 
 ### Fixed

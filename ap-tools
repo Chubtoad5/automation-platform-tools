@@ -1,4 +1,5 @@
 #!/bin/bash
+SCRIPT_VERSION="1.1.0"
 
 # --- OPTIONAL INPUTS FILE (inputs.env) --- #
 # If an inputs file exists it is sourced BEFORE the defaults below. The file itself
@@ -275,6 +276,7 @@ WORKING_DIR="$base_dir/ap-install"
 DDPC_BUNDLE_DIR="$WORKING_DIR/ddpc-bundle"   # install-time extraction of the DDPC zip (sibling of ap-install/bundle)
 DNS_SERVER_DIR="$WORKING_DIR/ap-utilities/dns"   # technitium_dns_installer.sh, its save archive and the generated zone template
 UPGRADE_MODE=0
+VERSION_MODE=0
 UPGRADE_TYPE=""
 UPGRADE_VERSION=""
 REGISTRY_MODE=0
@@ -326,16 +328,24 @@ REQUIRED_MEM_GB=34
 # and then fail Dell's own check mid-install.
 REQUIRED_STORAGE_GB=850
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
-swfs_feature_branch="${swfs_feature_branch:-main}"
-rke2_feature_branch="${rke2_feature_branch:-main}"
-harbor_feature_branch="${harbor_feature_branch:-main}"
-dns_feature_branch="${dns_feature_branch:-main}"
+# --- SUB-TOOL PINS (spec 13) --- #
+# Each ap-tools release fetches the sub-tool releases it was tested with, never main. A *_feature_branch (test flows)
+# wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
+# again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
+RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.0}}"
+HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.1.1}}"
+SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.2.0}}"
+DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"
+IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.1.1}"
+INSTALL_PACKAGES_REF="${INSTALL_PACKAGES_REF:-v1.1.2}"
+# Every installer ap-tools runs reads these two, so one set of pins covers the whole chain
+export IMAGE_PULL_PUSH_REF INSTALL_PACKAGES_REF
 
 # --- USAGE FUNCTION --- #
 
 usage() {
     cat << EOF
-Usage: $SCRIPT_NAME [install rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring] [uninstall rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
+Usage: $SCRIPT_NAME [install rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring] [uninstall rke2|ap-bundle|ddpc-bundle|harbor|swfs|dns-server|velero|monitoring [--purge-cache]] [upgrade rke2 [server|agent|both] [stable|<version>]] [offline-prep] [push] [join server|agent [server-fqdn] [join-token-string]] [config hostname|static-ip ...] [version] [-tls-san [server-fqdn-ip]] [-registry [registry:port username password]]
 
 Commands:
   install      : Installs specified component and any dependencies.
@@ -416,6 +426,11 @@ Commands:
   -registry    : Used with [install rke2], [install ap-bundle], [install ddpc-bundle], [push], and [upgrade rke2] to provide a valid registry and credentials.
     [registry:port username password]
 
+  version      : Prints this ap-tools version and the release of each sub-tool it fetches, and the releases an
+                 extracted ap-offline.tar.gz holds. Changes nothing. Cannot be combined with other commands.
+                 Pins: RKE2_INSTALLER_REF, HARBOR_INSTALLER_REF, SWFS_INSTALLER_REF, DNS_INSTALLER_REF,
+                 IMAGE_PULL_PUSH_REF, INSTALL_PACKAGES_REF (a tag, branch or commit; *_feature_branch still works).
+
 EOF
     exit 1
 }
@@ -424,6 +439,9 @@ EOF
 display_args() {
     echo "### Automation Tools Started on $(date) ###"
     echo "  AIR_GAPPED_MODE: $AIR_GAPPED_MODE"
+    if [[ $AIR_GAPPED_MODE == "1" && -f $WORKING_DIR/subtool-pins.txt ]]; then
+        echo "  Bundle sub-tools: $(grep -v '^#' "$WORKING_DIR/subtool-pins.txt" | tr '\n' ' ')"
+    fi
     echo "  INSTALL_MODE: $INSTALL_MODE"
     echo "  INSTALL_TYPE: $INSTALL_TYPE"
     echo "  UNINSTALL_MODE: $UNINSTALL_MODE"
@@ -649,7 +667,7 @@ run_install_swfs () {
   fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
-      "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
+      "$(subtool_url seaweedfs-installer "$SWFS_INSTALLER_REF" install-seaweedfs)" "$SWFS_INSTALLER_REF"
   else
     tar xzf "$WORKING_DIR/ap-utilities/swfs/swfs-save.tar.gz"
   fi
@@ -665,7 +683,7 @@ run_install_harbor () {
   cd $WORKING_DIR/ap-utilities/harbor
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
       fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
-        "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
+        "$(subtool_url harbor-registry-installer "$HARBOR_INSTALLER_REF" install_harbor.sh)" "$HARBOR_INSTALLER_REF"
   else
       tar xzf "$WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz"
   fi
@@ -859,7 +877,7 @@ run_install_dns_server () {
   cd "$DNS_SERVER_DIR"
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     fetch_subtool "$DNS_SERVER_DIR/technitium_dns_installer.sh" \
-      "https://github.com/Chubtoad5/technitium-dns-installer/raw/refs/heads/$dns_feature_branch/technitium_dns_installer.sh" "$dns_feature_branch"
+      "$(subtool_url technitium-dns-installer "$DNS_INSTALLER_REF" technitium_dns_installer.sh)" "$DNS_INSTALLER_REF"
   else
     # The save archive carries the installer, the technitium-save-version.txt sentinel and the
     # bundle at its top level, and the installer anchors sentinel detection to its own
@@ -1180,6 +1198,8 @@ install_reg_docker () {
   echo "  Running checks for Registry Certificate and Docker engine..."
   image_pull_push_check
   cp $WORKING_DIR/ap-utilities/images/image_pull_push.sh $WORKING_DIR/rke2/rke2-install/rke2-utilities
+  # rke2_installer.sh (spec 12) reuses its copy only when this record names its IMAGE_PULL_PUSH_REF, which is ours
+  printf '%s\n' "$IMAGE_PULL_PUSH_REF" > $WORKING_DIR/rke2/rke2-install/rke2-utilities/.image_pull_push.sh.ref
   cd $WORKING_DIR/rke2/rke2-install/rke2-utilities
   local docker_preexisted="false"
   command -v docker >/dev/null 2>&1 && docker_preexisted="true"
@@ -2114,7 +2134,7 @@ run_uninstall_harbor () {
       cd $base_dir
     else
       fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
-        "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
+        "$(subtool_url harbor-registry-installer "$HARBOR_INSTALLER_REF" install_harbor.sh)" "$HARBOR_INSTALLER_REF"
     fi
   fi
   cd $WORKING_DIR/ap-utilities/harbor
@@ -2141,7 +2161,7 @@ run_uninstall_swfs () {
       cd $base_dir
     else
       fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
-        "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
+        "$(subtool_url seaweedfs-installer "$SWFS_INSTALLER_REF" install-seaweedfs)" "$SWFS_INSTALLER_REF"
     fi
   fi
   cd $WORKING_DIR/ap-utilities/swfs
@@ -2165,7 +2185,7 @@ run_uninstall_dns_server () {
       cd $base_dir
     else
       fetch_subtool "$DNS_SERVER_DIR/technitium_dns_installer.sh" \
-        "https://github.com/Chubtoad5/technitium-dns-installer/raw/refs/heads/$dns_feature_branch/technitium_dns_installer.sh" "$dns_feature_branch"
+        "$(subtool_url technitium-dns-installer "$DNS_INSTALLER_REF" technitium_dns_installer.sh)" "$DNS_INSTALLER_REF"
     fi
   fi
   cd "$DNS_SERVER_DIR"
@@ -2422,6 +2442,7 @@ run_offline_prep () {
       echo "  Approximate download size is 6G. This may take several minutes..."
       run_debug download_ddpc_bundle
     fi
+    write_subtool_pins
     echo "  Creating archive..."
     run_debug  create_offline_prep_archive
     echo "--- Offline prep workflow complete"
@@ -2429,7 +2450,7 @@ run_offline_prep () {
 
 download_swfs () {
   fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
-    "https://github.com/Chubtoad5/seaweedfs-installer/raw/refs/heads/$swfs_feature_branch/install-seaweedfs" "$swfs_feature_branch"
+    "$(subtool_url seaweedfs-installer "$SWFS_INSTALLER_REF" install-seaweedfs)" "$SWFS_INSTALLER_REF"
   cd $WORKING_DIR/ap-utilities/swfs
   ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
   cd $base_dir
@@ -2437,7 +2458,7 @@ download_swfs () {
 
 download_harbor () {
   fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
-    "https://github.com/Chubtoad5/harbor-registry-installer/raw/refs/heads/$harbor_feature_branch/install_harbor.sh" "$harbor_feature_branch"
+    "$(subtool_url harbor-registry-installer "$HARBOR_INSTALLER_REF" install_harbor.sh)" "$HARBOR_INSTALLER_REF"
   cd $WORKING_DIR/ap-utilities/harbor
   DEBUG=$DEBUG ./install_harbor.sh offline-prep
   cd $base_dir
@@ -2448,7 +2469,7 @@ download_dns_server () {
   # ASP.NET Core runtime, libicu via install-packages, the installer + sentinel, its own LICENSES/).
   # The bundle is OS-family/arch specific, like the rest of ap-offline.tar.gz.
   fetch_subtool "$DNS_SERVER_DIR/technitium_dns_installer.sh" \
-    "https://github.com/Chubtoad5/technitium-dns-installer/raw/refs/heads/$dns_feature_branch/technitium_dns_installer.sh" "$dns_feature_branch"
+    "$(subtool_url technitium-dns-installer "$DNS_INSTALLER_REF" technitium_dns_installer.sh)" "$DNS_INSTALLER_REF"
   cd "$DNS_SERVER_DIR"
   DEBUG="$DEBUG" LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./technitium_dns_installer.sh save
   cd $base_dir
@@ -2966,50 +2987,99 @@ os_check () {
     fi
 }
 
+# subtool_pins: one "<repo> <ref>" line per sub-tool, as this run fetches them (spec 13)
+subtool_pins () {
+    printf '%s %s\n' rke2-installer "$RKE2_INSTALLER_REF" harbor-registry-installer "$HARBOR_INSTALLER_REF" \
+        seaweedfs-installer "$SWFS_INSTALLER_REF" technitium-dns-installer "$DNS_INSTALLER_REF" \
+        images-pull-push "$IMAGE_PULL_PUSH_REF" install-packages "$INSTALL_PACKAGES_REF"
+}
+
+# offline-prep records the pins in the bundle, so an air-gapped host can say what it holds
+write_subtool_pins () {
+    {
+        echo "# ap-tools $SCRIPT_VERSION offline-prep, $(date -u +%Y-%m-%dT%H:%M:%SZ): the sub-tool releases in this bundle"
+        subtool_pins
+    } > "$WORKING_DIR/subtool-pins.txt"
+}
+
+# 'version': changes nothing, needs no root
+print_version () {
+    echo "ap-tools $SCRIPT_VERSION"
+    echo "Sub-tools it fetches (a *_REF or *_feature_branch setting changes one):"
+    subtool_pins | awk '{printf "  %-28s %s\n", $1, $2}'
+    if [[ -f $WORKING_DIR/subtool-pins.txt ]]; then
+        echo "Sub-tools in the extracted offline bundle ($WORKING_DIR/subtool-pins.txt):"
+        grep -v '^#' "$WORKING_DIR/subtool-pins.txt" | awk '{printf "  %-28s %s\n", $1, $2}'
+    elif [[ -f $base_dir/ap-offline.tar.gz ]]; then
+        echo "The offline bundle here recorded no sub-tool pins: it was built before ap-tools 1.1.0."
+    fi
+}
+
+# subtool_url <repo> <ref> <file>: the raw URL of a Chubtoad5 file at a branch, a tag or a commit
+subtool_url () {
+    echo "https://raw.githubusercontent.com/Chubtoad5/$1/$2/$3"
+}
+
+# ref_is_immutable <ref>: a vX.Y.Z tag (releases are immutable) or a full commit can't change; a branch can
+ref_is_immutable () {
+    [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "$1" =~ ^[0-9a-f]{40}$ ]]
+}
+
 fetch_subtool () {
-    # AP-7/AP-8/AP-23: single fetcher for every sub-installer script.
-    # $1 = destination path, $2 = raw URL, $3 = branch to record for cache invalidation.
-    # - curl -f: an HTTP error (404 on a bad branch, etc.) FAILS instead of saving an
-    #   HTML error page that would later be executed as a script (AP-7).
+    # AP-7/AP-8/AP-23, spec 13: single fetcher for every sub-installer script.
+    # $1 = destination path, $2 = raw URL, $3 = ref (tag, commit or branch) recorded next to the copy.
+    # - curl -f: an HTTP error (404 on a bad ref, etc.) FAILS instead of saving an HTML error page that would later be
+    #   executed as a script (AP-7).
     # - temp file + mv: an interrupted fetch never leaves a partial script behind.
-    # - The branch is recorded next to the cached file; requesting a different branch
-    #   triggers a refetch (AP-8). Cached files without a record are treated as 'main'.
-    local dest="$1" url="$2" branch="${3:-main}"
-    local branch_file
-    branch_file="$(dirname "$dest")/.$(basename "$dest").branch"
-    if [[ -f "$dest" ]]; then
-        local cached_branch="main"
-        [[ -f "$branch_file" ]] && cached_branch=$(cat "$branch_file")
-        if [[ "$cached_branch" == "$branch" ]]; then
+    # - The cache (spec 13): a copy from the same tag or commit is reused. A branch can move, so it is fetched again on
+    #   every online run. A copy from another ref, or with no record (treated as 'main'), is fetched again.
+    # - Air-gapped, the copy from ap-offline.tar.gz is used as it is, and nothing is fetched.
+    local dest="$1" url="$2" ref="${3:-main}"
+    local ref_file cached="main"
+    ref_file="$(dirname "$dest")/.$(basename "$dest").branch"
+    [[ -f "$ref_file" ]] && cached=$(cat "$ref_file")
+    if [[ $AIR_GAPPED_MODE == "1" ]]; then
+        if [[ -f "$dest" ]]; then
+            [[ "$cached" == "$ref" ]] || echo "  Air-gapped: using the bundled $(basename "$dest") ($cached), not $ref."
             return 0
         fi
-        echo "  Cached $(basename "$dest") came from branch '$cached_branch' but '$branch' was requested; refetching..."
+        echo "Error: air-gapped, and $(basename "$dest") isn't in the extracted ap-offline.tar.gz ($dest)."
+        exit 1
     fi
-    echo "  Downloading $(basename "$dest") (branch: $branch)..."
+    if [[ -f "$dest" ]]; then
+        if [[ "$cached" == "$ref" ]] && ref_is_immutable "$ref"; then
+            return 0
+        elif [[ "$cached" == "$ref" ]]; then
+            echo "  $(basename "$dest") follows branch '$ref', which can move; refetching..."
+        else
+            echo "  Cached $(basename "$dest") came from '$cached' but '$ref' was requested; refetching..."
+        fi
+    fi
+    echo "  Downloading $(basename "$dest") ($ref)..."
     if ! curl -fsSL "$url" -o "$dest.tmp"; then
         echo "Error: failed to download $url"
-        echo "  Check the branch name and internet connectivity, then retry."
+        echo "  Check the ref and internet connectivity, then retry."
         rm -f "$dest.tmp"
         exit 1
     fi
     mv "$dest.tmp" "$dest"
     chmod +x "$dest"
-    echo "$branch" > "$branch_file"
+    echo "$ref" > "$ref_file"
 }
 
 install_packages_check () {
     fetch_subtool "$WORKING_DIR/ap-utilities/packages/install_packages.sh" \
-      "https://github.com/Chubtoad5/install-packages/raw/refs/heads/main/install_packages.sh" main
+      "$(subtool_url install-packages "$INSTALL_PACKAGES_REF" install_packages.sh)" "$INSTALL_PACKAGES_REF"
 }
 
 image_pull_push_check () {
     fetch_subtool "$WORKING_DIR/ap-utilities/images/image_pull_push.sh" \
-      "https://github.com/Chubtoad5/images-pull-push/raw/refs/heads/main/image_pull_push.sh" main
+      "$(subtool_url images-pull-push "$IMAGE_PULL_PUSH_REF" image_pull_push.sh)" "$IMAGE_PULL_PUSH_REF"
 }
 
 rke2_installer_check () {
     fetch_subtool "$WORKING_DIR/rke2/rke2_installer.sh" \
-      "https://github.com/Chubtoad5/rke2-installer/raw/refs/heads/$rke2_feature_branch/rke2_installer.sh" "$rke2_feature_branch"
+      "$(subtool_url rke2-installer "$RKE2_INSTALLER_REF" rke2_installer.sh)" "$RKE2_INSTALLER_REF"
 }
 
 set_longhorn_packages () {
@@ -3408,6 +3478,12 @@ fi
 
 # --- Start Argument parsing and validation --- #
 
+# 'version' on its own only prints, so it needs no root (spec 13)
+if [[ "$#" -eq 1 && "$1" == "version" ]]; then
+    print_version
+    exit 0
+fi
+
 # Check for root privileges
 if [[ $EUID -ne 0 ]]; then
    echo "Error: This script must be run with root privileges."
@@ -3496,6 +3572,10 @@ while [[ "$#" -gt 0 ]]; do
             OFFLINE_PREP_MODE=1
             shift
             ;;
+        version)
+            VERSION_MODE=1
+            shift
+            ;;
         push)
             PUSH_MODE=1
             shift
@@ -3557,6 +3637,16 @@ while [[ "$#" -gt 0 ]]; do
             ;;
     esac
 done
+
+# 'version' prints and exits before anything else runs (spec 13)
+if [[ "${VERSION_MODE:-0}" == "1" ]]; then
+    if [[ $INSTALL_MODE == "1" || $UNINSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $OFFLINE_PREP_MODE == "1" || $CONFIG_MODE == "1" || $UPGRADE_MODE == "1" ]]; then
+        echo "Error: 'version' cannot be combined with other commands."
+        exit 1
+    fi
+    print_version
+    exit 0
+fi
 
 # Run validation to ensure the correct arguments and modes have been passed.
 

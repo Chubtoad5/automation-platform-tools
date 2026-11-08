@@ -60,8 +60,25 @@ install_rke2_with_stubs() {
 @test "the bundle's name and sentinel stay the same" {
   grep -q 'ap-offline.tar.gz' "$BATS_TEST_DIRNAME/../../ap-tools"
 }
-@test "the sub-tool branch overrides still exist" {
-  for v in swfs_feature_branch rke2_feature_branch harbor_feature_branch dns_feature_branch; do
-    grep -q "^$v=" "$BATS_TEST_DIRNAME/../../ap-tools"
+@test "the sub-tool branch overrides still exist, and still choose what's fetched" {
+  # Spec 13 moved them into the pins (RKE2_INSTALLER_REF=${...:-${rke2_feature_branch:-v1.3.0}}), so test what they do
+  for pair in swfs_feature_branch:SWFS_INSTALLER_REF rke2_feature_branch:RKE2_INSTALLER_REF \
+              harbor_feature_branch:HARBOR_INSTALLER_REF dns_feature_branch:DNS_INSTALLER_REF; do
+    v=${pair%%:*} r=${pair##*:}
+    run env -u "$r" "$v=test-branch" bash -c 'source "$1" >/dev/null 2>&1; echo "${!2}"' _ "$BATS_TEST_DIRNAME/../../ap-tools" "$r"
+    [ "$output" = test-branch ] || { echo "$v didn't reach $r: $output"; false; }
   done
+}
+@test "spec 13: the helper pins reach the installers, so one set covers the chain" {
+  fake "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh"
+  run_install_harbor
+  sent 'INSTALL_PACKAGES_REF=v1.1.2'
+  sent 'IMAGE_PULL_PUSH_REF=v1.1.1'
+}
+@test "spec 13: every default sub-tool pin is a release tag" {
+  pins=$(grep -E '^(RKE2|HARBOR|SWFS|DNS)_INSTALLER_REF=|^(IMAGE_PULL_PUSH|INSTALL_PACKAGES)_REF=' "$BATS_TEST_DIRNAME/../../ap-tools")
+  [ "$(wc -l <<< "$pins")" -eq 6 ]
+  while read -r line; do
+    [[ "$line" =~ :-v[0-9]+\.[0-9]+\.[0-9]+\}+\"$ ]] || { echo "not a release tag: $line"; false; }
+  done <<< "$pins"
 }

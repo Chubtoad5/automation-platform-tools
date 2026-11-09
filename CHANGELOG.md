@@ -14,7 +14,7 @@
   plain HTTP can't be served. The README now shows the opt-out for such an app: `haproxy.org/ssl-passthrough: "false"` on
   its own Ingress, which leaves DAP's alone.
 - **Every written offer in the bundle names the same contact.** `offline-prep` passes `LICENSE_OFFER_CONTACT` to rke2's,
-  SeaweedFS's and its own images-pull-push `save`, as it already did for Technitium's. The bundle's notice points at their
+  SeaweedFS's, Harbor's and its own images-pull-push `save`, as it already did for Technitium's. The bundle's notice points at their
   own `LICENSES/`, which list the OS packages they carry.
 
 ### Changed

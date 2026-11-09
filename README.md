@@ -845,8 +845,9 @@ Keep `ap-offline.tar.gz` beside `ap-tools` after extracting it: the archive is w
 so. On an online host where `ap-install/` is left over from an `offline-prep` there, set `AP_FORCE_ONLINE=true`.
 
 On SLES or openSUSE with SELinux enforcing (Leap 16's default), there's no `rke2-selinux` policy for SUSE, so RKE2 refuses
-to start unless told to fall back: run with `RKE2_SELINUX_FALLBACK=permissive`, which `rke2_installer.sh` records and
-reverts on uninstall. This applies online and air-gapped.
+to start unless told to fall back. Set `RKE2_SELINUX_FALLBACK=permissive` in the environment, for example
+`sudo RKE2_SELINUX_FALLBACK=permissive ./ap-tools install rke2` (in `inputs.env` it doesn't reach `rke2_installer.sh`).
+`rke2_installer.sh` records it and reverts it on uninstall. This applies online and air-gapped.
 
 ### Multi-Homed Hosts
 

@@ -2461,7 +2461,7 @@ download_harbor () {
   fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
     "$(subtool_url harbor-registry-installer "$HARBOR_INSTALLER_REF" install_harbor.sh)" "$HARBOR_INSTALLER_REF"
   cd $WORKING_DIR/ap-utilities/harbor
-  DEBUG=$DEBUG ./install_harbor.sh offline-prep
+  DEBUG=$DEBUG LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./install_harbor.sh offline-prep
   cd $base_dir
 }
 
@@ -2690,8 +2690,9 @@ generate_bundle_licenses () {
         echo ""
         echo "Sub-bundles that carry their own LICENSES/ manifest and written offer, for the OS packages they hold"
         echo "(GPL-2.0 iptables, the kernel's modules on RHEL-family hosts, the SELinux policy on SUSE, samba, nfs):"
-        echo "  ap-install/rke2/rke2-save.tar.gz, ap-install/ap-utilities/swfs/swfs-save.tar.gz, and each"
-        echo "  container_images_*.tar.gz, including the one inside the SeaweedFS bundle."
+        echo "  ap-install/rke2/rke2-save.tar.gz, ap-install/ap-utilities/swfs/swfs-save.tar.gz,"
+        echo "  ap-install/ap-utilities/harbor/harbor-offline-package.tar.gz, and each container_images_*.tar.gz,"
+        echo "  including the one inside the SeaweedFS bundle."
         echo ""
         echo "The Dell Automation Platform bundle itself is proprietary Dell software (you must"
         echo "be entitled to it; it is NOT redistributed by this project). The installer scripts"

@@ -15,6 +15,10 @@ cp "$REPO/ap-tools" .; chmod +x ap-tools
 cp "$CI_HANDOFF/ap-offline.tar.gz" . && tar -xzf ap-offline.tar.gz && ok "copy the bundle beside ap-tools and unpack it" \
   || { bad "copy and unpack the bundle"; echo "=== exit 1"; exit 1; }
 export HOST_FQDN=a1.ci.test BASE_DOMAIN=ci.test DEBUG=0
+# SUSE has no rke2-selinux policy, so on an enforcing host rke2 refuses unless told to fall back to permissive. That
+# opt-in reaches rke2_installer.sh through the environment, as rke2's own tests set it.
+. /etc/os-release
+if [[ "$ID" =~ ^(sles|opensuse-leap)$ && "$(getenforce 2>/dev/null)" == Enforcing ]]; then export RKE2_SELINUX_FALLBACK=permissive; fi
 ./ap-tools install rke2 > "$W/o" 2>&1 && ok "ap-tools install rke2 with no route out" || { bad "ap-tools install rke2 with no route out"; tail -10 "$W/o" | cut -c1-170; echo "  (the checks after it would only fail too)"; echo "=== exit 1"; exit 1; }
 nready() { $K get nodes --no-headers 2>/dev/null | grep -qw Ready; }
 within 300 nready && ok "the node is Ready" || bad "the node isn't Ready"

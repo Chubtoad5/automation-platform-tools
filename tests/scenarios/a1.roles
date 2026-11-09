@@ -1,4 +1,6 @@
 # Spec 09's A1: ap-tools' offline-prep bundle, built on one host, installs the stack on a second that can't reach outside.
 # Run by automation-ci's ci/scenario.sh: one clone per role, in this order, on the same distro.
+# The target runs RKE2 with Longhorn, MetalLB and HAProxy, no DAP: 12 GB is room enough, and a 16 GB target often found
+# no node with room while another scenario ran.
 role build  4 8192  tests/scenarios/a1-build.sh
-role target 8 16384 tests/scenarios/a1-install.sh offline
+role target 8 12288 tests/scenarios/a1-install.sh offline

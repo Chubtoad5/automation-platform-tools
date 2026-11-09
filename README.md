@@ -657,7 +657,7 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 
 | Variable | Default | Sub-tool |
 |:---------|:--------|:---------|
-| `RKE2_INSTALLER_REF` | `v1.3.0` | `rke2_installer.sh` |
+| `RKE2_INSTALLER_REF` | `v1.3.1` | `rke2_installer.sh` |
 | `HARBOR_INSTALLER_REF` | `v1.1.2` | `install_harbor.sh` |
 | `SWFS_INSTALLER_REF` | `v1.2.1` | `install-seaweedfs` |
 | `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |

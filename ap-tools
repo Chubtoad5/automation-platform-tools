@@ -333,7 +333,7 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 # Each ap-tools release fetches the sub-tool releases it was tested with, never main. A *_feature_branch (test flows)
 # wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
 # again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
-RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.0}}"
+RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.1}}"
 HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.1.2}}"
 SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.2.1}}"
 DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"

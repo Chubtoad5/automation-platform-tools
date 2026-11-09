@@ -19,7 +19,8 @@
 
 ### Changed
 - **Sub-tool pins move to spec 15's releases**, which carry air-gapped Docker on Rocky 10 and Leap 16 (F1, F7):
-  Harbor `v1.1.2`, SeaweedFS `v1.2.1`, images-pull-push `v1.1.2` and install-packages `v1.1.3`. ap-tools exports the last
+  rke2 `v1.3.1` (`iptables` and `br_netfilter` in its bundle), Harbor `v1.1.2`, SeaweedFS `v1.2.1`, images-pull-push `v1.1.2` and
+  install-packages `v1.1.3`. ap-tools exports the last
   two to every sub-tool, so they reach rke2's and SeaweedFS's bundles too.
 
 ### Added

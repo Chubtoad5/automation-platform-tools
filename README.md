@@ -460,6 +460,7 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 |:---------|:--------|:------------|
 | `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.0**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
 | `DOWNLOAD_AP_BUNDLE` | `false` | When `true`, the bundle is downloaded during `offline-prep` or `install rke2`. |
+| `AP_FORCE_ONLINE` | `false` | When `true`, a run goes online even though `ap-install/` holds an extracted offline bundle and `ap-offline.tar.gz` isn't beside `ap-tools`. Without it, such a run stops. |
 | `SKIP_IMAGES_LOADER` | `false` | When `true`, skips pushing AP images to the registry during `install-upgrade.sh`. |
 | `IMAGE_LOADER_THREAD_COUNT` | `5` | Parallel image-push threads used by `install-upgrade.sh`. Dell's default is 5 and the maximum is 20 (values outside `1-20` are rejected by the installer itself). The image push is typically the longest phase of a DAP install — roughly 35 of 56 minutes in a validated single-node run — so raising this is the most direct way to shorten it. Supported by DAP 2.0.0.0 as well as 2.1.1.0 - `ap-tools` simply did not pass it before. |
 | `REGISTRY_PROJECT_NAME` | `dell-automation` | Project/namespace on the registry for AP container images. |
@@ -827,6 +828,14 @@ sudo ./ap-tools install rke2
 # The same archive serves every component on the air-gapped side, e.g. on the DNS host:
 sudo DNS_DAP_IP=<dap-ip> ./ap-tools install dns-server
 ```
+
+Keep `ap-offline.tar.gz` beside `ap-tools` after extracting it: the archive is what makes a run air-gapped. If
+`ap-install/` holds an extracted bundle and the archive isn't there, `install`, `join`, `push` and `upgrade` stop and say
+so. On an online host where `ap-install/` is left over from an `offline-prep` there, set `AP_FORCE_ONLINE=true`.
+
+On SLES or openSUSE with SELinux enforcing (Leap 16's default), there's no `rke2-selinux` policy for SUSE, so RKE2 refuses
+to start unless told to fall back: run with `RKE2_SELINUX_FALLBACK=permissive`, which `rke2_installer.sh` records and
+reverts on uninstall. This applies online and air-gapped.
 
 ### Multi-Homed Hosts
 

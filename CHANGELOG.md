@@ -1,5 +1,25 @@
 # Changelog — automation-platform-tools
 
+## v1.1.1 — unreleased — Air-gapped runs say when the archive is missing
+
+### Fixed
+- **An extracted bundle with no `ap-offline.tar.gz` beside `ap-tools` stops with a clear error** (spec 15, F5). The
+  archive is what makes a run air-gapped. Without it, `install` went online without a word and failed on its first
+  download (`apt-get update`: "no longer has a Release file"). Now `install`, `join`, `push` and `upgrade` stop when
+  `ap-install/` holds an extracted bundle (`subtool-pins.txt`, which only `offline-prep` writes) and the archive isn't
+  there, and say to put it back.
+
+### Added
+- `AP_FORCE_ONLINE` (default `false`): `true` runs online anyway, for an online host where `ap-install/` is left over
+  from an `offline-prep` there.
+
+### Docs
+- The README's air-gapped workflow says to keep the archive beside `ap-tools`, and names `RKE2_SELINUX_FALLBACK=permissive`
+  for SLES and openSUSE with SELinux enforcing.
+
+### Tests
+- `tests/unit/bundle-without-archive.bats`: which commands stop, and what goes on.
+
 ## v1.1.0 — 2026-11-08 — Every sub-tool comes from a release
 
 The first release with `SCRIPT_VERSION`. `v1.0.0` was a baseline release.

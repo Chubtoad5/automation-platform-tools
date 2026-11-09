@@ -101,14 +101,14 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "offline-prep records the pins in the bundle" {
   write_subtool_pins
-  grep -q '^# ap-tools 1.1.0 offline-prep' "$WORKING_DIR/subtool-pins.txt"
+  grep -q '^# ap-tools 1.1.1 offline-prep' "$WORKING_DIR/subtool-pins.txt"
   [ "$(grep -vc '^#' "$WORKING_DIR/subtool-pins.txt")" -eq 6 ]
   grep -qx 'rke2-installer v1.3.0' "$WORKING_DIR/subtool-pins.txt"
   grep -qx 'install-packages v1.1.2' "$WORKING_DIR/subtool-pins.txt"
 }
 @test "version prints ap-tools' version and the six pins" {
   run print_version
-  [ "${lines[0]}" = "ap-tools 1.1.0" ]
+  [ "${lines[0]}" = "ap-tools 1.1.1" ]
   [[ "$output" == *"seaweedfs-installer"*"v1.2.0"* ]]
   [[ "$output" == *"technitium-dns-installer"*"v1.3.0"* ]]
   [[ "$output" != *"offline bundle"* ]]
@@ -126,7 +126,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   cd "$BATS_TEST_TMPDIR"
   run bash "$BATS_TEST_DIRNAME/../../ap-tools" version
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "ap-tools 1.1.0" ]
+  [ "${lines[0]}" = "ap-tools 1.1.1" ]
   [ ! -e "$BATS_TEST_TMPDIR/ap-install/rke2/rke2_installer.sh" ]
 }
 @test "version with another command is refused" {

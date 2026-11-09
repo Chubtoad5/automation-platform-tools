@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 
 # --- OPTIONAL INPUTS FILE (inputs.env) --- #
 # If an inputs file exists it is sourced BEFORE the defaults below. The file itself
@@ -40,6 +40,7 @@ user_set_dns_remove_dotnet="${DNS_REMOVE_DOTNET+x}"
 
 # Global Variables
 DEBUG="${DEBUG:-1}"                                    # Debug mode 1=enabled 0=disabled
+AP_FORCE_ONLINE="${AP_FORCE_ONLINE:-false}"            # true = run online although ap-install/ holds an extracted offline bundle with no ap-offline.tar.gz beside ap-tools
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
 LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB pool) for portal/orchestrator. Single-node: defaults to MGMT_IP. Multi-node: set to a dedicated free L2 IP (not a node IP). NOT an API-server load balancer.
 LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
@@ -2995,6 +2996,18 @@ subtool_pins () {
 }
 
 # offline-prep records the pins in the bundle, so an air-gapped host can say what it holds
+# An extracted bundle with no archive beside it would run online, and fail on its first download with no word why (spec
+# 15, F5). Only offline-prep writes subtool-pins.txt, so it marks a bundle.
+check_extracted_bundle_without_archive () {
+    [[ $AIR_GAPPED_MODE == "0" && -f $WORKING_DIR/subtool-pins.txt && ${AP_FORCE_ONLINE,,} != "true" ]] || return 0
+    [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $UPGRADE_MODE == "1" ]] || return 0
+    echo "Error: $WORKING_DIR holds an extracted offline bundle, but ap-offline.tar.gz isn't in $base_dir."
+    echo "  The archive beside ap-tools is what makes a run air-gapped, so without it this run would go online."
+    echo "  Put ap-offline.tar.gz back in $base_dir and run this again. If this host is online and ap-install/ is"
+    echo "  left over from an offline-prep here, set AP_FORCE_ONLINE=true."
+    exit 1
+}
+
 write_subtool_pins () {
     {
         echo "# ap-tools $SCRIPT_VERSION offline-prep, $(date -u +%Y-%m-%dT%H:%M:%SZ): the sub-tool releases in this bundle"
@@ -3653,6 +3666,7 @@ fi
 
 # Verify AIR_GAPPED_MODE based on ap-offline.tar.gz file presence
 [[ ! -f $base_dir/ap-offline.tar.gz ]] || AIR_GAPPED_MODE=1
+check_extracted_bundle_without_archive
 
 # Verify OFFLINE_PREP_MODE is not used with other commands or flags
 if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then

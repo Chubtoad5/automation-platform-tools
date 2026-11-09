@@ -80,12 +80,26 @@ spec: { selector: { app: web }, ports: [{ port: 80, targetPort: 8080 }] }
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
-metadata: { name: web }
+metadata: { name: web, annotations: { haproxy.org/ssl-passthrough: "false" } }
 spec:
   ingressClassName: ${class:-haproxy}
   rules:
     - host: web.ci.test
       http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: web, port: { number: 80 } } } }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web-pt }
+spec: { selector: { app: web }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: web-pt }
+spec:
+  ingressClassName: ${class:-haproxy}
+  rules:
+    - host: web-pt.ci.test
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: web-pt, port: { number: 80 } } } }] }
 EOF
 [ $? = 0 ] && ok "apply the test workload" || { bad "apply the test workload"; tail -5 "$W/k"; }
 done_ok() { [ "$($K get pod -n ci-a2 writer -o jsonpath='{.status.phase}' 2>/dev/null)" = Succeeded ]; }
@@ -94,7 +108,7 @@ within 300 done_ok && [ "$($K logs -n ci-a2 writer 2>/dev/null)" = ci-a2-volume 
 $K wait -n ci-a2 --for=condition=Available deployment/web --timeout=300s >/dev/null 2>&1 && ok "the web app is up" || bad "the web app isn't up"
 web() { [ "$(curl -s -m 5 -H 'Host: web.ci.test' "http://${lbip:-$IP}/")" = ci-a2-web ]; }
 if within 120 web; then
-  ok "a request through the HAProxy ingress reaches the app"
+  ok "plain HTTP through the HAProxy ingress reaches the app, with the Ingress's ssl-passthrough opt-out"
 else
   bad "the HAProxy ingress over HTTP: '$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H 'Host: web.ci.test' "http://${lbip:-$IP}/")'"
   # What it takes to tell a network fault from a routing one
@@ -104,6 +118,11 @@ else
   $K get svc,pods -n haproxy-controller -o wide 2>&1 | cut -c1-160 | head -5
   $K logs -n haproxy-controller -l app.kubernetes.io/name=kubernetes-ingress --tail=6 2>&1 | cut -c1-170
 fi
+# ap-tools keeps ssl-passthrough on for every Ingress, as DAP needs: one without the opt-out gets a TCP backend
+hap_pod=$($K get pod -n haproxy-controller -l app.kubernetes.io/name=kubernetes-ingress -o name 2>/dev/null | head -1)
+pt_mode() { $K exec -n haproxy-controller "$hap_pod" -- sh -c "grep -A2 '^backend ci-a2_svc_web-pt_' /etc/haproxy/haproxy.cfg" 2>/dev/null | grep -q 'mode tcp'; }
+within 60 pt_mode && ok "an Ingress without the opt-out is passed through (its backend is mode tcp), as DAP's are" \
+  || bad "an Ingress without the opt-out isn't passed through: $($K exec -n haproxy-controller "$hap_pod" -- sh -c "grep -A2 '^backend ci-a2_svc_web-pt_' /etc/haproxy/haproxy.cfg" 2>&1 | tr '\n' ' ' | cut -c1-120)"
 # TLS passthrough, the path DAP uses: HAProxy hands the TLS stream to the pod by SNI, and the pod's own certificate answers.
 $K apply -n ci-a2 -f - > "$W/k2" 2>&1 <<TLSEOF
 apiVersion: apps/v1

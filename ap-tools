@@ -2453,7 +2453,7 @@ download_swfs () {
   fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
     "$(subtool_url seaweedfs-installer "$SWFS_INSTALLER_REF" install-seaweedfs)" "$SWFS_INSTALLER_REF"
   cd $WORKING_DIR/ap-utilities/swfs
-  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
+  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./install-seaweedfs save
   cd $base_dir
 }
 
@@ -2494,7 +2494,7 @@ download_rke2 () {
   LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY \
   KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION FLUENT_BIT_CHART_VERSION=$FLUENT_BIT_CHART_VERSION \
   FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION HELM_VERSION=$HELM_VERSION VELERO_VERSION=$VELERO_VERSION \
-  VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION DEBUG=$DEBUG ./rke2_installer.sh save
+  VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION DEBUG=$DEBUG LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./rke2_installer.sh save
   cd $base_dir
 }
 
@@ -2612,7 +2612,7 @@ save_addon_images () {
   image_pull_push_check
   cd $WORKING_DIR/ap-utilities/images
   rm -f container_images_*.tar.gz
-  ./image_pull_push.sh -f ap-addon-images.txt save
+  LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./image_pull_push.sh -f ap-addon-images.txt save
   cd $base_dir
 }
 
@@ -2687,6 +2687,11 @@ generate_bundle_licenses () {
         echo "  Technitium DNS Server (DnsServerPortable) ...... GPL-3.0           (see WRITTEN_OFFER.txt)"
         echo "  .NET / ASP.NET Core runtime .................... MIT"
         echo "  libicu (OS package) ............................ Unicode/ICU"
+        echo ""
+        echo "Sub-bundles that carry their own LICENSES/ manifest and written offer, for the OS packages they hold"
+        echo "(GPL-2.0 iptables, the kernel's modules on RHEL-family hosts, the SELinux policy on SUSE, samba, nfs):"
+        echo "  ap-install/rke2/rke2-save.tar.gz, ap-install/ap-utilities/swfs/swfs-save.tar.gz, and each"
+        echo "  container_images_*.tar.gz, including the one inside the SeaweedFS bundle."
         echo ""
         echo "The Dell Automation Platform bundle itself is proprietary Dell software (you must"
         echo "be entitled to it; it is NOT redistributed by this project). The installer scripts"

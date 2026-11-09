@@ -9,6 +9,14 @@
   `ap-install/` holds an extracted bundle (`subtool-pins.txt`, which only `offline-prep` writes) and the archive isn't
   there, and say to put it back.
 
+- **A plain-HTTP app behind ap-tools' HAProxy got no reply** (spec 16, F4). ap-tools sets `ssl-passthrough: "true"` for every
+  Ingress, which Dell Automation Platform needs, and which stays. The controller then gives every Ingress a TCP backend, so
+  plain HTTP can't be served. The README now shows the opt-out for such an app: `haproxy.org/ssl-passthrough: "false"` on
+  its own Ingress, which leaves DAP's alone.
+- **Every written offer in the bundle names the same contact.** `offline-prep` passes `LICENSE_OFFER_CONTACT` to rke2's,
+  SeaweedFS's and its own images-pull-push `save`, as it already did for Technitium's. The bundle's notice points at their
+  own `LICENSES/`, which list the OS packages they carry.
+
 ### Added
 - `AP_FORCE_ONLINE` (default `false`): `true` runs online anyway, for an online host where `ap-install/` is left over
   from an `offline-prep` there.
@@ -19,6 +27,9 @@
 
 ### Tests
 - `tests/unit/bundle-without-archive.bats`: which commands stop, and what goes on.
+- A2: plain HTTP reaches the app through an Ingress with the opt-out, and an Ingress without it gets a TCP backend, as
+  DAP's do.
+- `tests/contract/forwarding.bats`: the three saves get the offer contact.
 
 ## v1.1.0 — 2026-11-08 — Every sub-tool comes from a release
 

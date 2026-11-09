@@ -527,6 +527,17 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `KUBELET_DATA` | `default` | Custom path for kubelet data. |
 | `PVC_DATA` | `default` | Custom path for Longhorn PVC storage. |
 
+**The HAProxy ingress passes TLS through.** ap-tools sets `ssl-passthrough: "true"` for every Ingress on it, which Dell
+Automation Platform needs: its Ingresses carry no annotation of their own, and their nginx gateways end TLS themselves.
+Don't change it. An app of your own that serves **plain HTTP** behind this HAProxy gets no reply unless its Ingress opts
+out, which leaves DAP and every other Ingress as they are:
+
+```yaml
+metadata:
+  annotations:
+    haproxy.org/ssl-passthrough: "false"
+```
+
 ### Harbor Registry
 
 | Variable | Default | Description |

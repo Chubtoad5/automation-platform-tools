@@ -27,7 +27,8 @@ if [ -r "$creds" ]; then
 else
   bad "no $creds"
 fi
-code=$(curl -sk -m 10 --aws-sigv4 aws:amz:us-east-1:s3 --user "${MONITORING_S3_ACCESS_KEY:-x}:${MONITORING_S3_SECRET_KEY:-x}" -o "$W/b" -w '%{http_code}' "https://$IP:8333/")
+s3pair="${MONITORING_S3_ACCESS_KEY:-}:${MONITORING_S3_SECRET_KEY:-}"
+code=$(curl -sk -m 10 --aws-sigv4 aws:amz:us-east-1:s3 --user "$s3pair" -o "$W/b" -w '%{http_code}' "https://$IP:8333/")
 [ "$code" = 200 ] && grep -q '<Name>velero</Name>' "$W/b" && ok "S3 answers, and has the velero bucket" || bad "S3 answered $code, buckets: $(grep -o '<Name>[^<]*' "$W/b" | tr '\n' ' ')"
 up() { [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:9090/-/ready")" = 200 ] && [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:3100/ready")" = 200 ]; }
 within 120 up && ok "Prometheus and Loki are ready for the cluster" || bad "Prometheus or Loki isn't ready"

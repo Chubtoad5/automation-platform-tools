@@ -47,12 +47,14 @@ spec:
     metadata: { labels: { app: keeper } }
     spec:
       containers:
-        - { name: k, image: busybox:1.36, command: [sh, -c, "[ -f /data/f ] || echo ci-a3-data > /data/f; sync; exec sleep 86400"], volumeMounts: [{ name: d, mountPath: /data }] }
+        - { name: k, image: busybox:1.36, command: [sh, -c, "exec sleep 86400"], volumeMounts: [{ name: d, mountPath: /data }] }
       volumes: [{ name: d, persistentVolumeClaim: { claimName: data } }]
 EOF
 $K wait -n ci-a3 --for=condition=Available deployment/keeper --timeout=300s >/dev/null 2>&1 && ok "a pod with a Longhorn volume runs" || bad "the pod with a volume isn't up"
 readback() { [ "$($K exec -n ci-a3 deploy/keeper -- cat /data/f 2>/dev/null)" = ci-a3-data ]; }
-within 60 readback && ok "it wrote its file" || bad "the file isn't there"
+# Written once, here: the pod itself never writes, so after a restore only the backup can have put the file back.
+$K exec -n ci-a3 deploy/keeper -- sh -c "echo ci-a3-data > /data/f && sync" >/dev/null 2>&1
+within 60 readback && ok "write a file to the volume" || bad "the file isn't there"
 V=/usr/local/bin/velero; [ -x "$V" ] || V=$(command -v velero)
 export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 "$V" backup create ci-a3-b --from-schedule daily-full-backup --wait > "$W/v" 2>&1

@@ -37,8 +37,9 @@ n=$($K get pods -A --no-headers 2>/dev/null | grep -c 'ingress-nginx')
 [ "$n" = 0 ] && ok "no nginx ingress pod" || bad "$n nginx ingress pods are running"
 grep -q 'rke2-ingress-nginx' /etc/rancher/rke2/config.yaml && ok "config.yaml disables rke2-ingress-nginx" || bad "config.yaml doesn't disable rke2-ingress-nginx"
 pool=$($K get ipaddresspools -A -o jsonpath='{.items[*].spec.addresses}' 2>/dev/null)
-[[ "$pool" == *"$IP"* ]] && ok "MetalLB's pool holds this node's address" || bad "MetalLB's pool is '$pool'"
-lbip=$($K get svc -n haproxy-controller -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+[[ " $pool " =~ [^0-9.]$IP(/32)?[^0-9./] ]] && ok "MetalLB's pool holds this node's address" || bad "MetalLB's pool is '$pool'"
+lb() { lbip=$($K get svc -n haproxy-controller -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$lbip" ]; }
+within 120 lb
 [ -n "$lbip" ] && ok "HAProxy's LoadBalancer has $lbip from MetalLB" || bad "HAProxy's LoadBalancer has no address"
 class=$($K get ingressclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -m1 -i haproxy)
 [ -n "$class" ] && ok "the HAProxy ingress class is $class" || bad "no HAProxy ingress class: $($K get ingressclass -o name 2>&1)"
@@ -139,7 +140,13 @@ tls() { [[ "$(tls_cn)" == *tls.ci.test* ]]; }
 within 120 tls && ok "TLS passthrough through HAProxy reaches the pod, whose own certificate answers" \
   || bad "TLS passthrough: the certificate at :443 for tls.ci.test is '$(tls_cn)'"
 grep -q "https://$R" /etc/rancher/rke2/registries.yaml 2>/dev/null && ok "registries.yaml points at the registry" || bad "registries.yaml doesn't name the registry"
-pulls=$(h "https://$R/api/v2.0/auditlog-exts?page_size=100&q=operation%3Dpull%2Cusername%3D$RU%2Cop_time%3D%5B$since~$(date -u +%Y-%m-%dT%H:%M:%SZ)%5D")
+# Every page: a run makes more than 100 pull entries, and the first page holds only the newest.
+pulls="" now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+for page in $(seq 1 20); do
+  p=$(h "https://$R/api/v2.0/auditlog-exts?page=$page&page_size=100&q=operation%3Dpull%2Cusername%3D$RU%2Cop_time%3D%5B$since~$now%5D")
+  [ "$(grep -o '"operation":"pull"' <<< "$p" | wc -l)" -gt 0 ] || break
+  pulls+="$p"
+done
 n=$(grep -o '"resource":"[a-z0-9-]*/[^"@:]*' <<< "$pulls" | sort -u | wc -l)
 for ns in rancher haproxytech longhornio metallb; do
   grep -q "\"resource\":\"$ns/" <<< "$pulls" && ok "Harbor's audit log has this job pulling $ns images" || bad "Harbor's audit log has no $ns pull by this job"

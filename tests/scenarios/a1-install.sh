@@ -19,7 +19,19 @@ export HOST_FQDN=a1.ci.test BASE_DOMAIN=ci.test DEBUG=0
 # opt-in reaches rke2_installer.sh through the environment, as rke2's own tests set it.
 . /etc/os-release
 if [[ "$ID" =~ ^(sles|opensuse-leap)$ && "$(getenforce 2>/dev/null)" == Enforcing ]]; then export RKE2_SELINUX_FALLBACK=permissive; fi
-./ap-tools install rke2 > "$W/o" 2>&1 && ok "ap-tools install rke2 with no route out" || { bad "ap-tools install rke2 with no route out"; tail -10 "$W/o" | cut -c1-170; echo "  (the checks after it would only fail too)"; echo "=== exit 1"; exit 1; }
+# On a failed install, what it takes to tell why a pod isn't ready: its last log lines and its namespace's latest events
+why_not_ready() {
+  local ns p
+  # Not ready: anything but Completed, and anything Running with fewer containers ready than it has
+  $K get pods -A --no-headers 2>/dev/null | awk '{ split($3, r, "/") } $4 != "Completed" && ($4 != "Running" || r[1] != r[2]) { print $1, $2 }' |
+    head -4 | while read -r ns p; do
+    echo "  --- $ns/$p: last log lines"; $K logs -n "$ns" "$p" --tail=8 2>&1 | cut -c1-170 | sed 's/^/    /'
+    echo "  --- $ns/$p: previous container"; $K logs -n "$ns" "$p" --previous --tail=5 2>&1 | cut -c1-170 | sed 's/^/    /'
+  done
+  echo "  --- kube-system events"; $K get events -n kube-system --sort-by=.lastTimestamp 2>/dev/null | tail -6 | cut -c1-170 | sed 's/^/    /'
+  echo "  --- resolv.conf: $(grep -v '^#' /etc/resolv.conf | tr '\n' ' ')"
+}
+./ap-tools install rke2 > "$W/o" 2>&1 && ok "ap-tools install rke2 with no route out" || { bad "ap-tools install rke2 with no route out"; tail -10 "$W/o" | cut -c1-170; why_not_ready; echo "  (the checks after it would only fail too)"; echo "=== exit 1"; exit 1; }
 nready() { $K get nodes --no-headers 2>/dev/null | grep -qw Ready; }
 within 300 nready && ok "the node is Ready" || bad "the node isn't Ready"
 grep -q "AIR_GAPPED_MODE: 1" "$W/o" && ok "it installs in air-gapped mode" || bad "it didn't install in air-gapped mode"

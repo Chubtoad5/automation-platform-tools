@@ -23,11 +23,11 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 
 @test "each sub-tool is pinned to its release" {
   [ "$RKE2_INSTALLER_REF" = v1.3.0 ]
-  [ "$HARBOR_INSTALLER_REF" = v1.1.1 ]
-  [ "$SWFS_INSTALLER_REF" = v1.2.0 ]
+  [ "$HARBOR_INSTALLER_REF" = v1.1.2 ]
+  [ "$SWFS_INSTALLER_REF" = v1.2.1 ]
   [ "$DNS_INSTALLER_REF" = v1.3.0 ]
-  [ "$IMAGE_PULL_PUSH_REF" = v1.1.1 ]
-  [ "$INSTALL_PACKAGES_REF" = v1.1.2 ]
+  [ "$IMAGE_PULL_PUSH_REF" = v1.1.2 ]
+  [ "$INSTALL_PACKAGES_REF" = v1.1.3 ]
 }
 @test "a *_feature_branch still wins over the pin, and an explicit *_REF wins over both" {
   unset "${PINS[@]}"
@@ -40,7 +40,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "the two helper pins reach every installer ap-tools runs" {
   run bash -c 'echo "$IMAGE_PULL_PUSH_REF $INSTALL_PACKAGES_REF"'
-  [ "$output" = "v1.1.1 v1.1.2" ]
+  [ "$output" = "v1.1.2 v1.1.3" ]
 }
 @test "the fetch URL takes a branch, a tag or a commit" {
   [ "$(subtool_url rke2-installer v1.3.0 rke2_installer.sh)" = https://raw.githubusercontent.com/Chubtoad5/rke2-installer/v1.3.0/rke2_installer.sh ]
@@ -104,12 +104,12 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   grep -q '^# ap-tools 1.1.1 offline-prep' "$WORKING_DIR/subtool-pins.txt"
   [ "$(grep -vc '^#' "$WORKING_DIR/subtool-pins.txt")" -eq 6 ]
   grep -qx 'rke2-installer v1.3.0' "$WORKING_DIR/subtool-pins.txt"
-  grep -qx 'install-packages v1.1.2' "$WORKING_DIR/subtool-pins.txt"
+  grep -qx 'install-packages v1.1.3' "$WORKING_DIR/subtool-pins.txt"
 }
 @test "version prints ap-tools' version and the six pins" {
   run print_version
   [ "${lines[0]}" = "ap-tools 1.1.1" ]
-  [[ "$output" == *"seaweedfs-installer"*"v1.2.0"* ]]
+  [[ "$output" == *"seaweedfs-installer"*"v1.2.1"* ]]
   [[ "$output" == *"technitium-dns-installer"*"v1.3.0"* ]]
   [[ "$output" != *"offline bundle"* ]]
 }

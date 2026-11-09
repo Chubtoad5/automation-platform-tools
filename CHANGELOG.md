@@ -17,6 +17,11 @@
   SeaweedFS's and its own images-pull-push `save`, as it already did for Technitium's. The bundle's notice points at their
   own `LICENSES/`, which list the OS packages they carry.
 
+### Changed
+- **Sub-tool pins move to spec 15's releases**, which carry air-gapped Docker on Rocky 10 and Leap 16 (F1, F7):
+  Harbor `v1.1.2`, SeaweedFS `v1.2.1`, images-pull-push `v1.1.2` and install-packages `v1.1.3`. ap-tools exports the last
+  two to every sub-tool, so they reach rke2's and SeaweedFS's bundles too.
+
 ### Added
 - `AP_FORCE_ONLINE` (default `false`): `true` runs online anyway, for an online host where `ap-install/` is left over
   from an `offline-prep` there.

@@ -72,8 +72,8 @@ install_rke2_with_stubs() {
 @test "spec 13: the helper pins reach the installers, so one set covers the chain" {
   fake "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh"
   run_install_harbor
-  sent 'INSTALL_PACKAGES_REF=v1.1.2'
-  sent 'IMAGE_PULL_PUSH_REF=v1.1.1'
+  sent 'INSTALL_PACKAGES_REF=v1.1.3'
+  sent 'IMAGE_PULL_PUSH_REF=v1.1.2'
 }
 @test "spec 13: every default sub-tool pin is a release tag" {
   pins=$(grep -E '^(RKE2|HARBOR|SWFS|DNS)_INSTALLER_REF=|^(IMAGE_PULL_PUSH|INSTALL_PACKAGES)_REF=' "$BATS_TEST_DIRNAME/../../ap-tools")

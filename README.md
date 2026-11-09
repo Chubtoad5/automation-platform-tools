@@ -658,11 +658,11 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 | Variable | Default | Sub-tool |
 |:---------|:--------|:---------|
 | `RKE2_INSTALLER_REF` | `v1.3.0` | `rke2_installer.sh` |
-| `HARBOR_INSTALLER_REF` | `v1.1.1` | `install_harbor.sh` |
-| `SWFS_INSTALLER_REF` | `v1.2.0` | `install-seaweedfs` |
+| `HARBOR_INSTALLER_REF` | `v1.1.2` | `install_harbor.sh` |
+| `SWFS_INSTALLER_REF` | `v1.2.1` | `install-seaweedfs` |
 | `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |
-| `IMAGE_PULL_PUSH_REF` | `v1.1.1` | `image_pull_push.sh` |
-| `INSTALL_PACKAGES_REF` | `v1.1.2` | `install_packages.sh` |
+| `IMAGE_PULL_PUSH_REF` | `v1.1.2` | `image_pull_push.sh` |
+| `INSTALL_PACKAGES_REF` | `v1.1.3` | `install_packages.sh` |
 
 - **Each takes a tag, a branch or a commit.** `rke2_feature_branch`, `harbor_feature_branch`, `swfs_feature_branch`
   and `dns_feature_branch` still work, for testing pre-merge changes, and win over the pin. A `*_REF` wins over both.

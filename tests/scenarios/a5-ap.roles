@@ -1,0 +1,4 @@
+# Spec 09's A5 for ap-tools: the last release's "install rke2" given a workload on a Longhorn volume, then the commit
+# under test's "install rke2" run over it. Run by automation-ci's ci/scenario.sh. Named a5-ap, not a5, so that only its
+# own line (Ubuntu 24.04, as A2: Docker Hub's pull limit, and 16 GB) runs it.
+role stack 8 16384 tests/scenarios/a5-upgrade.sh

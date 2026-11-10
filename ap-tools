@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 
 # --- OPTIONAL INPUTS FILE (inputs.env) --- #
 # If an inputs file exists it is sourced BEFORE the defaults below. The file itself
@@ -40,6 +40,7 @@ user_set_dns_remove_dotnet="${DNS_REMOVE_DOTNET+x}"
 
 # Global Variables
 DEBUG="${DEBUG:-1}"                                    # Debug mode 1=enabled 0=disabled
+AP_FORCE_ONLINE="${AP_FORCE_ONLINE:-false}"            # true = run online although ap-install/ holds an extracted offline bundle with no ap-offline.tar.gz beside ap-tools
 MGMT_IP=${MGMT_IP:-$(hostname -I | awk '{print $1}')}  # Bind IP address for services
 LB_IP=${LB_IP:-$MGMT_IP}                               # Ingress VIP (MetalLB pool) for portal/orchestrator. Single-node: defaults to MGMT_IP. Multi-node: set to a dedicated free L2 IP (not a node IP). NOT an API-server load balancer.
 LB_IP=${LB_VIP:-$LB_IP}                                # Back-compat: LB_VIP is a deprecated alias for LB_IP; if set it overrides. Prefer LB_IP.
@@ -332,12 +333,12 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 # Each ap-tools release fetches the sub-tool releases it was tested with, never main. A *_feature_branch (test flows)
 # wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
 # again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
-RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.0}}"
-HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.1.1}}"
-SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.2.0}}"
+RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.1}}"
+HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.1.2}}"
+SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.2.1}}"
 DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"
-IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.1.1}"
-INSTALL_PACKAGES_REF="${INSTALL_PACKAGES_REF:-v1.1.2}"
+IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.1.2}"
+INSTALL_PACKAGES_REF="${INSTALL_PACKAGES_REF:-v1.1.3}"
 # Every installer ap-tools runs reads these two, so one set of pins covers the whole chain
 export IMAGE_PULL_PUSH_REF INSTALL_PACKAGES_REF
 
@@ -2452,7 +2453,7 @@ download_swfs () {
   fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
     "$(subtool_url seaweedfs-installer "$SWFS_INSTALLER_REF" install-seaweedfs)" "$SWFS_INSTALLER_REF"
   cd $WORKING_DIR/ap-utilities/swfs
-  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG ./install-seaweedfs save
+  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD DEBUG=$DEBUG LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./install-seaweedfs save
   cd $base_dir
 }
 
@@ -2460,7 +2461,7 @@ download_harbor () {
   fetch_subtool "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh" \
     "$(subtool_url harbor-registry-installer "$HARBOR_INSTALLER_REF" install_harbor.sh)" "$HARBOR_INSTALLER_REF"
   cd $WORKING_DIR/ap-utilities/harbor
-  DEBUG=$DEBUG ./install_harbor.sh offline-prep
+  DEBUG=$DEBUG LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./install_harbor.sh offline-prep
   cd $base_dir
 }
 
@@ -2493,7 +2494,7 @@ download_rke2 () {
   LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY \
   KUBE_PROMETHEUS_STACK_VERSION=$KUBE_PROMETHEUS_STACK_VERSION FLUENT_BIT_CHART_VERSION=$FLUENT_BIT_CHART_VERSION \
   FLUENT_BIT_VERSION=$FLUENT_BIT_VERSION HELM_VERSION=$HELM_VERSION VELERO_VERSION=$VELERO_VERSION \
-  VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION DEBUG=$DEBUG ./rke2_installer.sh save
+  VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION DEBUG=$DEBUG LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./rke2_installer.sh save
   cd $base_dir
 }
 
@@ -2611,7 +2612,7 @@ save_addon_images () {
   image_pull_push_check
   cd $WORKING_DIR/ap-utilities/images
   rm -f container_images_*.tar.gz
-  ./image_pull_push.sh -f ap-addon-images.txt save
+  LICENSE_OFFER_CONTACT="$LICENSE_OFFER_CONTACT" ./image_pull_push.sh -f ap-addon-images.txt save
   cd $base_dir
 }
 
@@ -2686,6 +2687,12 @@ generate_bundle_licenses () {
         echo "  Technitium DNS Server (DnsServerPortable) ...... GPL-3.0           (see WRITTEN_OFFER.txt)"
         echo "  .NET / ASP.NET Core runtime .................... MIT"
         echo "  libicu (OS package) ............................ Unicode/ICU"
+        echo ""
+        echo "Sub-bundles that carry their own LICENSES/ manifest and written offer, for the OS packages they hold"
+        echo "(GPL-2.0 iptables, the kernel's modules on RHEL-family hosts, the SELinux policy on SUSE, samba, nfs):"
+        echo "  ap-install/rke2/rke2-save.tar.gz, ap-install/ap-utilities/swfs/swfs-save.tar.gz,"
+        echo "  ap-install/ap-utilities/harbor/harbor-offline-package.tar.gz, and each container_images_*.tar.gz,"
+        echo "  including the one inside the SeaweedFS bundle."
         echo ""
         echo "The Dell Automation Platform bundle itself is proprietary Dell software (you must"
         echo "be entitled to it; it is NOT redistributed by this project). The installer scripts"
@@ -2995,6 +3002,18 @@ subtool_pins () {
 }
 
 # offline-prep records the pins in the bundle, so an air-gapped host can say what it holds
+# An extracted bundle with no archive beside it would run online, and fail on its first download with no word why (spec
+# 15, F5). Only offline-prep writes subtool-pins.txt, so it marks a bundle.
+check_extracted_bundle_without_archive () {
+    [[ $AIR_GAPPED_MODE == "0" && -f $WORKING_DIR/subtool-pins.txt && ${AP_FORCE_ONLINE,,} != "true" ]] || return 0
+    [[ $INSTALL_MODE == "1" || $JOIN_MODE == "1" || $PUSH_MODE == "1" || $UPGRADE_MODE == "1" ]] || return 0
+    echo "Error: $WORKING_DIR holds an extracted offline bundle, but ap-offline.tar.gz isn't in $base_dir."
+    echo "  The archive beside ap-tools is what makes a run air-gapped, so without it this run would go online."
+    echo "  Put ap-offline.tar.gz back in $base_dir and run this again. If this host is online and ap-install/ is"
+    echo "  left over from an offline-prep here, set AP_FORCE_ONLINE=true."
+    exit 1
+}
+
 write_subtool_pins () {
     {
         echo "# ap-tools $SCRIPT_VERSION offline-prep, $(date -u +%Y-%m-%dT%H:%M:%SZ): the sub-tool releases in this bundle"
@@ -3653,6 +3672,7 @@ fi
 
 # Verify AIR_GAPPED_MODE based on ap-offline.tar.gz file presence
 [[ ! -f $base_dir/ap-offline.tar.gz ]] || AIR_GAPPED_MODE=1
+check_extracted_bundle_without_archive
 
 # Verify OFFLINE_PREP_MODE is not used with other commands or flags
 if [[ "$OFFLINE_PREP_MODE" == "1" ]]; then

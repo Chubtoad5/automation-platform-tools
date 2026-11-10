@@ -460,6 +460,7 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 |:---------|:--------|:------------|
 | `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.0**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
 | `DOWNLOAD_AP_BUNDLE` | `false` | When `true`, the bundle is downloaded during `offline-prep` or `install rke2`. |
+| `AP_FORCE_ONLINE` | `false` | When `true`, a run goes online even though `ap-install/` holds an extracted offline bundle and `ap-offline.tar.gz` isn't beside `ap-tools`. Without it, such a run stops. |
 | `SKIP_IMAGES_LOADER` | `false` | When `true`, skips pushing AP images to the registry during `install-upgrade.sh`. |
 | `IMAGE_LOADER_THREAD_COUNT` | `5` | Parallel image-push threads used by `install-upgrade.sh`. Dell's default is 5 and the maximum is 20 (values outside `1-20` are rejected by the installer itself). The image push is typically the longest phase of a DAP install — roughly 35 of 56 minutes in a validated single-node run — so raising this is the most direct way to shorten it. Supported by DAP 2.0.0.0 as well as 2.1.1.0 - `ap-tools` simply did not pass it before. |
 | `REGISTRY_PROJECT_NAME` | `dell-automation` | Project/namespace on the registry for AP container images. |
@@ -525,6 +526,17 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `RKE2_DATA` | `default` | Custom path for etcd, containerd, and RKE2 data. Set to a valid local path or leave as `default`. |
 | `KUBELET_DATA` | `default` | Custom path for kubelet data. |
 | `PVC_DATA` | `default` | Custom path for Longhorn PVC storage. |
+
+**The HAProxy ingress passes TLS through.** ap-tools sets `ssl-passthrough: "true"` for every Ingress on it, which Dell
+Automation Platform needs: its Ingresses carry no annotation of their own, and their nginx gateways end TLS themselves.
+Don't change it. An app of your own that serves **plain HTTP** behind this HAProxy gets no reply unless its Ingress opts
+out, which leaves DAP and every other Ingress as they are:
+
+```yaml
+metadata:
+  annotations:
+    haproxy.org/ssl-passthrough: "false"
+```
 
 ### Harbor Registry
 
@@ -645,12 +657,12 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 
 | Variable | Default | Sub-tool |
 |:---------|:--------|:---------|
-| `RKE2_INSTALLER_REF` | `v1.3.0` | `rke2_installer.sh` |
-| `HARBOR_INSTALLER_REF` | `v1.1.1` | `install_harbor.sh` |
-| `SWFS_INSTALLER_REF` | `v1.2.0` | `install-seaweedfs` |
+| `RKE2_INSTALLER_REF` | `v1.3.1` | `rke2_installer.sh` |
+| `HARBOR_INSTALLER_REF` | `v1.1.2` | `install_harbor.sh` |
+| `SWFS_INSTALLER_REF` | `v1.2.1` | `install-seaweedfs` |
 | `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |
-| `IMAGE_PULL_PUSH_REF` | `v1.1.1` | `image_pull_push.sh` |
-| `INSTALL_PACKAGES_REF` | `v1.1.2` | `install_packages.sh` |
+| `IMAGE_PULL_PUSH_REF` | `v1.1.2` | `image_pull_push.sh` |
+| `INSTALL_PACKAGES_REF` | `v1.1.3` | `install_packages.sh` |
 
 - **Each takes a tag, a branch or a commit.** `rke2_feature_branch`, `harbor_feature_branch`, `swfs_feature_branch`
   and `dns_feature_branch` still work, for testing pre-merge changes, and win over the pin. A `*_REF` wins over both.
@@ -827,6 +839,15 @@ sudo ./ap-tools install rke2
 # The same archive serves every component on the air-gapped side, e.g. on the DNS host:
 sudo DNS_DAP_IP=<dap-ip> ./ap-tools install dns-server
 ```
+
+Keep `ap-offline.tar.gz` beside `ap-tools` after extracting it: the archive is what makes a run air-gapped. If
+`ap-install/` holds an extracted bundle and the archive isn't there, `install`, `join`, `push` and `upgrade` stop and say
+so. On an online host where `ap-install/` is left over from an `offline-prep` there, set `AP_FORCE_ONLINE=true`.
+
+On SLES or openSUSE with SELinux enforcing (Leap 16's default), there's no `rke2-selinux` policy for SUSE, so RKE2 refuses
+to start unless told to fall back. Set `RKE2_SELINUX_FALLBACK=permissive` in the environment, for example
+`sudo RKE2_SELINUX_FALLBACK=permissive ./ap-tools install rke2` (in `inputs.env` it doesn't reach `rke2_installer.sh`).
+`rke2_installer.sh` records it and reverts it on uninstall. This applies online and air-gapped.
 
 ### Multi-Homed Hosts
 

@@ -72,8 +72,8 @@ install_rke2_with_stubs() {
 @test "spec 13: the helper pins reach the installers, so one set covers the chain" {
   fake "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh"
   run_install_harbor
-  sent 'INSTALL_PACKAGES_REF=v1.1.2'
-  sent 'IMAGE_PULL_PUSH_REF=v1.1.1'
+  sent 'INSTALL_PACKAGES_REF=v1.1.3'
+  sent 'IMAGE_PULL_PUSH_REF=v1.1.2'
 }
 @test "spec 13: every default sub-tool pin is a release tag" {
   pins=$(grep -E '^(RKE2|HARBOR|SWFS|DNS)_INSTALLER_REF=|^(IMAGE_PULL_PUSH|INSTALL_PACKAGES)_REF=' "$BATS_TEST_DIRNAME/../../ap-tools")
@@ -81,4 +81,20 @@ install_rke2_with_stubs() {
   while read -r line; do
     [[ "$line" =~ :-v[0-9]+\.[0-9]+\.[0-9]+\}+\"$ ]] || { echo "not a release tag: $line"; false; }
   done <<< "$pins"
+}
+@test "spec 16: offline-prep's rke2, SeaweedFS, Harbor and images-pull-push saves name the same offer contact" {
+  LICENSE_OFFER_CONTACT="Ops <ops@example.invalid>"
+  rke2_installer_check() { :; }
+  image_pull_push_check() { :; }
+  fake "$WORKING_DIR/rke2/rke2_installer.sh"
+  fake "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs"
+  fake "$WORKING_DIR/ap-utilities/images/image_pull_push.sh"
+  fake "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh"
+  download_rke2
+  download_swfs
+  save_addon_images
+  download_harbor
+  [ "$(grep -c '^LICENSE_OFFER_CONTACT=Ops <ops@example.invalid>$' "$STUB_LOG")" -eq 4 ]
+  sent 'ARGS save'
+  sent 'ARGS -f ap-addon-images.txt save'
 }

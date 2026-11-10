@@ -1,0 +1,4 @@
+# Spec 09's A2: the ap-tools stack on one node, its images pushed to and pulled from a registry. Run by automation-ci's
+# ci/scenario.sh on Ubuntu 24.04, with a support Harbor (CI_SUPPORT_REGISTRY, an account of this job's own).
+support registry
+role stack 8 16384 tests/scenarios/a2-stack.sh

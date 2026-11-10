@@ -22,12 +22,12 @@ printf "#!/bin/bash\necho fetched\n" > "$out"'
 fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTALLER_REF" rke2_installer.sh)" "$RKE2_INSTALLER_REF"; }
 
 @test "each sub-tool is pinned to its release" {
-  [ "$RKE2_INSTALLER_REF" = v1.3.0 ]
-  [ "$HARBOR_INSTALLER_REF" = v1.1.1 ]
-  [ "$SWFS_INSTALLER_REF" = v1.2.0 ]
+  [ "$RKE2_INSTALLER_REF" = v1.3.1 ]
+  [ "$HARBOR_INSTALLER_REF" = v1.1.2 ]
+  [ "$SWFS_INSTALLER_REF" = v1.2.1 ]
   [ "$DNS_INSTALLER_REF" = v1.3.0 ]
-  [ "$IMAGE_PULL_PUSH_REF" = v1.1.1 ]
-  [ "$INSTALL_PACKAGES_REF" = v1.1.2 ]
+  [ "$IMAGE_PULL_PUSH_REF" = v1.1.2 ]
+  [ "$INSTALL_PACKAGES_REF" = v1.1.3 ]
 }
 @test "a *_feature_branch still wins over the pin, and an explicit *_REF wins over both" {
   unset "${PINS[@]}"
@@ -40,7 +40,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "the two helper pins reach every installer ap-tools runs" {
   run bash -c 'echo "$IMAGE_PULL_PUSH_REF $INSTALL_PACKAGES_REF"'
-  [ "$output" = "v1.1.1 v1.1.2" ]
+  [ "$output" = "v1.1.2 v1.1.3" ]
 }
 @test "the fetch URL takes a branch, a tag or a commit" {
   [ "$(subtool_url rke2-installer v1.3.0 rke2_installer.sh)" = https://raw.githubusercontent.com/Chubtoad5/rke2-installer/v1.3.0/rke2_installer.sh ]
@@ -52,8 +52,8 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "a copy from the same tag is reused" {
   fetch_rke2 >/dev/null
-  called "curl -fsSL https://raw.githubusercontent.com/Chubtoad5/rke2-installer/v1.3.0/rke2_installer.sh"
-  [ "$(cat "$REC")" = v1.3.0 ]
+  called "curl -fsSL https://raw.githubusercontent.com/Chubtoad5/rke2-installer/v1.3.1/rke2_installer.sh"
+  [ "$(cat "$REC")" = v1.3.1 ]
   : > "$STUB_LOG"
   run fetch_rke2
   [ "$status" -eq 0 ]
@@ -71,9 +71,9 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 @test "a copy from main, or with no record, is replaced by the pinned release" {
   echo old > "$DEST"
   run fetch_rke2
-  [[ "$output" == *"came from 'main' but 'v1.3.0' was requested"* ]]
+  [[ "$output" == *"came from 'main' but 'v1.3.1' was requested"* ]]
   grep -q fetched "$DEST"
-  [ "$(cat "$REC")" = v1.3.0 ]
+  [ "$(cat "$REC")" = v1.3.1 ]
 }
 @test "air-gapped, the bundled copy is used even when its ref differs, and nothing is fetched" {
   AIR_GAPPED_MODE=1
@@ -81,7 +81,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   echo v1.2.0 > "$REC"
   run fetch_rke2
   [ "$status" -eq 0 ]
-  [[ "$output" == *"using the bundled rke2_installer.sh (v1.2.0), not v1.3.0"* ]]
+  [[ "$output" == *"using the bundled rke2_installer.sh (v1.2.0), not v1.3.1"* ]]
   ! called curl || false
   [ "$(cat "$DEST")" = bundled ]
 }
@@ -101,15 +101,15 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "offline-prep records the pins in the bundle" {
   write_subtool_pins
-  grep -q '^# ap-tools 1.1.0 offline-prep' "$WORKING_DIR/subtool-pins.txt"
+  grep -q '^# ap-tools 1.1.1 offline-prep' "$WORKING_DIR/subtool-pins.txt"
   [ "$(grep -vc '^#' "$WORKING_DIR/subtool-pins.txt")" -eq 6 ]
-  grep -qx 'rke2-installer v1.3.0' "$WORKING_DIR/subtool-pins.txt"
-  grep -qx 'install-packages v1.1.2' "$WORKING_DIR/subtool-pins.txt"
+  grep -qx 'rke2-installer v1.3.1' "$WORKING_DIR/subtool-pins.txt"
+  grep -qx 'install-packages v1.1.3' "$WORKING_DIR/subtool-pins.txt"
 }
 @test "version prints ap-tools' version and the six pins" {
   run print_version
-  [ "${lines[0]}" = "ap-tools 1.1.0" ]
-  [[ "$output" == *"seaweedfs-installer"*"v1.2.0"* ]]
+  [ "${lines[0]}" = "ap-tools 1.1.1" ]
+  [[ "$output" == *"seaweedfs-installer"*"v1.2.1"* ]]
   [[ "$output" == *"technitium-dns-installer"*"v1.3.0"* ]]
   [[ "$output" != *"offline bundle"* ]]
 }
@@ -126,7 +126,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   cd "$BATS_TEST_TMPDIR"
   run bash "$BATS_TEST_DIRNAME/../../ap-tools" version
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "ap-tools 1.1.0" ]
+  [ "${lines[0]}" = "ap-tools 1.1.1" ]
   [ ! -e "$BATS_TEST_TMPDIR/ap-install/rke2/rke2_installer.sh" ]
 }
 @test "version with another command is refused" {

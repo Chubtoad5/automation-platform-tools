@@ -1,0 +1,5 @@
+# Spec 09's A3: backup and metrics. SeaweedFS on one host, the ap-tools cluster on another, with Velero backing up to
+# SeaweedFS's S3 and the monitoring stack sending metrics and logs to its Prometheus and Loki. Run by automation-ci's
+# ci/scenario.sh on Ubuntu 24.04, in this order.
+role storage 4 6144 tests/scenarios/a3-storage.sh
+role cluster 8 16384 tests/scenarios/a3-cluster.sh

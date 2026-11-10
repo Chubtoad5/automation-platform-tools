@@ -1,5 +1,42 @@
 # Changelog — automation-platform-tools
 
+## v1.1.1 — unreleased — Air-gapped runs say when the archive is missing
+
+### Fixed
+- **An extracted bundle with no `ap-offline.tar.gz` beside `ap-tools` stops with a clear error** (spec 15, F5). The
+  archive is what makes a run air-gapped. Without it, `install` went online without a word and failed on its first
+  download (`apt-get update`: "no longer has a Release file"). Now `install`, `join`, `push` and `upgrade` stop when
+  `ap-install/` holds an extracted bundle (`subtool-pins.txt`, which only `offline-prep` writes) and the archive isn't
+  there, and say to put it back.
+
+- **A plain-HTTP app behind ap-tools' HAProxy got no reply** (spec 16, F4). ap-tools sets `ssl-passthrough: "true"` for every
+  Ingress, which Dell Automation Platform needs, and which stays. The controller then gives every Ingress a TCP backend, so
+  plain HTTP can't be served. The README now shows the opt-out for such an app: `haproxy.org/ssl-passthrough: "false"` on
+  its own Ingress, which leaves DAP's alone.
+- **Every written offer in the bundle names the same contact.** `offline-prep` passes `LICENSE_OFFER_CONTACT` to rke2's,
+  SeaweedFS's, Harbor's and its own images-pull-push `save`, as it already did for Technitium's. The bundle's notice points at their
+  own `LICENSES/`, which list the OS packages they carry.
+
+### Changed
+- **Sub-tool pins move to spec 15's releases**, which carry air-gapped Docker on Rocky 10 and Leap 16 (F1, F7):
+  rke2 `v1.3.1` (`iptables` and `br_netfilter` in its bundle), Harbor `v1.1.2`, SeaweedFS `v1.2.1`, images-pull-push `v1.1.2` and
+  install-packages `v1.1.3`. ap-tools exports the last
+  two to every sub-tool, so they reach rke2's and SeaweedFS's bundles too.
+
+### Added
+- `AP_FORCE_ONLINE` (default `false`): `true` runs online anyway, for an online host where `ap-install/` is left over
+  from an `offline-prep` there.
+
+### Docs
+- The README's air-gapped workflow says to keep the archive beside `ap-tools`, and names `RKE2_SELINUX_FALLBACK=permissive`
+  for SLES and openSUSE with SELinux enforcing.
+
+### Tests
+- `tests/unit/bundle-without-archive.bats`: which commands stop, and what goes on.
+- A2: plain HTTP reaches the app through an Ingress with the opt-out, and an Ingress without it gets a TCP backend, as
+  DAP's do.
+- `tests/contract/forwarding.bats`: the three saves get the offer contact.
+
 ## v1.1.0 — 2026-11-08 — Every sub-tool comes from a release
 
 The first release with `SCRIPT_VERSION`. `v1.0.0` was a baseline release.

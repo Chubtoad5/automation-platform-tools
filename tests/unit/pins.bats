@@ -23,8 +23,8 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 
 @test "each sub-tool is pinned to its release" {
   [ "$RKE2_INSTALLER_REF" = v1.3.1 ]
-  [ "$HARBOR_INSTALLER_REF" = v1.1.2 ]
-  [ "$SWFS_INSTALLER_REF" = v1.2.1 ]
+  [ "$HARBOR_INSTALLER_REF" = v1.3.0 ]
+  [ "$SWFS_INSTALLER_REF" = v1.3.0 ]
   [ "$DNS_INSTALLER_REF" = v1.3.0 ]
   [ "$IMAGE_PULL_PUSH_REF" = v1.1.2 ]
   [ "$INSTALL_PACKAGES_REF" = v1.1.3 ]
@@ -101,15 +101,15 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "offline-prep records the pins in the bundle" {
   write_subtool_pins
-  grep -q '^# ap-tools 1.1.1 offline-prep' "$WORKING_DIR/subtool-pins.txt"
+  grep -q '^# ap-tools 1.2.0 offline-prep' "$WORKING_DIR/subtool-pins.txt"
   [ "$(grep -vc '^#' "$WORKING_DIR/subtool-pins.txt")" -eq 6 ]
   grep -qx 'rke2-installer v1.3.1' "$WORKING_DIR/subtool-pins.txt"
   grep -qx 'install-packages v1.1.3' "$WORKING_DIR/subtool-pins.txt"
 }
 @test "version prints ap-tools' version and the six pins" {
   run print_version
-  [ "${lines[0]}" = "ap-tools 1.1.1" ]
-  [[ "$output" == *"seaweedfs-installer"*"v1.2.1"* ]]
+  [ "${lines[0]}" = "ap-tools 1.2.0" ]
+  [[ "$output" == *"seaweedfs-installer"*"v1.3.0"* ]]
   [[ "$output" == *"technitium-dns-installer"*"v1.3.0"* ]]
   [[ "$output" != *"offline bundle"* ]]
 }
@@ -126,7 +126,7 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
   cd "$BATS_TEST_TMPDIR"
   run bash "$BATS_TEST_DIRNAME/../../ap-tools" version
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "ap-tools 1.1.1" ]
+  [ "${lines[0]}" = "ap-tools 1.2.0" ]
   [ ! -e "$BATS_TEST_TMPDIR/ap-install/rke2/rke2_installer.sh" ]
 }
 @test "version with another command is refused" {
@@ -151,4 +151,9 @@ fetch_rke2() { fetch_subtool "$DEST" "$(subtool_url rke2-installer "$RKE2_INSTAL
 }
 @test "nothing fetches a sub-tool from a branch URL that can't take a tag" {
   ! grep -n 'raw/refs/heads' "$BATS_TEST_DIRNAME/../../ap-tools" || false
+}
+@test "spec 19: Harbor's server certificate defaults to 730 days" {
+  unset DURATION_DAYS
+  load_script ap-tools
+  [ "$DURATION_DAYS" = 730 ]
 }

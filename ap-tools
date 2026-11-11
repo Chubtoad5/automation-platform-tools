@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.1.1"
+SCRIPT_VERSION="1.2.0"
 
 # --- OPTIONAL INPUTS FILE (inputs.env) --- #
 # If an inputs file exists it is sourced BEFORE the defaults below. The file itself
@@ -112,7 +112,7 @@ STATE="${STATE:-MA}"
 LOCATION="${LOCATION:-EDGE}"
 ORGANIZATION="${ORGANIZATION:-LAB}"
 HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-$(svc_fqdn registry)}"  # Default registry.$HOST_FQDN, or HOST_FQDN itself on a host named 'registry.'
-DURATION_DAYS="${DURATION_DAYS:-3650}"
+DURATION_DAYS="${DURATION_DAYS:-730}"   # Harbor server certificate; Harbor caps it at 730 (Apple rejects over 825), its CA keeps 3650
 PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
 
 # SeaweedFS Configuration
@@ -334,8 +334,8 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 # wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
 # again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
 RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.1}}"
-HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.1.2}}"
-SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.2.1}}"
+HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.3.0}}"
+SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.3.0}}"
 DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"
 IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.1.2}"
 INSTALL_PACKAGES_REF="${INSTALL_PACKAGES_REF:-v1.1.3}"
@@ -1170,7 +1170,28 @@ EOF
     /usr/local/bin/helm upgrade --install metallb $WORKING_DIR/ap-utilities/helm/metallb/metallb-$METALLB_VERSION.tgz --namespace metallb-system --create-namespace
   fi
   check_namespace_pods_ready "metallb-system"
-  kubectl apply -f $WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml
+  apply_metallb_config "$WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml"
+}
+
+# AP2 (spec 19): MetalLB's validating webhook can still refuse for a while after its pods are Ready
+# ("Internal error occurred: failed calling webhook"), so retry the apply, which is idempotent.
+METALLB_APPLY_TRIES=${METALLB_APPLY_TRIES:-12}
+METALLB_APPLY_WAIT=${METALLB_APPLY_WAIT:-10}
+apply_metallb_config () {
+  local try out
+  for (( try = 1; try <= METALLB_APPLY_TRIES; try++ )); do
+    if out=$(kubectl apply -f "$1" 2>&1); then
+      echo "$out"
+      return 0
+    fi
+    if (( try < METALLB_APPLY_TRIES )); then
+      echo "  MetalLB isn't accepting its config yet (try $try of $METALLB_APPLY_TRIES), retrying in ${METALLB_APPLY_WAIT}s..."
+      sleep "$METALLB_APPLY_WAIT"
+    fi
+  done
+  echo "$out" >&2
+  echo "ERROR: MetalLB refused its config $METALLB_APPLY_TRIES times." >&2
+  return 1
 }
 
 # --- Automation Platform Bundle prep defenitions --- #
@@ -2126,7 +2147,7 @@ run_uninstall_rke2 () {
 }
 
 run_uninstall_harbor () {
-  confirm_destructive "'uninstall harbor' removes the Harbor registry from this host, including its stored container images." \
+  confirm_destructive "'uninstall harbor' removes the Harbor registry from this host, including its stored container images and the database dumps it made before upgrades." \
     "install_harbor.sh removes only Harbor's own /data subpaths by default; set PURGE_DATA=true to remove /data entirely."
   if [[ ! -f $WORKING_DIR/ap-utilities/harbor/install_harbor.sh ]]; then
     if [[ $AIR_GAPPED_MODE == "1" && -f $WORKING_DIR/ap-utilities/harbor/harbor-offline-package.tar.gz ]]; then

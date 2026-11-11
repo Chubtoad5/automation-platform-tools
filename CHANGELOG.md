@@ -1,6 +1,27 @@
 # Changelog — automation-platform-tools
 
-## v1.1.1 — unreleased — Air-gapped runs say when the archive is missing
+## v1.2.0 — 2026-11-11 — Harbor and SeaweedFS pins, a 730-day certificate, MetalLB's config retried
+
+Spec 19 (chubtoad-automation). The DAP run was waived for this release by the owner (spec 19, Q7).
+
+### Changed
+- **Harbor's pin moves to v1.3.0 and SeaweedFS's to v1.3.0** (AP1). From Harbor: the server certificate is capped at
+  730 days and its CA keeps ten years; a version change dumps the database first and then removes the old images; an
+  admin password docker compose would change is refused. From SeaweedFS: a re-run no longer restarts Samba or NFS.
+- **`DURATION_DAYS` defaults to 730** (AP1), not 3650. Apple devices reject a server certificate valid for more than
+  825 days, which broke Harbor's web UI in Safari. An existing certificate is kept until it is renewed.
+- **The README states Harbor's password rule for `SWFS_HARBOR_PASS`, and `uninstall harbor`'s confirmation says the
+  database dumps go too** (AP3).
+
+### Fixed
+- **`install rke2` retries MetalLB's config** (AP2). Its validating webhook can still refuse for a moment after its pods
+  are Ready, which stopped `install rke2` before Longhorn (seen once in CI). The apply is now retried up to 12 times,
+  10 s apart (`METALLB_APPLY_TRIES`, `METALLB_APPLY_WAIT`), and then stops with the last error.
+
+### Tests
+- `tests/unit/pins.bats`: the new pins and the 730 default. `tests/unit/metallb.bats`: the retry.
+
+## v1.1.1 — 2026-11-09 — Air-gapped runs say when the archive is missing
 
 ### Fixed
 - **An extracted bundle with no `ap-offline.tar.gz` beside `ap-tools` stops with a clear error** (spec 15, F5). The

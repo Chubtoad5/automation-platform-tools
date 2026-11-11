@@ -44,3 +44,10 @@ echo "ipaddresspool.metallb.io/default-ip-pool created"'
 @test "AP2: install_rke2's MetalLB step uses the retry" {
   [[ "$(declare -f helm_install_metallb)" == *'apply_metallb_config "$WORKING_DIR/ap-utilities/helm/metallb/metallb-config.yaml"'* ]]
 }
+@test "AP2: a setting that isn't a number falls back to the default" {
+  kubectl_fails 0
+  METALLB_APPLY_TRIES=abc METALLB_APPLY_WAIT=-1
+  apply_metallb_config "$CONF" >/dev/null
+  [ "$METALLB_APPLY_TRIES" = 12 ]
+  [ "$METALLB_APPLY_WAIT" = 10 ]
+}

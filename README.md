@@ -451,7 +451,7 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain appended to hostnames. |
 | `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` (a hostname that is already an FQDN is used as-is) | Base FQDN the portal/orchestrator/`mtls-*`, registry and SeaweedFS names derive from (see [Naming Conventions](#naming-conventions)). **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (otherwise the pre-flight checks `portal.<hostname>` and aborts). |
 | `SWFS_HARBOR_USER` | `admin` | Shared username for Harbor and SeaweedFS basic auth. On Harbor, another name becomes a second system administrator, because Harbor can't rename `admin`. That needs a `SWFS_HARBOR_PASS` stronger than the default: 8 or more characters, with a lowercase letter, an uppercase letter and a number. |
-| `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. Harbor refuses one that docker compose would change in its env files: a `$` before a letter, `_`, `{` or `$`; a `#` after a space; a space at either end; or a leading quote. SeaweedFS and Technitium accept such a value, so the error appears at `install harbor`. |
+| `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. Harbor refuses one that docker compose would change in its env files: a `$` before a letter, `_`, `{` or `$`; a `#` after a space; a space at either end; or a leading quote. It also refuses control characters, a tab included. SeaweedFS and Technitium accept such a value, so the error appears at `install harbor`. |
 | `AP_ASSUME_YES` | `false` | Set `true` to skip the typed `yes-destroy` confirmation on destructive `uninstall` commands (for automation). |
 
 ### Dell Automation Platform
@@ -550,6 +550,8 @@ metadata:
 | `ORGANIZATION` | `LAB` | Certificate subject: organization. |
 | `HARBOR_COMMON_NAME` | `registry.$HOST_FQDN` | Certificate CN / Harbor FQDN. On a host already named `registry.` the default is `HOST_FQDN` itself (see [Naming Conventions](#naming-conventions)). |
 | `DURATION_DAYS` | `730` | Harbor server certificate validity (days). Harbor lowers a larger value to 730, because Apple devices reject a server certificate valid for more than 825 days; its CA keeps 10 years. An existing certificate is kept until it is renewed. |
+| `METALLB_APPLY_TRIES` | `12` | `install rke2`: how many times to apply MetalLB's config while its webhook comes up. |
+| `METALLB_APPLY_WAIT` | `10` | Seconds between those tries. |
 | `PROJECTS` | *(see script)* | Space-separated list of Harbor projects created at install time. |
 
 ### SeaweedFS

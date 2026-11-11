@@ -17,6 +17,9 @@ Spec 19 (chubtoad-automation). The DAP run was waived for this release by the ow
 - **`install rke2` retries MetalLB's config** (AP2). Its validating webhook can still refuse for a moment after its pods
   are Ready, which stopped `install rke2` before Longhorn (seen once in CI). The apply is now retried up to 12 times,
   10 s apart (`METALLB_APPLY_TRIES`, `METALLB_APPLY_WAIT`), and then stops with the last error.
+- **Holding Harbor below v1.2.0** (`HARBOR_INSTALLER_REF`) with the new default would make a 2-year CA, because those
+  releases make the CA for `DURATION_DAYS` too. Set `DURATION_DAYS=3650` there. The default pin isn't affected.
+- `inputs.env.example`'s sub-tool block lists the current pins, and the manual install guide fetches Harbor v1.3.0.
 
 ### Tests
 - `tests/unit/pins.bats`: the new pins and the 730 default. `tests/unit/metallb.bats`: the retry.

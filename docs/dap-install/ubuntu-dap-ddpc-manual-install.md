@@ -351,7 +351,7 @@ the project for Dell's images:
 ```bash
 source /root/dap-install.env
 mkdir -p /opt/harbor-install && cd /opt/harbor-install
-curl -fsSLO https://raw.githubusercontent.com/Chubtoad5/harbor-registry-installer/v1.1.1/install_harbor.sh   # the release ap-tools 1.1.0 uses
+curl -fsSLO https://raw.githubusercontent.com/Chubtoad5/harbor-registry-installer/v1.3.0/install_harbor.sh   # the release ap-tools 1.2.0 uses: a 730-day certificate under a 10-year CA
 REGISTRY_COMMON_NAME="registry.$HOST_FQDN" HARBOR_PORT=8443 HARBOR_PASSWORD='<harbor-admin-password>' \
   PROJECTS="dell-automation" bash install_harbor.sh install-harbor
 ```

@@ -100,7 +100,7 @@ sudo BASE_DOMAIN=mydomain.lab ./ap-tools install harbor
 # c) Stage the DAP bundle. Required: -registry <host:port> <user> <pass>. Recommended: BASE_DOMAIN
 #    plus your admin identity. (If you ran step 4b, the registry is registry.<hostname>.<domain>:8443.)
 sudo BASE_DOMAIN=mydomain.lab ORG_NAME="My Org" EMAIL=admin@mydomain.lab \
-  ./ap-tools install ap-bundle -registry registry.myhost.mydomain.lab:8443 admin Harbor12345
+  ./ap-tools install ap-bundle -registry registry.myhost.mydomain.lab:8443 admin 'Harbor12345'
 ```
 
 > **Important:** `install ap-bundle` **does not deploy DAP**. It downloads and stages the bundle, then
@@ -122,7 +122,7 @@ DAP is up and healthy:
 ```bash
 # Stages the DDPC bundle: pre-checks the cluster, the DAP version, the registry and the free headroom,
 # downloads + extracts the bundle, and writes a ready-to-run command to ddpc-install-upgrade-cmd.txt.
-sudo BASE_DOMAIN=mydomain.lab ./ap-tools install ddpc-bundle -registry registry.myhost.mydomain.lab:8443 admin Harbor12345
+sudo BASE_DOMAIN=mydomain.lab ./ap-tools install ddpc-bundle -registry registry.myhost.mydomain.lab:8443 admin 'Harbor12345'
 ```
 
 Then run the `install-upgrade.sh` command from `ddpc-install-upgrade-cmd.txt`. `-registry` is optional
@@ -373,6 +373,13 @@ Configures a private registry for container images. The value must be an FQDN or
 
 Valid with: `install rke2`, `install ap-bundle`, `install ddpc-bundle`, `install swfs`, `push`, `join`, `upgrade rke2`.
 
+Any password works as typed (spec 21): ap-tools passes it to each sub-tool as one argument, so spaces, `*`, `?`, `[`
+and every other symbol arrive whole. Put it in single quotes on the command line, so your shell leaves it alone, for
+example `-registry reg.lab:443 admin 'Pa$$ w0rd!'`; a `'` inside is written `'\''`. The user name can't contain `:` or
+start or end with a space, because a registry login can't carry them. The command block `install ap-bundle` and
+`install ddpc-bundle` write for Dell's installer single-quotes every value too, so pasting it into a terminal keeps a
+`!`, `$` or quote in the password.
+
 #### `-h`, `--help`
 
 Prints the usage summary and exits.
@@ -385,29 +392,29 @@ The script validates argument combinations at startup. The following table shows
 |:--------|:--------|
 | `install rke2` | `./ap-tools install rke2` |
 | `install rke2 -tls-san <fqdn>` | `./ap-tools install rke2 -tls-san cluster.lab` |
-| `install rke2 -registry <r> <u> <p>` | `./ap-tools install rke2 -registry reg.lab:443 admin pass` |
-| `install rke2 -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools install rke2 -registry reg.lab:443 admin pass -tls-san cluster.lab` |
-| `install rke2 push -registry <r> <u> <p>` | `./ap-tools install rke2 push -registry reg.lab:443 admin pass` |
-| `install rke2 push -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools install rke2 push -registry reg.lab:443 admin pass -tls-san cluster.lab` |
-| `install ap-bundle -registry <r> <u> <p>` | `./ap-tools install ap-bundle -registry reg.lab:443 admin pass` |
+| `install rke2 -registry <r> <u> <p>` | `./ap-tools install rke2 -registry reg.lab:443 admin 'pass'` |
+| `install rke2 -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools install rke2 -registry reg.lab:443 admin 'pass' -tls-san cluster.lab` |
+| `install rke2 push -registry <r> <u> <p>` | `./ap-tools install rke2 push -registry reg.lab:443 admin 'pass'` |
+| `install rke2 push -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools install rke2 push -registry reg.lab:443 admin 'pass' -tls-san cluster.lab` |
+| `install ap-bundle -registry <r> <u> <p>` | `./ap-tools install ap-bundle -registry reg.lab:443 admin 'pass'` |
 | `install ddpc-bundle` | `./ap-tools install ddpc-bundle` (reuses the orchestrator's `docker-secret` registry) |
-| `install ddpc-bundle -registry <r> <u> <p>` | `./ap-tools install ddpc-bundle -registry reg.lab:443 admin pass` |
+| `install ddpc-bundle -registry <r> <u> <p>` | `./ap-tools install ddpc-bundle -registry reg.lab:443 admin 'pass'` |
 | `install harbor` | `./ap-tools install harbor` |
 | `install swfs` | `./ap-tools install swfs` |
 | `install dns-server` | `DNS_DAP_IP=10.0.0.50 ./ap-tools install dns-server` (no `push`/`-registry`/`-tls-san`) |
 | `install velero` | `./ap-tools install velero` |
 | `install monitoring` | `./ap-tools install monitoring` |
-| `push -registry <r> <u> <p>` | `./ap-tools push -registry reg.lab:443 admin pass` |
+| `push -registry <r> <u> <p>` | `./ap-tools push -registry reg.lab:443 admin 'pass'` |
 | `join server <fqdn> <token>` | `./ap-tools join server node1.lab K10...` |
 | `join server <fqdn> <token> -tls-san <fqdn>` | `./ap-tools join server node1.lab K10... -tls-san cluster.lab` |
-| `join server <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin pass` |
-| `join server <fqdn> <token> -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin pass -tls-san cluster.lab` |
+| `join server <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin 'pass'` |
+| `join server <fqdn> <token> -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin 'pass' -tls-san cluster.lab` |
 | `join agent <fqdn> <token>` | `./ap-tools join agent node1.lab K10...` |
-| `join agent <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join agent node1.lab K10... -registry reg.lab:443 admin pass` |
+| `join agent <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join agent node1.lab K10... -registry reg.lab:443 admin 'pass'` |
 | `upgrade rke2 server stable` | `./ap-tools upgrade rke2 server stable` |
 | `upgrade rke2 agent <version>` | `./ap-tools upgrade rke2 agent v1.33.4+rke2r1` |
 | `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` |
-| `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin pass` |
+| `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin 'pass'` |
 | `offline-prep` | `./ap-tools offline-prep` |
 | `version` | `./ap-tools version` |
 | `uninstall <component>` | `./ap-tools uninstall rke2` |
@@ -438,6 +445,12 @@ CLI environment  >  inputs.env  >  script defaults
 There is zero behavior change when the file is absent. ap-tools refuses to source a
 world-writable inputs file; keep it `chmod 600` if it holds credentials.
 
+**Passwords in inputs.env** use single quotes: `SWFS_HARBOR_PASS=${SWFS_HARBOR_PASS:-'my pa$$word!'}`.
+Everything inside them is taken as typed; write a `'` inside as `'\''`. In the double-quoted form, bash would
+expand `$` and `` ` `` and change `"`, `\` and `}`. ap-tools checks the file with `bash -n` first, and stops with a
+message naming it if bash can't read it, for example with a quote left open. Before 1.3.0 such a file was read only up
+to the problem, and the rest fell back to the defaults, `changeme` among them.
+
 ### Global
 
 | Variable | Default | Description |
@@ -451,7 +464,7 @@ world-writable inputs file; keep it `chmod 600` if it holds credentials.
 | `BASE_DOMAIN` | `edge.lab` | Base DNS domain appended to hostnames. |
 | `HOST_FQDN` | `$(hostname).$BASE_DOMAIN` (a hostname that is already an FQDN is used as-is) | Base FQDN the portal/orchestrator/`mtls-*`, registry and SeaweedFS names derive from (see [Naming Conventions](#naming-conventions)). **Multi-node: set this to the cluster name on `install ap-bundle`** so those FQDNs match the DNS pointing at the ingress VIP (otherwise the pre-flight checks `portal.<hostname>` and aborts). |
 | `SWFS_HARBOR_USER` | `admin` | Shared username for Harbor and SeaweedFS basic auth. On Harbor, another name becomes a second system administrator, because Harbor can't rename `admin`. That needs a `SWFS_HARBOR_PASS` stronger than the default: 8 or more characters, with a lowercase letter, an uppercase letter and a number. |
-| `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. Harbor refuses one that docker compose would change in its env files: a `$` before a letter, `_`, `{` or `$`; a `#` after a space; a space at either end; or a leading quote. It also refuses control characters, a tab included. SeaweedFS and Technitium accept such a value, so the error appears at `install harbor`. |
+| `SWFS_HARBOR_PASS` | `changeme` | Shared password for Harbor and SeaweedFS basic auth. Any 8 to 128 printable characters work as typed, spaces and every symbol included (spec 21). Control characters are refused. Harbor sets one its own setup files can't carry (a `$` before a letter, `_`, `{` or `$`; a `#` after a space; a space at either end; a leading quote) through its API, which needs a lowercase letter, an uppercase letter and a digit: any complex password has them. In `inputs.env`, write it as `SWFS_HARBOR_PASS=${SWFS_HARBOR_PASS:-'value'}`. |
 | `AP_ASSUME_YES` | `false` | Set `true` to skip the typed `yes-destroy` confirmation on destructive `uninstall` commands (for automation). |
 
 ### Dell Automation Platform
@@ -691,10 +704,10 @@ sudo ./ap-tools install rke2
 sudo ./ap-tools install rke2 -tls-san rke2-cluster.mydomain.lab
 
 # With a private registry
-sudo ./ap-tools install rke2 -registry myregistry.lab:443 admin password
+sudo ./ap-tools install rke2 -registry myregistry.lab:443 admin 'password'
 
 # Push images to registry, install RKE2, and add TLS-SAN
-sudo ./ap-tools install rke2 push -registry myregistry.lab:443 admin password -tls-san rke2-cluster.mydomain.lab
+sudo ./ap-tools install rke2 push -registry myregistry.lab:443 admin 'password' -tls-san rke2-cluster.mydomain.lab
 ```
 
 ### RKE2 Upgrade
@@ -707,7 +720,7 @@ sudo ./ap-tools upgrade rke2 both stable
 sudo ./ap-tools upgrade rke2 server v1.33.4+rke2r1
 
 # Upgrade agent (worker) nodes using a private registry
-sudo ./ap-tools upgrade rke2 agent stable -registry myregistry.lab:443 admin password
+sudo ./ap-tools upgrade rke2 agent stable -registry myregistry.lab:443 admin 'password'
 ```
 
 ### Cluster Join
@@ -718,7 +731,7 @@ sudo ./ap-tools join server myk8snode.mydomain.lab <token_string>
 
 # Join as a server with registry and TLS-SAN
 sudo ./ap-tools join server rke2-cluster.mydomain.lab <token_string> \
-  -registry registry.mydomain.lab:443 admin password \
+  -registry registry.mydomain.lab:443 admin 'password' \
   -tls-san rke2-cluster.mydomain.lab
 
 # Join as an agent node
@@ -729,7 +742,7 @@ sudo ./ap-tools join agent myk8snode.mydomain.lab <token_string>
 
 ```bash
 # Push RKE2 and service images to a registry (no install)
-sudo ./ap-tools push -registry myregistry.lab:8443 admin password
+sudo ./ap-tools push -registry myregistry.lab:8443 admin 'password'
 ```
 
 ### Harbor Registry
@@ -794,7 +807,7 @@ sudo ./ap-tools install monitoring
 ### Dell Automation Platform Bundle
 
 ```bash
-sudo ./ap-tools install ap-bundle -registry myregistry.lab:443 admin password
+sudo ./ap-tools install ap-bundle -registry myregistry.lab:443 admin 'password'
 ```
 
 ### Dell Distributed Private Cloud Add-on
@@ -805,7 +818,7 @@ and pre-checks, then hands you the command; it does **not** run Dell's installer
 
 ```bash
 # Explicit registry (DDPC images are pushed there and pulled via DDPC's own pull secret):
-sudo ./ap-tools install ddpc-bundle -registry myregistry.lab:443 admin password
+sudo ./ap-tools install ddpc-bundle -registry myregistry.lab:443 admin 'password'
 
 # No -registry: the registry and credentials recorded in the orchestrator's docker-secret are reused
 # (Dell's installer reads them from the secret; nothing is passed on the command line):

@@ -35,7 +35,7 @@ sent() { grep -qxF -- "$1" "$STUB_LOG"; }
 }
 install_rke2_with_stubs() {
   INSTALL_MODE=1; JOIN_MODE=0; PUSH_MODE=0; REGISTRY_MODE=0; INSTALL_TYPE=push-only
-  RKE2_CMD_ARGS="install"
+  RKE2_CMD_ARGS=(install)
   run_debug() { :; }
   check_rke2_service_running() { :; }
   set_longhorn_packages() { longhorn_packages=""; }
@@ -73,7 +73,7 @@ install_rke2_with_stubs() {
   fake "$WORKING_DIR/ap-utilities/harbor/install_harbor.sh"
   run_install_harbor
   sent 'INSTALL_PACKAGES_REF=v1.1.3'
-  sent 'IMAGE_PULL_PUSH_REF=v1.1.2'
+  sent 'IMAGE_PULL_PUSH_REF=v1.2.0'
 }
 @test "spec 13: every default sub-tool pin is a release tag" {
   pins=$(grep -E '^(RKE2|HARBOR|SWFS|DNS)_INSTALLER_REF=|^(IMAGE_PULL_PUSH|INSTALL_PACKAGES)_REF=' "$BATS_TEST_DIRNAME/../../ap-tools")

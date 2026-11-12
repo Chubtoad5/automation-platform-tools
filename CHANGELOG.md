@@ -1,5 +1,53 @@
 # Changelog — automation-platform-tools
 
+## v1.3.0 — 2026-11-12 — Any complex password works everywhere
+
+Spec 21 (chubtoad-automation). The DAP run uses a registry password with every symbol (spec 21, Q12).
+
+### Fixed
+- **The registry password reaches every sub-tool whole** (AP4). Each command was built as one string and run unquoted,
+  so a space stopped `install rke2 … -registry`, `push`, `join`, `upgrade`, `install swfs -registry` and
+  `install velero push`, and the sub-tool's error printed the rest of the password; spaces at either end were dropped;
+  and a `*`, `?` or `[` that matched a file name became those names. The commands are arrays now, printed through
+  `mask_secret`, and the two add-on pushes quote theirs. Every password that worked before sends the same arguments.
+- **The command block for Dell's installer survives being pasted** (AP5). Its values were in double quotes, where an
+  interactive bash still expands `!`: a registry password with `!` and a letter dropped that line with `event not
+  found`, so Dell's `install-upgrade.sh` ran without `IMAGE_REG_PASSWORD`, and `!!` swapped in the previous command.
+  The user wasn't escaped at all, so a Harbor robot account (`robot$ci`) lost its `$ci`. Every value of the DAP and
+  DDPC blocks is now in single quotes, with `'` written `'\''`, and the printed copy masks that form too.
+- **`inputs.env` takes any password, and a broken one stops the run** (AP6). Its documented `VAR="${VAR:-value}"` form
+  let bash expand `$` and `` ` `` and change `"`, `\` and `}`, and an unmatched quote made bash stop reading the file
+  with only a syntax message, so Harbor, SeaweedFS and the DNS console got `changeme` and every later setting its
+  default. The example now writes secrets as `VAR=${VAR:-'value'}`, and ap-tools checks the file with `bash -n` first.
+- **rke2's `bin` directory and join token follow `RKE2_DATA`** (AP9). With a custom data path, a re-run of
+  `install rke2` warned "rke2-server is active but 'kubectl get nodes' is not responding yet" on a healthy cluster,
+  and the closing outputs read the join token from rke2's default path. One helper gives the path now, and `upgrade`
+  forwards `RKE2_DATA`, as `install` and `uninstall` already did.
+
+### Changed
+- **The pins move** (AP7): rke2-installer v1.4.0, seaweedfs-installer v1.4.0, harbor-registry-installer v1.4.0 and
+  images-pull-push v1.2.0; technitium and install-packages stay. They bring:
+  - any SeaweedFS and Harbor password, set exactly (a Harbor password its setup files can't carry goes through its API,
+    which needs a lowercase letter, an uppercase letter and a digit), a changed one reaching Grafana, and a generated
+    Harbor database password on a first install;
+  - Velero's S3 keys stored exactly, or refused if Velero's credentials file can't carry them;
+  - from spec 20: `uninstall rke2` with a custom `RKE2_DATA` stops the cluster, a SeaweedFS password with a space works
+    whole, and `mini.options` is no longer readable by every local account.
+- **Once, on the first run after the upgrade:** SeaweedFS recreates `seaweed-mini` if it's still on v1.3.0 or earlier
+  (spec 20), so the Admin UI, Filer and S3 pause briefly; with monitoring on, Grafana's admin password is set to
+  `SWFS_HARBOR_PASS` once; and a node whose stored registry password holds a `\` escape stops its next `-registry`
+  re-run until `RKE2_RECONFIGURE=true` (spec 20).
+- **A broken `inputs.env` that was silently half-read now stops the run,** with a message naming the file.
+- **Air-gapped hosts** get all of this only from a bundle built by v1.3.0's `offline-prep`.
+
+### Tests
+- `tests/unit/passwords.bats`: every spec 21 test password through every registry mode's arguments, each sub-tool's
+  arguments, the DAP command block pasted into an interactive bash (with `!` and `!!` shapes), `inputs.env`'s form
+  and its `bash -n` check, and `RKE2_DATA`'s bin directory.
+- `tests/unit/pins.bats`, `tests/contract/forwarding.bats`: the new pins and version.
+- `tests/password-vectors.txt`, `tests/vectors.bash`, `tests/secret-lint.py`, `tests/unit/secret-lint.bats`: spec 21's
+  shared test passwords and static check.
+
 ## v1.2.0 — 2026-11-11 — Harbor and SeaweedFS pins, a 730-day certificate, MetalLB's config retried
 
 Spec 19 (chubtoad-automation). The DAP run was waived for this release by the owner (spec 19, Q7).

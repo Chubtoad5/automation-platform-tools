@@ -19,6 +19,17 @@ pods_ok() { local out; out=$($K get pods -n "$1" --no-headers 2>/dev/null); [ -n
 [ -n "${CI_SUPPORT_REGISTRY:-}" ] || { bad "no CI_SUPPORT_REGISTRY: A2 needs CI's support Harbor"; echo "=== exit 1"; exit 1; }
 R=$CI_SUPPORT_REGISTRY RU=$CI_SUPPORT_REGISTRY_USER RP=$CI_SUPPORT_REGISTRY_PASSWORD
 h() { curl -sk -m 20 -u "$RU:$RP" -H 'Content-Type: application/json' "$@"; }
+# Spec 21, AP4: this job's own Harbor account takes spec 21's full test password (a space and every symbol)
+# shellcheck source=../vectors.bash
+source "$REPO/tests/vectors.bash"
+load_vectors "$REPO/tests/password-vectors.txt"
+NP=${VEC[full]}
+uid=$(h "https://$R/api/v2.0/users/current" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["user_id"])' 2>/dev/null)
+body=$(python3 -I -c 'import json, sys; print(json.dumps({"old_password": sys.argv[1], "new_password": sys.argv[2]}))' "$RP" "$NP")
+c=$(h -o /dev/null -w '%{http_code}' -X PUT "https://$R/api/v2.0/users/${uid:-none}/password" -d "$body")
+if [ "$c" = 200 ]; then RP=$NP; ok "AP4: this job's Harbor account now has spec 21's full test password"
+else bad "AP4: change this job's Harbor password (user ${uid:-not found}): $c"; fi
+touch "Aa1-glob-bait" "Aa1 x"
 # The projects ap-tools' push needs, from its own list
 projects=$(bash -c 'eval "$(grep -E "^(REGISTRY_PROJECT_NAME|PROJECTS)=" "$1")"; echo "$PROJECTS"' _ "$REPO/ap-tools")
 for p in $projects; do

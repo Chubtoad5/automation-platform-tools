@@ -14,7 +14,17 @@ cp "$REPO/ap-tools" .; chmod +x ap-tools
 # As the README says: ap-offline.tar.gz beside ap-tools, unpacked there. The archive itself is what turns air-gapped mode on.
 cp "$CI_HANDOFF/ap-offline.tar.gz" . && tar -xzf ap-offline.tar.gz && ok "copy the bundle beside ap-tools and unpack it" \
   || { bad "copy and unpack the bundle"; echo "=== exit 1"; exit 1; }
-export HOST_FQDN=a1.ci.test BASE_DOMAIN=ci.test DEBUG=0
+export BASE_DOMAIN=ci.test DEBUG=0
+# Spec 21, AP6: inputs.env in its documented form, with spec 21's full test password, then a later setting that must
+# still be read (a quote the password holds can't end the file early)
+# shellcheck source=../vectors.bash
+source "$REPO/tests/vectors.bash"
+load_vectors "$REPO/tests/password-vectors.txt"
+P=${VEC[full]}
+{ printf "SWFS_HARBOR_PASS=\${SWFS_HARBOR_PASS:-'%s'}\n" "${P//\'/\'\\\'\'}"; echo 'HOST_FQDN="${HOST_FQDN:-a1.ci.test}"'; } > inputs.env
+chmod 600 inputs.env
+bash -c 'source ./inputs.env; [ "$SWFS_HARBOR_PASS" = "$1" ] && [ "$HOST_FQDN" = a1.ci.test ]' _ "$P" \
+  && ok "AP6: inputs.env holds the full test password, and the setting after it reads" || bad "AP6: inputs.env doesn't read back"
 # SUSE has no rke2-selinux policy, so on an enforcing host rke2 refuses unless told to fall back to permissive. That
 # opt-in reaches rke2_installer.sh through the environment, as rke2's own tests set it.
 . /etc/os-release
@@ -32,6 +42,7 @@ why_not_ready() {
   echo "  --- resolv.conf: $(grep -v '^#' /etc/resolv.conf | tr '\n' ' ')"
 }
 ./ap-tools install rke2 > "$W/o" 2>&1 && ok "ap-tools install rke2 with no route out" || { bad "ap-tools install rke2 with no route out"; tail -10 "$W/o" | cut -c1-170; why_not_ready; echo "  (the checks after it would only fail too)"; echo "=== exit 1"; exit 1; }
+grep -q "Loading inputs from $W/inputs.env" "$W/o" && ok "AP6: ap-tools read inputs.env" || bad "AP6: ap-tools didn't read inputs.env"
 nready() { $K get nodes --no-headers 2>/dev/null | grep -qw Ready; }
 within 300 nready && ok "the node is Ready" || bad "the node isn't Ready"
 grep -q "AIR_GAPPED_MODE: 1" "$W/o" && ok "it installs in air-gapped mode" || bad "it didn't install in air-gapped mode"

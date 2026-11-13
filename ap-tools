@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.2.0"
+SCRIPT_VERSION="1.3.0"
 
 # --- OPTIONAL INPUTS FILE (inputs.env) --- #
 # If an inputs file exists it is sourced BEFORE the defaults below. The file itself
@@ -13,6 +13,14 @@ if [[ -f "$AP_TOOLS_ENV_FILE" ]]; then
     if [[ -n "$env_file_perms" ]] && (( 8#$env_file_perms & 2 )); then
         echo "Error: $AP_TOOLS_ENV_FILE is world-writable; refusing to source it."
         echo "  Fix with: chmod o-w '$AP_TOOLS_ENV_FILE'"
+        exit 1
+    fi
+    # AP6 (spec 21): a file bash can't parse, such as one with a quote left open, used to be read only up to the
+    # problem, and the rest of it silently fell back to the defaults (changeme among them). Check it first.
+    if ! env_file_err=$(bash -n "$AP_TOOLS_ENV_FILE" 2>&1); then
+        echo "Error: $AP_TOOLS_ENV_FILE can't be read as shell: ${env_file_err##*: }. Nothing has been changed."
+        echo "  A quote that isn't closed is the usual cause. Write a password as VAR=\${VAR:-'value'}, with a ' inside"
+        echo "  it as '\\''. See inputs.env.example."
         exit 1
     fi
     echo "  Loading inputs from $AP_TOOLS_ENV_FILE (precedence: CLI env > inputs.env > script defaults)"
@@ -289,7 +297,7 @@ REG_PASS=""
 REG_CERT_FILE_PATH=""
 fqdn_pattern='^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$'
 ipv4_pattern='^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-RKE2_CMD_ARGS=""
+RKE2_CMD_ARGS=()
 longhorn_packages=""
 bundle_file=$(basename $AP_BUNDLE_URL)
 ddpc_bundle_file=$(basename "$DDPC_BUNDLE_URL")
@@ -333,11 +341,11 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 # Each ap-tools release fetches the sub-tool releases it was tested with, never main. A *_feature_branch (test flows)
 # wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
 # again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
-RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.3.1}}"
-HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.3.0}}"
-SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.3.0}}"
+RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.4.0}}"
+HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.4.0}}"
+SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.4.0}}"
 DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"
-IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.1.2}"
+IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.2.0}"
 INSTALL_PACKAGES_REF="${INSTALL_PACKAGES_REF:-v1.1.3}"
 # Every installer ap-tools runs reads these two, so one set of pins covers the whole chain
 export IMAGE_PULL_PUSH_REF INSTALL_PACKAGES_REF
@@ -456,7 +464,7 @@ display_args() {
     echo "  JOIN_MODE: $JOIN_MODE"
     echo "  JOIN_TYPE: $JOIN_TYPE"
     echo "  JOIN_SERVER_FQDN: $JOIN_SERVER_FQDN"
-    echo "  JOIN_TOKEN: $JOIN_TOKEN"
+    echo "  JOIN_TOKEN: $JOIN_TOKEN"  # secret-lint: ok text first, so echo reads no option; masking the token is on the backlog (spec 21, Q10)
     echo "  PUSH_MODE: $PUSH_MODE"
     echo "  UPGRADE_MODE: $UPGRADE_MODE"
     echo "  UPGRADE_TYPE: $UPGRADE_TYPE"
@@ -473,19 +481,37 @@ display_args() {
     echo "---"
 }
 
+# rke2_bin_dir: rke2's bin directory, under RKE2_DATA when that's set (AP9, spec 21). "default" is rke2's own path.
+rke2_bin_dir () {
+    local d=$RKE2_DATA
+    [[ -z "$d" || "$d" == "default" ]] && d=/var/lib/rancher/rke2
+    while [[ "$d" == */ && "$d" != / ]]; do d=${d%/}; done
+    printf '%s/bin' "$d"
+}
+
 mask_secret () {
     # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11),
-    # in both its raw and its double-quote-escaped (dq_escape) form.
+    # in its raw form, its double-quote-escaped (dq_escape) form, and the single-quoted form (sq) of the generated
+    # command blocks, where a ' is written '\'' (AP5, spec 21).
     # Patterns are quoted so every character of the password is matched literally (an
     # unquoted pattern would treat the backslashes/globs in it as pattern syntax).
     local text="$1"
     if [[ -n "$REG_PASS" ]]; then
-        local esc
+        local esc sqe
+        sqe=${REG_PASS//\'/\'\\\'\'}
+        [[ "$sqe" != "$REG_PASS" ]] && text="${text//"$sqe"/********}"
         esc=$(dq_escape "$REG_PASS")
         [[ "$esc" != "$REG_PASS" ]] && text="${text//"$esc"/********}"
         text="${text//"$REG_PASS"/********}"
     fi
-    echo "$text"
+    printf '%s\n' "$text"
+}
+
+sq () {
+    # sq <value> - <value> in single quotes, with ' written '\'' (AP5, spec 21). Inside single quotes an interactive
+    # shell changes nothing: no $, no backquote, and no history expansion of !, which the double-quoted form got.
+    local v=${1//\'/\'\\\'\'}
+    printf "'%s'" "$v"
 }
 
 dq_escape () {
@@ -520,38 +546,38 @@ build_command_syntax() {
     # Use a case statement on the binary key to find the corresponding syntax
     case "$key" in
         # install
-        1000000) RKE2_CMD_ARGS="install" ;;
+        1000000) RKE2_CMD_ARGS=(install) ;;
         # install tls
-        1001000) RKE2_CMD_ARGS="install -tls-san $TLS_SAN" ;;
+        1001000) RKE2_CMD_ARGS=(install -tls-san "$TLS_SAN") ;;
         # install push reg
-        1110000) RKE2_CMD_ARGS="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        1110000) RKE2_CMD_ARGS=(install push -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS") ;;
         # install push reg tls
-        1111000) RKE2_CMD_ARGS="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        1111000) RKE2_CMD_ARGS=(install push -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS" -tls-san "$TLS_SAN") ;;
         # install reg
-        1010000) RKE2_CMD_ARGS="install -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        1010000) RKE2_CMD_ARGS=(install -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS") ;;
         # install reg tls
-        1011000) RKE2_CMD_ARGS="install -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        1011000) RKE2_CMD_ARGS=(install -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS" -tls-san "$TLS_SAN") ;;
         # push reg
-        0110000) RKE2_CMD_ARGS="push -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        0110000) RKE2_CMD_ARGS=(push -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS") ;;
         # join agent
-        0000110) RKE2_CMD_ARGS="join agent $JOIN_SERVER_FQDN $JOIN_TOKEN" ;;
+        0000110) RKE2_CMD_ARGS=(join agent "$JOIN_SERVER_FQDN" "$JOIN_TOKEN") ;;
         # join agent reg
-        0010110) RKE2_CMD_ARGS="join agent $JOIN_SERVER_FQDN $JOIN_TOKEN -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        0010110) RKE2_CMD_ARGS=(join agent "$JOIN_SERVER_FQDN" "$JOIN_TOKEN" -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS") ;;
         # join server
-        0000101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN" ;;
+        0000101) RKE2_CMD_ARGS=(join server "$JOIN_SERVER_FQDN" "$JOIN_TOKEN") ;;
         # join server reg
-        0010101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -registry $REGISTRY_INFO $REG_USER $REG_PASS" ;;
+        0010101) RKE2_CMD_ARGS=(join server "$JOIN_SERVER_FQDN" "$JOIN_TOKEN" -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS") ;;
         # join server reg tls
-        0011101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -registry $REGISTRY_INFO $REG_USER $REG_PASS -tls-san $TLS_SAN" ;;
+        0011101) RKE2_CMD_ARGS=(join server "$JOIN_SERVER_FQDN" "$JOIN_TOKEN" -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS" -tls-san "$TLS_SAN") ;;
         # join server tls
-        0001101) RKE2_CMD_ARGS="join server $JOIN_SERVER_FQDN $JOIN_TOKEN -tls-san $TLS_SAN" ;;
+        0001101) RKE2_CMD_ARGS=(join server "$JOIN_SERVER_FQDN" "$JOIN_TOKEN" -tls-san "$TLS_SAN") ;;
         # Default case for invalid/unsupported combinations
         *)
             echo "ERROR: Invalid combination of arguments. - $key - Please check usage."
             return 1 # Return non-zero to indicate error
             ;;
     esac
-    echo "  parsed command args: $(mask_secret "$RKE2_CMD_ARGS")"
+    echo "  parsed command args: $(mask_secret "${RKE2_CMD_ARGS[*]}")"
     return 0
 }
 # --- End of Argument Parsing --- #
@@ -592,7 +618,7 @@ run_install_join_push () {
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
     NTP_SERVERS=$NTP_SERVERS COREDNS_HOSTS=$COREDNS_HOSTS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
-    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh "${RKE2_CMD_ARGS[@]}"
     cd $base_dir
     echo "  Kubernetes installation completed"
   else
@@ -608,7 +634,7 @@ run_install_join_push () {
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
     NTP_SERVERS=$NTP_SERVERS COREDNS_HOSTS=$COREDNS_HOSTS RKE2_RECONFIGURE=$RKE2_RECONFIGURE \
-    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh $RKE2_CMD_ARGS
+    PVC_DATA=$PVC_DATA DEBUG=$DEBUG ./rke2_installer.sh "${RKE2_CMD_ARGS[@]}"
     cd $base_dir
     echo "  Kubernetes installation completed"
   fi
@@ -623,7 +649,7 @@ run_install_join_push () {
   if [[ $INSTALL_TYPE == "rke2" ]]; then
    echo "  Installing dependancy helm charts"
     export KUBECONFIG=/home/$user_name/.kube/config
-    export PATH=$PATH:/var/lib/rancher/rke2/bin
+    PATH="$PATH:$(rke2_bin_dir)"; export PATH
     run_debug install_helm
     if [[ $INSTALL_HAPROXY == "true" ]]; then
       echo "  Installing haproxy helm chart..."
@@ -649,22 +675,24 @@ run_upgrade_rke2 () {
   echo "  Upgrading RKE2 cluster ($UPGRADE_TYPE) to version: $UPGRADE_VERSION"
   rke2_installer_check
   cd $WORKING_DIR/rke2
-  local upgrade_cmd="upgrade $UPGRADE_TYPE $UPGRADE_VERSION"
+  # AP4 (spec 21): an array, so the registry password reaches rke2 whole. AP9: RKE2_DATA too, as install passes it.
+  local -a upgrade_cmd=(upgrade "$UPGRADE_TYPE" "$UPGRADE_VERSION")
   if [[ $REGISTRY_MODE == "1" ]]; then
-    upgrade_cmd="$upgrade_cmd -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+    upgrade_cmd+=(-registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS")
   fi
-  CNI_TYPE=$CNI_TYPE DEBUG=$DEBUG ./rke2_installer.sh $upgrade_cmd
+  CNI_TYPE=$CNI_TYPE RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG ./rke2_installer.sh "${upgrade_cmd[@]}"
   cd $base_dir
   echo "  RKE2 upgrade completed"
 }
 
 run_install_swfs () {
   cd $WORKING_DIR/ap-utilities/swfs
-  local swfs_cmd_args="install"
+  # AP4 (spec 21): an array, so the registry password reaches SeaweedFS whole
+  local -a swfs_cmd_args=(install)
   if [[ $PUSH_MODE == "0" && $REGISTRY_MODE == "1" ]]; then
-    swfs_cmd_args="install -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+    swfs_cmd_args=(install -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS")
   elif [[ $PUSH_MODE == "1" && $REGISTRY_MODE == "1" ]]; then
-    swfs_cmd_args="install push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+    swfs_cmd_args=(install push -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS")
   fi
   if [[ $AIR_GAPPED_MODE == "0" ]]; then
     fetch_subtool "$WORKING_DIR/ap-utilities/swfs/install-seaweedfs" \
@@ -676,7 +704,7 @@ run_install_swfs () {
   SWFS_ADMIN_FQDN=$SWFS_ADMIN_FQDN SWFS_MASTER_FQDN=$SWFS_MASTER_FQDN SWFS_FILER_FQDN=$SWFS_FILER_FQDN SWFS_S3_FQDN=$SWFS_S3_FQDN \
   MGMT_IP=$MGMT_IP SWFS_ADMIN_PORT=$SWFS_ADMIN_PORT SWFS_MASTER_PORT=$SWFS_MASTER_PORT SWFS_FILER_PORT=$SWFS_FILER_PORT \
   SWFS_S3_PORT=$SWFS_S3_PORT ENABLE_SMB=$ENABLE_SMB ENABLE_NFS=$ENABLE_NFS S3_BUCKET=$S3_BUCKET EXTRA_BUCKETS="$EXTRA_BUCKETS" DEFAULT_FILER_DIR_NAME=$DEFAULT_FILER_DIR_NAME \
-  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD ENABLE_MONITORING=$ENABLE_MONITORING CLUSTER_NAME=$MON_CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs $swfs_cmd_args
+  ARTIFACTS_TO_DOWNLOAD=$ARTIFACTS_TO_DOWNLOAD ENABLE_MONITORING=$ENABLE_MONITORING CLUSTER_NAME=$MON_CLUSTER_NAME DEBUG=$DEBUG ./install-seaweedfs "${swfs_cmd_args[@]}"
   cd $base_dir
 }
 
@@ -916,9 +944,10 @@ run_install_dns_server () {
 run_install_velero () {
   rke2_installer_check
   cd $WORKING_DIR/rke2
-  local VELERO_CMD_ARGS="install velero"
+  # AP4 (spec 21): an array, so the registry password reaches rke2 whole
+  local -a VELERO_CMD_ARGS=(install velero)
   if [[ $PUSH_MODE == "1" ]]; then
-    VELERO_CMD_ARGS="install velero push -registry $REGISTRY_INFO $REG_USER $REG_PASS"
+    VELERO_CMD_ARGS=(install velero push -registry "$REGISTRY_INFO" "$REG_USER" "$REG_PASS")
   fi
   echo "  Running Velero install via rke2_installer.sh..."
   VELERO_VERSION=$VELERO_VERSION VELERO_AWS_PLUGIN_VERSION=$VELERO_AWS_PLUGIN_VERSION \
@@ -926,7 +955,7 @@ run_install_velero () {
   VELERO_S3_ACCESS_KEY=$VELERO_S3_ACCESS_KEY VELERO_S3_SECRET_KEY=$VELERO_S3_SECRET_KEY \
   VELERO_BACKUP_NAMESPACES=$VELERO_BACKUP_NAMESPACES VELERO_BACKUP_TTL=$VELERO_BACKUP_TTL \
   VELERO_BACKUP_SCHEDULE=$VELERO_BACKUP_SCHEDULE VSC_NAME=$VSC_NAME VSC_DRIVER=$VSC_DRIVER \
-  RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG ./rke2_installer.sh $VELERO_CMD_ARGS
+  RKE2_DATA=$RKE2_DATA DEBUG=$DEBUG ./rke2_installer.sh "${VELERO_CMD_ARGS[@]}"
   cd $base_dir
 }
 
@@ -1342,7 +1371,7 @@ extract_ap_bundle () {
 
 ddpc_kube_env () {
   export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-  export PATH=$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin
+  PATH="$PATH:$(rke2_bin_dir):/usr/local/bin"; export PATH
 }
 
 ddpc_helm_bin () {
@@ -1363,7 +1392,7 @@ ddpc_registry_resolve () {
   local secret_b64 secret_url=""
   secret_b64=$(kubectl -n "$ORCHESTRATOR_NAMESPACE" get secret docker-secret -o jsonpath='{.data.\.dockerconfigjson}' 2>/dev/null || true)
   if [[ -n "$secret_b64" ]]; then
-    secret_url=$(echo "$secret_b64" | base64 -d 2>/dev/null | jq -r '.auths | keys[0] // empty' 2>/dev/null || true)
+    secret_url=$(printf '%s' "$secret_b64" | base64 -d 2>/dev/null | jq -r '.auths | keys[0] // empty' 2>/dev/null || true)
     secret_url="${secret_url#*//}"
     secret_url="${secret_url%/}"
   fi
@@ -2230,7 +2259,7 @@ run_uninstall_dns_server () {
 run_uninstall_velero () {
   echo "  Uninstalling Velero from the cluster (backups stored on S3 are NOT deleted)..."
   export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-  export PATH=$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin
+  PATH="$PATH:$(rke2_bin_dir):/usr/local/bin"; export PATH
   if ! kubectl get namespace velero >/dev/null 2>&1; then
     echo "  velero namespace not found - nothing to uninstall."
     return 0
@@ -2249,7 +2278,7 @@ run_uninstall_velero () {
 run_uninstall_monitoring () {
   echo "  Uninstalling the monitoring stack (kube-prometheus-stack + Fluent Bit) from the cluster..."
   export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-  export PATH=$PATH:/var/lib/rancher/rke2/bin
+  PATH="$PATH:$(rke2_bin_dir)"; export PATH
   if ! kubectl get namespace monitoring >/dev/null 2>&1; then
     echo "  monitoring namespace not found - nothing to uninstall."
     return 0
@@ -2655,11 +2684,11 @@ push_addon_images () {
       cd $base_dir
       return 0
     fi
-    ./image_pull_push.sh -f "$archive" push $REGISTRY_INFO $REG_USER $REG_PASS
+    ./image_pull_push.sh -f "$archive" push "$REGISTRY_INFO" "$REG_USER" "$REG_PASS"
   else
     image_pull_push_check
     generate_images_file
-    ./image_pull_push.sh -f ap-addon-images.txt push $REGISTRY_INFO $REG_USER $REG_PASS
+    ./image_pull_push.sh -f ap-addon-images.txt push "$REGISTRY_INFO" "$REG_USER" "$REG_PASS"
   fi
   cd $base_dir
 }
@@ -2668,8 +2697,8 @@ stage_addon_images () {
   # Air-gapped 'install rke2'/'join' WITHOUT a private registry: containerd must find
   # the add-on images locally. Stage them into RKE2's agent image dir BEFORE the rke2
   # service first starts (containerd auto-imports every archive in that dir).
-  local rke2_data_path="$RKE2_DATA"
-  [[ "$rke2_data_path" == "default" ]] && rke2_data_path="/var/lib/rancher/rke2"
+  local rke2_data_path
+  rke2_data_path=$(dirname "$(rke2_bin_dir)")
   local archive=""
   archive=$(ls -1t $WORKING_DIR/ap-utilities/images/container_images_*.tar.gz 2>/dev/null | head -n 1) || true
   if [[ -z "$archive" ]]; then
@@ -3209,7 +3238,7 @@ check_rke2_service_running () {
     fi
     echo "  $active_svc is already active: continuing in reconcile mode."
     if [[ "$active_svc" == "rke2-server.service" ]]; then
-        if KUBECONFIG=/etc/rancher/rke2/rke2.yaml /var/lib/rancher/rke2/bin/kubectl get nodes >/dev/null 2>&1; then
+        if KUBECONFIG=/etc/rancher/rke2/rke2.yaml "$(rke2_bin_dir)/kubectl" get nodes >/dev/null 2>&1; then
             echo "  Cluster is healthy ('kubectl get nodes' responds)."
         else
             echo "  WARNING: rke2-server is active but 'kubectl get nodes' is not responding yet."
@@ -3334,7 +3363,8 @@ runtime_outputs () {
     # Declared and assigned separately so a missing/unreadable node-token fails the run
     # instead of being masked by local's own exit status and printing an empty token.
     local join_token
-    join_token=$(cat /var/lib/rancher/rke2/server/node-token)
+    # Under RKE2_DATA, as rke2_bin_dir is (AP9)
+    join_token=$(cat "$(dirname "$(rke2_bin_dir)")/server/node-token")
     echo ""
     echo "### INSTALL FLOW COMPLETED ###"
     echo "###    PRINTING OUTPUTS    ###"
@@ -3349,13 +3379,13 @@ runtime_outputs () {
       echo "To manually join more nodes to this cluster use the following config:"
       echo "----"
       echo "server: https://$TLS_SAN:9345"
-      echo "token: $join_token"
+      echo "token: $join_token"  # secret-lint: ok text first; printing the join token is on the backlog (spec 21, Q10)
       echo "----"
     else
       echo "To manually join more nodes to this cluster use the following config:"
       echo "----"
       echo "server: https://$MGMT_IP:9345"
-      echo "token: $join_token"
+      echo "token: $join_token"  # secret-lint: ok text first; printing the join token is on the backlog (spec 21, Q10)
       echo "----"
     fi
     echo "Next steps:"
@@ -3428,24 +3458,24 @@ Next steps:
   - Run the following command block to install Dell Automation Platform Portal and Orchestrator:
 ----
 sudo $WORKING_DIR/bundle/install-upgrade.sh \\
-  EO_HOST="$ORCHESTRATOR_FQDN" \\
-  PORTAL_HOST="$PORTAL_FQDN" \\
-  PORTAL_COOKIE_DOMAIN="$PORTAL_COOKIE_DOMAIN" \\
-  IMAGE_REG_URL="$REGISTRY_INFO/$REGISTRY_PROJECT_NAME" \\
-  IMAGE_REG_USERNAME="$REG_USER" \\
-  IMAGE_REG_PASSWORD="$(dq_escape "$REG_PASS")" \\
-  REGISTRY_CERT_FILE_PATH="$REG_CERT_FILE_PATH" \\
-  SKIP_IMAGES_LOADER="$SKIP_IMAGES_LOADER" \\
-  IMAGE_LOADER_THREAD_COUNT="$IMAGE_LOADER_THREAD_COUNT" \\
-  NAMESPACE="$ORCHESTRATOR_NAMESPACE" \\
-  PORTAL_NAMESPACE="$PORTAL_NAMESPACE" \\
-  PORTAL_INGRESS_CLASS_NAME="$PORTAL_INGRESS_CLASS_NAME" \\
-  ORG_NAME="$ORG_NAME" \\
-  ORG_DESC="$ORG_DESC" \\
-  FIRST_NAME="$FIRST_NAME" \\
-  LAST_NAME="$LAST_NAME" \\
-  USERNAME="$USERNAME" \\
-  EMAIL="$EMAIL"
+  EO_HOST=$(sq "$ORCHESTRATOR_FQDN") \\
+  PORTAL_HOST=$(sq "$PORTAL_FQDN") \\
+  PORTAL_COOKIE_DOMAIN=$(sq "$PORTAL_COOKIE_DOMAIN") \\
+  IMAGE_REG_URL=$(sq "$REGISTRY_INFO/$REGISTRY_PROJECT_NAME") \\
+  IMAGE_REG_USERNAME=$(sq "$REG_USER") \\
+  IMAGE_REG_PASSWORD=$(sq "$REG_PASS") \\
+  REGISTRY_CERT_FILE_PATH=$(sq "$REG_CERT_FILE_PATH") \\
+  SKIP_IMAGES_LOADER=$(sq "$SKIP_IMAGES_LOADER") \\
+  IMAGE_LOADER_THREAD_COUNT=$(sq "$IMAGE_LOADER_THREAD_COUNT") \\
+  NAMESPACE=$(sq "$ORCHESTRATOR_NAMESPACE") \\
+  PORTAL_NAMESPACE=$(sq "$PORTAL_NAMESPACE") \\
+  PORTAL_INGRESS_CLASS_NAME=$(sq "$PORTAL_INGRESS_CLASS_NAME") \\
+  ORG_NAME=$(sq "$ORG_NAME") \\
+  ORG_DESC=$(sq "$ORG_DESC") \\
+  FIRST_NAME=$(sq "$FIRST_NAME") \\
+  LAST_NAME=$(sq "$LAST_NAME") \\
+  USERNAME=$(sq "$USERNAME") \\
+  EMAIL=$(sq "$EMAIL")
 ----
   - (Optional) Once DAP is up, stage the Dell Distributed Private Cloud add-on with 'install ddpc-bundle [-registry ...]'
 EOF
@@ -3456,19 +3486,20 @@ EOF
   if [[ $INSTALL_TYPE == "ddpc-bundle" ]]; then
     # Same secret hygiene as ap-bundle (AP-11): 0600 file, masked stdout.
     local cmd_file="$base_dir/ddpc-install-upgrade-cmd.txt"
-    local env_prefix="env IMAGE_LOADER_MAX_RETRIES=\"$DDPC_IMAGE_LOADER_MAX_RETRIES\""
-    [[ -n "$DDPC_LOG_LEVEL" ]] && env_prefix="$env_prefix LOG_LEVEL=\"$DDPC_LOG_LEVEL\""
+    local env_prefix
+    env_prefix="env IMAGE_LOADER_MAX_RETRIES=$(sq "$DDPC_IMAGE_LOADER_MAX_RETRIES")"
+    [[ -n "$DDPC_LOG_LEVEL" ]] && env_prefix="$env_prefix LOG_LEVEL=$(sq "$DDPC_LOG_LEVEL")"
     local reg_note cmd_block
     # Built line by line: an empty line inside a backslash-continued block would split the command.
     cmd_block="sudo $env_prefix $DDPC_BUNDLE_DIR/install-upgrade.sh \\
-  DAPO_HOST=\"$ORCHESTRATOR_FQDN\" \\
-  NAMESPACE=\"$ORCHESTRATOR_NAMESPACE\" \\
-  IMAGE_REG_URL=\"$DDPC_REG_URL\" \\"
+  DAPO_HOST=$(sq "$ORCHESTRATOR_FQDN") \\
+  NAMESPACE=$(sq "$ORCHESTRATOR_NAMESPACE") \\
+  IMAGE_REG_URL=$(sq "$DDPC_REG_URL") \\"
     if [[ $REGISTRY_MODE == "1" ]]; then
       cmd_block="$cmd_block
-  IMAGE_REG_USERNAME=\"$REG_USER\" \\
-  IMAGE_REG_PASSWORD=\"$(dq_escape "$REG_PASS")\" \\
-  REGISTRY_CERT_FILE_PATH=\"$REG_CERT_FILE_PATH\" \\"
+  IMAGE_REG_USERNAME=$(sq "$REG_USER") \\
+  IMAGE_REG_PASSWORD=$(sq "$REG_PASS") \\
+  REGISTRY_CERT_FILE_PATH=$(sq "$REG_CERT_FILE_PATH") \\"
       reg_note="Registry: $DDPC_REG_URL with the -registry credentials (DDPC creates its own pull secret, distpvtcloud-docker-secret)."
       if [[ -n "$DDPC_SECRET_REG_URL" && "$DDPC_SECRET_REG_URL" != "$DDPC_REG_URL" ]]; then
         reg_note="$reg_note WARNING: DAP itself pulls from $DDPC_SECRET_REG_URL."
@@ -3477,10 +3508,10 @@ EOF
       reg_note="Registry: $DDPC_REG_URL reused from the orchestrator's docker-secret (no credentials passed; Dell's installer reads them from that secret)."
     fi
     cmd_block="$cmd_block
-  SKIP_IMAGES_LOADER=\"$DDPC_SKIP_IMAGES_LOADER\" \\
-  IMAGE_LOADER_PARALLEL_JOBS=\"$DDPC_IMAGE_LOADER_PARALLEL_JOBS\" \\
-  INSTALL_TYPE=\"$DDPC_INSTALL_TYPE\" \\
-  INSTALL_TIMEOUT=\"$DDPC_INSTALL_TIMEOUT\""
+  SKIP_IMAGES_LOADER=$(sq "$DDPC_SKIP_IMAGES_LOADER") \\
+  IMAGE_LOADER_PARALLEL_JOBS=$(sq "$DDPC_IMAGE_LOADER_PARALLEL_JOBS") \\
+  INSTALL_TYPE=$(sq "$DDPC_INSTALL_TYPE") \\
+  INSTALL_TIMEOUT=$(sq "$DDPC_INSTALL_TIMEOUT")"
     local existing_note=""
     [[ -n "$DDPC_EXISTING_RELEASE" ]] && existing_note="NOTE: DDPC release already present ($DDPC_EXISTING_RELEASE) - the command below is a safe re-run/upgrade."
     rm -f "$cmd_file"

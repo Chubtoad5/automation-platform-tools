@@ -71,7 +71,7 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
   - **Registry for the DDPC images**: pass `-registry` (same or different registry/credentials), or omit it to
     reuse the orchestrator's `docker-secret` registry. If the 19 DDPC images are already there, set
     `DDPC_SKIP_IMAGES_LOADER=true`.
-  - **DAP version pairing**: the bundle's required DAP version (default gate `DDPC_REQUIRED_DAP_VERSION=2.1.1.0`,
+  - **DAP version pairing**: the bundle's required DAP version (default gate `DDPC_REQUIRED_DAP_VERSION=2.1.1.3`,
     exact match). If the user runs a different DAP version, confirm Dell supports the pairing before overriding.
 
 ## 5. Identity / organization (for DAP setup)

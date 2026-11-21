@@ -46,7 +46,7 @@ meets:
 |:--|:--|
 | CPU | **18 vCPU** |
 | RAM | **36 GB** — the `install ap-bundle` pre-flight measures **allocatable** memory and requires **34 GB**; RKE2 + the OS reserve ~2 GB, so provision 36 GB. A host provisioned with exactly 34 GB fails the check. |
-| Disk | **1 TB SSD minimum.** DAP 2.1.1.0 enforces **850 GB of allocatable *ephemeral-storage*** on every node. Allocatable is always below the raw filesystem size, so a host with exactly 850 GB will not reliably pass — 1 TB is the safe target. |
+| Disk | **1 TB SSD minimum.** DAP 2.1.1.3 (like 2.1.1.0) enforces **850 GB of allocatable *ephemeral-storage*** on every node. Allocatable is always below the raw filesystem size, so a host with exactly 850 GB will not reliably pass — 1 TB is the safe target. |
 | OS | Ubuntu 22.04+, RHEL 9.2+, or SLES 15 SP7 (x86_64) |
 | Network | A **static IP** (or DHCP reservation) |
 | Hostname | Lowercase letters, numbers, and hyphens only (DNS-1123) |
@@ -510,7 +510,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 |:---------|:--------|:------------|
 | `DDPC_BUNDLE_URL` | Dell download URL (**v4.3.0.0**) | URL to the DDPC add-on bundle `.zip` (~6 GB). Set to a local filename if the bundle was placed manually into `ap-install/`. As with `AP_BUNDLE_URL`, the `dl.dell.com` `FOLDER…` path changes with every release — replace the whole URL. |
 | `DOWNLOAD_DDPC_BUNDLE` | `false` | When `true`, the DDPC bundle is included in `offline-prep` (`ap-offline.tar.gz`). |
-| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.0` | DAP orchestrator app version the DDPC bundle must be installed on top of. The pre-flight compares it **exactly** against the deployed `native-edge-orchestrator` helm release and aborts on a mismatch. Override for a different pairing, or set `any` to disable the gate. |
+| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.3` | DAP orchestrator app version the DDPC bundle must be installed on top of. DDPC 4.4.0.0 ships with DAP 2.1.1.3; the bundle itself names no version. The pre-flight compares it **exactly** against the deployed `native-edge-orchestrator` helm release and aborts on a mismatch. Override for a different pairing, or set `any` to disable the gate. |
 | `DDPC_SKIP_IMAGES_LOADER` | `$SKIP_IMAGES_LOADER` | `true` if the 19 DDPC images are already in the registry (skips the push). Defaults to whatever `SKIP_IMAGES_LOADER` is. |
 | `DDPC_IMAGE_LOADER_PARALLEL_JOBS` | `5` | Parallel image pushes in the DDPC image loader (`IMAGE_LOADER_PARALLEL_JOBS`). |
 | `DDPC_IMAGE_LOADER_MAX_RETRIES` | `3` | Per-image push retries (`IMAGE_LOADER_MAX_RETRIES`, env-only in Dell's script — emitted as an `env` prefix in the generated command). |
@@ -914,11 +914,11 @@ Resource checks are performed against Kubernetes allocatable capacity (`kubectl 
 > **Storage caution for multi-node.** `ap-tools` sums allocatable capacity across the cluster, but DAP's own
 > `pre_install_check` applies its **850 GB ephemeral-storage requirement to every node individually**. A 3-node
 > cluster of 500 GB nodes therefore passes the `ap-tools` gate and still fails Dell's. The per-node figures above
-> predate DAP 2.1.1.0 and have not been re-validated against it — size multi-node nodes for 850 GB allocatable
+> predate DAP 2.1.1.x and have not been re-validated against it — size multi-node nodes for 850 GB allocatable
 > ephemeral-storage each until they are.
 
-> **DAP version note.** These figures target **DAP 2.1.1.0**, the version pinned in `AP_BUNDLE_URL`. Requirements
-> move between releases — 2.1.1.0's own floor is `12000m` CPU / `24Gi` memory / `850Gi` ephemeral-storage, i.e.
+> **DAP version note.** These figures target **DAP 2.1.1.3**, the version pinned in `AP_BUNDLE_URL`. Requirements
+> move between releases — 2.1.1.3's own floor (unchanged from 2.1.1.0) is `12000m` CPU / `24Gi` memory / `850Gi` ephemeral-storage, i.e.
 > *less* RAM but far more storage than 2.0.0.0. The values above stay above Dell's floor as the supported spec.
 
 #### SeaweedFS host

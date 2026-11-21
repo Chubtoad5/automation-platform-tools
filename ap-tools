@@ -103,7 +103,7 @@ EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 # IMAGE_LOADER_MAX_RETRIES and LOG_LEVEL. Every one of them is exposed below.
 DDPC_BUNDLE_URL="${DDPC_BUNDLE_URL:-https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip}"  # DDPC bundle URL, or a pre-staged .zip filename in ap-install/. The dl.dell.com FOLDER path changes per release - replace the whole URL.
 DOWNLOAD_DDPC_BUNDLE="${DOWNLOAD_DDPC_BUNDLE:-false}"    # Include the (~6GB) DDPC bundle in 'offline-prep'
-DDPC_REQUIRED_DAP_VERSION="${DDPC_REQUIRED_DAP_VERSION:-2.1.1.0}"  # DAP orchestrator app version DDPC must sit on top of (exact match against the deployed helm release; 'any' disables the gate)
+DDPC_REQUIRED_DAP_VERSION="${DDPC_REQUIRED_DAP_VERSION:-2.1.1.3}"  # DAP orchestrator app version DDPC must sit on top of (4.4.0.0 ships with DAP 2.1.1.3; its bundle names no version itself) (exact match against the deployed helm release; 'any' disables the gate)
 DDPC_SKIP_IMAGES_LOADER="${DDPC_SKIP_IMAGES_LOADER:-$SKIP_IMAGES_LOADER}"  # true = the DDPC images are already in the registry; skip the push (defaults to SKIP_IMAGES_LOADER)
 DDPC_IMAGE_LOADER_PARALLEL_JOBS="${DDPC_IMAGE_LOADER_PARALLEL_JOBS:-5}"  # parallel image pushes in the DDPC image loader (IMAGE_LOADER_PARALLEL_JOBS, Dell default 5)
 DDPC_IMAGE_LOADER_MAX_RETRIES="${DDPC_IMAGE_LOADER_MAX_RETRIES:-3}"  # per-image push retries (env-only IMAGE_LOADER_MAX_RETRIES, Dell default 3)
@@ -327,7 +327,7 @@ ap_jq_qty_defs='
       elif test("T$") then (sub("T$"; "") | tonumber) * 1000
       else (tonumber / 1073741824) end;'
 # Cluster resource gates, measured against ALLOCATABLE resources (not provisioned) after the
-# cluster is up. Aligned to DAP 2.1.1.0, whose own pre_install_check enforces
+# cluster is up. Aligned to DAP 2.1.1.0 and 2.1.1.3, whose own pre_install_check enforces
 # REQUIRED_CPU=12000m / REQUIRED_MEMORY=24Gi / REQUIRED_DISK_SPACE=850Gi against each node's
 # allocatable ephemeral-storage. We keep CPU/memory above Dell's floor as the supported spec.
 REQUIRED_CPU=18
@@ -335,7 +335,7 @@ REQUIRED_CPU=18
 # so a correctly-provisioned 36 GB node reports ~35 GB allocatable. Same 2 GB relationship the
 # previous 34-provisioned / 32-allocatable pair used.
 REQUIRED_MEM_GB=34
-# 850 GB matches DAP 2.1.1.0's ephemeral-storage gate exactly. A 500 GB host used to pass here
+# 850 GB matches DAP 2.1.1.0's and 2.1.1.3's ephemeral-storage gate exactly. A 500 GB host used to pass here
 # and then fail Dell's own check mid-install.
 REQUIRED_STORAGE_GB=850
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"

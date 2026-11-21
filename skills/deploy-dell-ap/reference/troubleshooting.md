@@ -64,7 +64,7 @@ Walk this tree top-down; most failures match the early branches.
     [prerequisites.md](prerequisites.md).
 
 18. **`install ddpc-bundle` pre-flight fails** — read the first `Error:` line; each check names its fix:
-    *DAP version mismatch* → the bundle pairs with `DDPC_REQUIRED_DAP_VERSION` (default 2.1.1.0); upgrade DAP or,
+    *DAP version mismatch* → the bundle pairs with `DDPC_REQUIRED_DAP_VERSION` (default 2.1.1.3); upgrade DAP or,
     only if Dell supports the pairing, override the variable. *Unhealthy pods / release not `deployed`* → DAP is
     not finished or is degraded (e.g. Longhorn volumes re-attaching after a node freeze/reboot) — wait for
     `kubectl get pods -A` to settle, then re-run. *ORCHESTRATOR_FQDN not served by any ingress* → set

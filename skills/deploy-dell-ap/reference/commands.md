@@ -55,7 +55,7 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 | `RKE2_VERSION` | `v1.36.6+rke2r1` | RKE2 release to install. Unset: re-runs keep the running version, joins take the cluster's. |
 | `AP_BUNDLE_URL` | pinned (v2.1.1.0) | DAP bundle URL. Override to deploy a different version, or point at a pre-staged `.zip` filename in the working dir to skip the download. |
 | `DDPC_BUNDLE_URL` | pinned (v4.3.0.0) | DDPC add-on bundle URL (~6 GB), or a pre-staged `.zip` filename in the working dir. |
-| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.0` | Exact DAP orchestrator version the DDPC pre-flight requires (`any` disables the gate). |
+| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.3` | Exact DAP orchestrator version the DDPC pre-flight requires (`any` disables the gate). |
 | `DDPC_SKIP_IMAGES_LOADER` | `$SKIP_IMAGES_LOADER` | `true` if the DDPC images are already in the registry. |
 | `DDPC_IMAGE_LOADER_PARALLEL_JOBS` / `DDPC_IMAGE_LOADER_MAX_RETRIES` | `5` / `3` | DDPC image-push parallelism and per-image retries. |
 | `DDPC_INSTALL_TYPE` / `DDPC_INSTALL_TIMEOUT` / `DDPC_LOG_LEVEL` | `KUBERNETES` / `600` / _(empty)_ | Pass-throughs to DDPC's installer (`INSTALL_TYPE`, `INSTALL_TIMEOUT`, env-only `LOG_LEVEL`). |

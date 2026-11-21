@@ -73,7 +73,7 @@ the job.
 - `install ap-bundle` stages the bundle and writes `ap-install-upgrade-cmd.txt`; it does not deploy DAP
   on its own — you must run the `install-upgrade.sh` command from that file.
 - Single-node 36 GB (not 34), multi-node 20 GB/node (not 16) — RKE2 reserves ~2 GB and the bundle
-  pre-check measures Kubernetes allocatable capacity. DAP 2.1.1.0 additionally requires **850 GB of
+  pre-check measures Kubernetes allocatable capacity. DAP 2.1.1.3 additionally requires **850 GB of
   allocatable ephemeral-storage per node**; provision 1 TB.
 - **Multi-node DNS split:** `portal.`/`orchestrator.`/`mtls-*` → the ingress VIP (`LB_IP`); the bare
   cluster/`-tls-san` name → the node IPs. A `*.<cluster>` wildcard → VIP covers the four service records and

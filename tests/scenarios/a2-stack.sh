@@ -47,6 +47,15 @@ done
 n=$($K get pods -A --no-headers 2>/dev/null | grep -c 'ingress-nginx')
 [ "$n" = 0 ] && ok "no nginx ingress pod" || bad "$n nginx ingress pods are running"
 grep -q 'rke2-ingress-nginx' /etc/rancher/rke2/config.yaml && ok "config.yaml disables rke2-ingress-nginx" || bad "config.yaml doesn't disable rke2-ingress-nginx"
+# D6 (spec 30): RKE2 1.36 installs Traefik on host ports 80 and 443 unless config.yaml disables it
+v=$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)
+[[ "$v" == v1.36.* ]] && ok "the node runs Kubernetes $v, ap-tools' default" || bad "the node runs '$v', not 1.36"
+n=$($K get pods -A --no-headers 2>/dev/null | grep -ci 'traefik')
+[ "$n" = 0 ] && ok "no Traefik pod" || bad "$n Traefik pods are running"
+grep -q 'rke2-traefik' /etc/rancher/rke2/config.yaml && ok "config.yaml disables rke2-traefik" || bad "config.yaml doesn't disable rke2-traefik"
+hp=$($K get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{.spec.containers[*].ports[*].hostPort}{"\n"}{end}' 2>/dev/null \
+  | awk '$0 ~ / (80|443)( |$)/ && $1 !~ /^haproxy-controller\// {print $1}' | xargs)
+[ -z "$hp" ] && ok "only HAProxy can hold ports 80 and 443" || bad "other pods hold host port 80 or 443: $hp"
 pool=$($K get ipaddresspools -A -o jsonpath='{.items[*].spec.addresses}' 2>/dev/null)
 [[ " $pool " =~ [^0-9.]$IP(/32)?[^0-9./] ]] && ok "MetalLB's pool holds this node's address" || bad "MetalLB's pool is '$pool'"
 lb() { lbip=$($K get svc -n haproxy-controller -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$lbip" ]; }

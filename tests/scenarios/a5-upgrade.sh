@@ -60,8 +60,14 @@ spec:
 YAML
 within 300 wrote && ok "it wrote to its Longhorn volume" || bad "the workload didn't write: $($K get pods -n a5 --no-headers 2>&1 | head -2)"
 
+v1=$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)
+# D3 (spec 30): RKE2_VERSION stays unset. The commit under test's default may be a newer minor than $old's, and the
+# re-run must keep the running version rather than stop at rke2's "already running" check.
 (cd new && ./ap-tools install rke2) > o2 2>&1 && ok "the commit under test's ap-tools install rke2 over $old" || { bad "the commit under test's ap-tools install rke2 over $old"; tail -12 o2 | cut -c1-170; }
 within 300 nready && ok "the node is Ready after the upgrade" || bad "the node isn't Ready after the upgrade"
+v2=$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)
+[ -n "$v1" ] && [ "$v1" = "$v2" ] && ok "the re-run kept Kubernetes $v1" || bad "Kubernetes went from '$v1' to '$v2' on a re-run"
+[ "$($K get pods -A --no-headers 2>/dev/null | grep -ci 'traefik')" = 0 ] && ok "no Traefik pod" || bad "a Traefik pod appeared"
 stack_ok "after the upgrade"
 within 180 wrote && ok "the workload and its Longhorn data survived" || bad "the workload's data is gone: '$(data)'"
 [ "$($K get pods -A --no-headers 2>/dev/null | grep -c 'ingress-nginx')" = 0 ] && ok "still no nginx ingress pod" || bad "an nginx ingress pod appeared"

@@ -269,6 +269,12 @@ Installs a component and its dependencies. When `ap-offline.tar.gz` is present, 
 
 Creates `ap-offline.tar.gz` containing all binaries, container images, Helm charts, OS packages and the Technitium DNS Server bundle for a fully disconnected installation. Cannot be combined with `install`, `push`, or `join`. Requires an active internet connection (including `download.technitium.com` and `dot.net` for the DNS bundle, which is always included).
 
+**For a cluster that already runs.** The bundle's RKE2 is `RKE2_VERSION` at the time of `offline-prep`, v1.36.6 by
+default, and an air-gapped node can install only that version. To re-run `install rke2` on, or join a node to, a
+cluster on another version (v1.34.5 for clusters built by ap-tools v1.3.0 or earlier), build the bundle with that
+version: `sudo RKE2_VERSION=v1.34.5+rke2r1 ./ap-tools offline-prep`. With the default bundle, rke2-installer refuses
+before it changes anything.
+
 #### `version`
 
 Prints the `ap-tools` version and the release of each sub-tool it fetches, plus the releases an extracted

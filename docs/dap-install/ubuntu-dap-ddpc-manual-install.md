@@ -1,7 +1,7 @@
 # Manual Install: Dell Automation Platform + DDPC on Ubuntu 24.04 (connected, single-node)
 
-A step-by-step guide for installing **RKE2 Kubernetes**, **Dell Automation Platform (DAP) 2.1.1.0** and the
-**Dell Distributed Private Cloud (DDPC) 4.3.0.0** add-on **by hand** on one internet-connected Ubuntu 24.04 host.
+A step-by-step guide for installing **RKE2 Kubernetes**, **Dell Automation Platform (DAP) 2.1.1.3** and the
+**Dell Distributed Private Cloud (DDPC) 4.4.0.0** add-on **by hand** on one internet-connected Ubuntu 24.04 host.
 
 This guide does by hand what `ap-tools install rke2`, `ap-tools install ap-bundle` and
 `ap-tools install ddpc-bundle` do automatically (single-node). Use it when you want to understand every step,
@@ -39,14 +39,14 @@ One Ubuntu 24.04 host running:
 
 | Layer | Component | Version | Purpose |
 |:--|:--|:--|:--|
-| Kubernetes | RKE2 (Calico CNI) | `v1.34.5+rke2r1` | Single-node cluster; the built-in NGINX ingress is **disabled** |
+| Kubernetes | RKE2 (Calico CNI) | `v1.36.6+rke2r1` | Single-node cluster; the built-in ingress (Traefik from 1.36) is **disabled** |
 | Load balancer | MetalLB (L2) | chart `0.15.3` | Gives the ingress a `LoadBalancer` IP (the host IP) |
 | Ingress | HAProxy Kubernetes Ingress | chart `1.49.0`, app `3.2.6` | Ingress class `haproxy`, with **SSL passthrough** (required for DAP mTLS) |
 | Storage | Longhorn | `1.11.1` | Default `StorageClass` for DAP's persistent volumes |
 | Tooling | Helm | `4.0.1` | Installs the charts above; Dell's installers also need it |
 | Tooling | Docker CE | latest stable | Dell's image loaders use Docker to push images to your registry |
-| Application | Dell Automation Platform | `2.1.1.0` | Portal + Orchestrator |
-| Add-on | Dell Distributed Private Cloud | `4.3.0.0` | Installed into the running orchestrator |
+| Application | Dell Automation Platform | `2.1.1.3` | Portal + Orchestrator |
+| Add-on | Dell Distributed Private Cloud | `4.4.0.0` | Installed into the running orchestrator |
 
 When you finish, the portal answers at `https://portal.<HOST_FQDN>` and the orchestrator at
 `https://orchestrator.<HOST_FQDN>`.
@@ -85,7 +85,7 @@ Work through this list **before** you start. Each item has a command to check it
   (Step 1A)?** Plan **20 vCPU / 44 GB**: ap-tools' tested all-in-one size for DAP + Harbor is 20 vCPU / 40 GB,
   plus DDPC's headroom.
   Check: `free -g`
-- [ ] **Disk: 1 TB or more on the root filesystem (SSD).** DAP 2.1.1.0 refuses to install unless the node
+- [ ] **Disk: 1 TB or more on the root filesystem (SSD).** DAP 2.1.1.3 refuses to install unless the node
   reports **850 GiB of allocatable ephemeral-storage**, and allocatable is always a bit below the raw size.
   Check: `df -h /`
 - [ ] **Static IP** (or a DHCP reservation) on the management interface.
@@ -188,7 +188,7 @@ export ADMIN_USERNAME="administrator"
 export ADMIN_EMAIL="admin@example.lab"
 
 # --- Versions (the ones this guide was tested with) ---
-export RKE2_VERSION="v1.34.5+rke2r1"
+export RKE2_VERSION="v1.36.6+rke2r1"
 export HELM_VERSION="4.0.1"
 export METALLB_VERSION="0.15.3"
 export HAPROXY_CHART_VERSION="1.49.0"
@@ -418,6 +418,7 @@ kubelet-arg:
   - "resolv-conf=/run/systemd/resolve/resolv.conf"
 disable:
   - rke2-ingress-nginx
+  - rke2-traefik
 tls-san:
   - "$HOST_FQDN"
 EOF
@@ -429,7 +430,7 @@ What the settings do:
 | Setting | Why |
 |:--|:--|
 | `cni: calico` | The CNI DAP is validated with |
-| `disable: rke2-ingress-nginx` | DAP uses the HAProxy ingress installed in Step 3; two ingress controllers would fight over ports 80/443 |
+| `disable: rke2-ingress-nginx`, `rke2-traefik` | DAP uses the HAProxy ingress installed in Step 3; two ingress controllers would fight over ports 80/443. RKE2 1.36 installs Traefik as its ingress, so disabling only `rke2-ingress-nginx` (enough on 1.34) would leave Traefik on 80/443 |
 | `service-node-port-range: 443-40000` | Widens the NodePort range so low ports can be used |
 | `max-pods: 250` | DAP runs well over the default limit of 110 pods on one node |
 | `resolv-conf` | Avoids the CoreDNS loop described above |
@@ -531,9 +532,9 @@ chmod 600 /home/<YOUR_USER>/.kube/config
 ### Verify
 
 ```bash
-kubectl get nodes -o wide     # one node, STATUS Ready, VERSION v1.34.5+rke2r1, INTERNAL-IP = HOST_IP
+kubectl get nodes -o wide     # one node, STATUS Ready, VERSION v1.36.6+rke2r1, INTERNAL-IP = HOST_IP
 kubectl get pods -A           # everything Running or Completed after a few minutes
-kubectl get pods -n kube-system | grep -c ingress-nginx   # 0 - the built-in ingress is disabled
+kubectl get pods -n kube-system | grep -c -E 'ingress-nginx|traefik'   # 0 - no built-in ingress, nginx or Traefik
 kubectl -n kube-system get pods -l k8s-app=kube-dns       # CoreDNS Running, not CrashLoopBackOff
 ```
 
@@ -831,11 +832,11 @@ into `$WORK_DIR` instead (for example `scp Dell_Automation_Platform_Linux_2.1.1.
 ### 5.2 Check and extract the bundle
 
 Check the file is complete. Compare the checksum with the one on Dell's download page; for reference, the
-2.1.1.0 zip this guide was tested with has the MD5 below and is 16,391,112,969 bytes.
+2.1.1.3 zip this guide was tested with has the MD5 below and is 16,236,429,583 bytes.
 
 ```bash
-ls -l Dell_Automation_Platform_Linux_2.1.1.0.zip
-md5sum Dell_Automation_Platform_Linux_2.1.1.0.zip    # 4c17f64b857d0aca63d30cbbb7f0ae09
+ls -l Dell_Automation_Platform_Linux_2.1.1.3.zip
+md5sum Dell_Automation_Platform_Linux_2.1.1.3.zip    # cfd1406a09de2df3054ebfa1f37f41b2
 ```
 
 Dell ships a signed **outer** zip that wraps the real bundle zip, its signature and Dell's public key. Unzip
@@ -843,8 +844,8 @@ the outer zip, verify the signature, then unzip the inner zip:
 
 ```bash
 mkdir -p "$WORK_DIR/dap-bundle" && cd "$WORK_DIR/dap-bundle"
-unzip -o ../Dell_Automation_Platform_Linux_2.1.1.0.zip
-ls    # DellAutomationPlatform_v2.1.1.0-<build>.zip, its .signed.bin, dell_public.key
+unzip -o ../Dell_Automation_Platform_Linux_2.1.1.3.zip
+ls    # DellAutomationPlatform_v2.1.1.3-<build>.zip, its .signed.bin, dell_public.key
 
 INNER=$(ls DellAutomationPlatform_v*.zip)
 openssl dgst -sha384 -verify dell_public.key -signature "$INNER.signed.bin" "$INNER"   # Verified OK
@@ -950,7 +951,7 @@ before you retry.
 ### 5.5 Verify DAP
 
 ```bash
-helm ls -n dell-orchestrator     # native-edge-orchestrator ... deployed ... 2.1.1.0
+helm ls -n dell-orchestrator     # native-edge-orchestrator ... deployed ... 2.1.1.3
 helm ls -n dell-portal           # dap-portal ... deployed
 kubectl get pods -n dell-orchestrator --no-headers | grep -vE 'Running|Completed'   # no output
 kubectl get pods -n dell-portal       --no-headers | grep -vE 'Running|Completed'   # no output
@@ -977,13 +978,13 @@ screen -S dap-install -X quit       # or: screen -r dap-install, then type exit
 ## Step 6 — Install Dell Distributed Private Cloud
 
 DDPC is an add-on that installs **into** the running DAP orchestrator (same cluster, same `dell-orchestrator`
-namespace). It requires DAP **2.1.1.0** exactly.
+namespace). DDPC 4.4.0.0 ships with DAP **2.1.1.3**, and `ap-tools` requires that version exactly (its bundle names none itself).
 
 ### 6.1 Pre-checks
 
 ```bash
-# DAP orchestrator is deployed at 2.1.1.0, and the portal is deployed
-helm ls -n dell-orchestrator -o json | jq -r '.[] | select(.chart|startswith("native-edge-orchestrator")) | "\(.status) \(.app_version)"'   # deployed 2.1.1.0
+# DAP orchestrator is deployed at 2.1.1.3, and the portal is deployed
+helm ls -n dell-orchestrator -o json | jq -r '.[] | select(.chart|startswith("native-edge-orchestrator")) | "\(.status) \(.app_version)"'   # deployed 2.1.1.3
 helm ls -n dell-portal -o json | jq -r '.[] | select(.chart|startswith("dap-portal")) | .status'   # deployed
 
 # The orchestrator ingress serves the name you will pass as DAPO_HOST
@@ -1016,11 +1017,11 @@ curl -fL --retry 3 -C - --user-agent "$UA" \
   -o dell-distributed-private-cloud_4.3.0.0.zip \
   https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip
 
-sha256sum dell-distributed-private-cloud_4.3.0.0.zip
-# tested copy: 35191b871a7a8fca64f68d187864bc72b2179c2dfbe451ba47ea056c33424b69 (6,248,535,789 bytes)
+sha256sum dell-distributed-private-cloud_4.4.0.0.zip
+# tested copy: de99bc9af5711efcc6571da63955d8dc80c4f692f8caf30f68727b458777676b (6,303,998,928 bytes)
 
 mkdir -p "$WORK_DIR/ddpc-bundle" && cd "$WORK_DIR/ddpc-bundle"
-unzip -o ../dell-distributed-private-cloud_4.3.0.0.zip
+unzip -o ../dell-distributed-private-cloud_4.4.0.0.zip
 INNER=$(ls dell-distributed-private-cloud_*.zip)
 openssl dgst -sha384 -verify dell_public.key -signature "$INNER.signed.bin" "$INNER"   # Verified OK
 unzip -o "$INNER" && rm -f "$INNER"
@@ -1067,7 +1068,7 @@ env IMAGE_LOADER_MAX_RETRIES="3" ./install-upgrade.sh \
 ### 6.4 Verify DDPC
 
 ```bash
-helm ls -n dell-orchestrator    # dell-distributed-private-cloud deployed (4.3.0-...) AND native-edge-orchestrator still deployed 2.1.1.0
+helm ls -n dell-orchestrator    # dell-distributed-private-cloud deployed (4.4.0-...) AND native-edge-orchestrator still deployed 2.1.1.3
 
 kubectl -n dell-orchestrator get deploy hzp-compute-svc hzp-ece-firmwareupdate-svc fido-manufacturer \
   hzp-fru-cru-svc hzp-health-check-svc hzp-oe-template-mgr-svc hzp-recovery-svc hzp-time-svc \
@@ -1096,11 +1097,11 @@ the orchestrator and open `https://orchestrator.<HOST_FQDN>/neui/`.
 |:--|:--|:--|:--|
 | 1 | Node ready | `kubectl get nodes` | 1 node, `Ready` |
 | 2 | No unhealthy pods | `kubectl get pods -A --no-headers \| grep -vE 'Running\|Completed'` | no output |
-| 3 | Built-in NGINX ingress absent | `kubectl get pods -A \| grep -c rke2-ingress-nginx` | `0` |
+| 3 | Built-in ingress absent (nginx and Traefik) | `kubectl get pods -A \| grep -c -E 'rke2-ingress-nginx\|traefik'` | `0` |
 | 4 | Ingress has the host IP | `kubectl -n haproxy-controller get svc` | `EXTERNAL-IP` = host IP |
 | 5 | Storage | `kubectl get sc` | `longhorn (default)` |
 | 6 | Volumes healthy | `kubectl -n longhorn-system get volumes.longhorn.io` | every volume `attached` / `healthy` |
-| 7 | Helm releases | `helm ls -A` | `metallb`, `haproxy-ingress`, `longhorn`, `native-edge-orchestrator` (2.1.1.0), `dap-portal`, `dell-distributed-private-cloud` — all `deployed` |
+| 7 | Helm releases | `helm ls -A` | `metallb`, `haproxy-ingress`, `longhorn`, `native-edge-orchestrator` (2.1.1.3), `dap-portal`, `dell-distributed-private-cloud` — all `deployed` |
 | 8 | Host settings | `sysctl fs.inotify.max_user_instances; systemctl is-enabled multipathd` | `1024`, `masked` |
 | 9 | Portal | browser → `https://portal.<HOST_FQDN>` | login page; signs in with your new password |
 | 10 | mTLS names | `openssl s_client -connect mtls-orchestrator.$HOST_FQDN:443 -servername mtls-orchestrator.$HOST_FQDN </dev/null 2>/dev/null \| grep -m1 subject` | prints a certificate subject (DAP's own certificate, passed straight through HAProxy) |

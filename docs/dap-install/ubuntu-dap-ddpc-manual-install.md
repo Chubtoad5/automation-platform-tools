@@ -166,7 +166,11 @@ drops you only have to `source` it again.
 
 ```bash
 sudo -i
+```
 
+Then, in that root shell:
+
+```bash
 cat > /root/dap-install.env <<'EOF'
 # --- Host ---
 export HOST_FQDN="dap1.example.lab"        # the host's full DNS name (the DNS records hang off this)
@@ -879,7 +883,11 @@ disconnect:
 
 ```bash
 screen -S dap-install
-# (inside screen)
+```
+
+Then, inside `screen`:
+
+```bash
 source /root/dap-install.env
 cd "$WORK_DIR/dap-bundle"
 ./install-upgrade.sh \
@@ -922,12 +930,22 @@ About the parameters:
 > The installer rejects any parameter it does not know. Keep the names exactly as shown, and keep each value
 > in double quotes so values with spaces (like `ORG_DESC`) arrive in one piece.
 
-While it runs you can watch progress from a second SSH session:
+While it runs you can watch progress from a second SSH session. Start a root shell there:
 
 ```bash
 sudo -i
-docker logs -f eo-images-loader                 # the image loader's progress, during the push phase
-kubectl get pods -n dell-orchestrator -w        # pods appearing, during the install phase
+```
+
+During the push phase, follow the image loader (Ctrl+C to stop following):
+
+```bash
+docker logs -f eo-images-loader
+```
+
+During the install phase, watch the pods appear (Ctrl+C to stop):
+
+```bash
+kubectl get pods -n dell-orchestrator -w
 ```
 
 The installer ends with a success summary that includes the portal URL and the initial login.
@@ -1035,7 +1053,11 @@ About **10 minutes** (it pushes 19 images, about 6 GB, then installs a Helm rele
 
 ```bash
 screen -S ddpc-install
-# (inside screen)
+```
+
+Then, inside `screen`:
+
+```bash
 source /root/dap-install.env
 cd "$WORK_DIR/ddpc-bundle"
 env IMAGE_LOADER_MAX_RETRIES="3" ./install-upgrade.sh \
@@ -1147,6 +1169,11 @@ This removes **everything**, including all DAP data. There is no undo. If you ra
 
 ```bash
 sudo -i
+```
+
+Then, in that root shell:
+
+```bash
 source /root/dap-install.env
 
 # 1. Kubernetes and everything running in it (DAP, DDPC, Longhorn, MetalLB, HAProxy)
@@ -1213,12 +1240,20 @@ change the same thing.
 | 6.1 DDPC pre-checks | `ddpc_preflight_checks` |
 | 6.2–6.3 DDPC bundle and command | `ddpc_bundle_prep` → `ddpc-install-upgrade-cmd.txt` [`DDPC_BUNDLE_URL`, `DDPC_*`] |
 
-The scripted equivalent of this whole guide is:
+The scripted equivalent of this whole guide is four steps. First RKE2 and its add-ons:
 
 ```bash
 sudo BASE_DOMAIN=<BASE_DOMAIN> ./ap-tools install rke2 -tls-san <HOST_FQDN>
+```
+
+Then the DAP bundle, after which you run the command it writes to `ap-install-upgrade-cmd.txt`:
+
+```bash
 sudo BASE_DOMAIN=<BASE_DOMAIN> HOST_FQDN=<HOST_FQDN> ORG_NAME=... ./ap-tools install ap-bundle -registry <REGISTRY> <REG_USER> <REG_PASS>
-# run the command in ap-install-upgrade-cmd.txt
+```
+
+Then the DDPC bundle, after which you run the command it writes to `ddpc-install-upgrade-cmd.txt`:
+
+```bash
 sudo BASE_DOMAIN=<BASE_DOMAIN> HOST_FQDN=<HOST_FQDN> ./ap-tools install ddpc-bundle -registry <REGISTRY> <REG_USER> <REG_PASS>
-# run the command in ddpc-install-upgrade-cmd.txt
 ```

@@ -52,7 +52,7 @@ Set inline, e.g. `sudo BASE_DOMAIN=mydomain.lab ./ap-tools install rke2`.
 | `LB_IP` | host `MGMT_IP` | The MetalLB **ingress** VIP (portal/orchestrator HTTPS). Single-node: leave default (= host IP). Multi-node: set to a dedicated free L2 IP (not a node IP). **Not** an API-server LB. |
 | `LB_VIP` | _(empty)_ | **Deprecated alias for `LB_IP`** — still honored if set, but prefer `LB_IP`. |
 | `NTP_SERVERS` | _(empty)_ | NTP server(s) to configure on every node (`install rke2`/`join`) and verify at `install ap-bundle`. Empty = OS default. |
-| `RKE2_VERSION` | `v1.34.5+rke2r1` | RKE2 release to install. |
+| `RKE2_VERSION` | `v1.36.6+rke2r1` | RKE2 release to install. Unset: re-runs keep the running version, joins take the cluster's. |
 | `AP_BUNDLE_URL` | pinned (v2.1.1.0) | DAP bundle URL. Override to deploy a different version, or point at a pre-staged `.zip` filename in the working dir to skip the download. |
 | `DDPC_BUNDLE_URL` | pinned (v4.3.0.0) | DDPC add-on bundle URL (~6 GB), or a pre-staged `.zip` filename in the working dir. |
 | `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.0` | Exact DAP orchestrator version the DDPC pre-flight requires (`any` disables the gate). |

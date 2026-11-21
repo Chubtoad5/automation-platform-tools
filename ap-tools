@@ -220,7 +220,7 @@ MONITOR_EXCLUDE_NS="${MONITOR_EXCLUDE_NS:-kube-system kube-public kube-node-leas
 MONITOR_PORT_NAMES="${MONITOR_PORT_NAMES:-manager metrics http-metrics prometheus prom stat metrics-port}"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
-RKE2_VERSION="${RKE2_VERSION:-v1.34.5+rke2r1}"
+RKE2_VERSION="${RKE2_VERSION:-v1.36.6+rke2r1}"  # v2.0.0 (spec 30): Kubernetes 1.36; v1.3.0 and earlier used v1.34.5+rke2r1
 CLUSTER_TYPE="${CLUSTER_TYPE:-single-node}"
 MAX_PODS="${MAX_PODS:-250}"
 CNI_TYPE="${CNI_TYPE:-calico}"
@@ -341,7 +341,7 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 # Each ap-tools release fetches the sub-tool releases it was tested with, never main. A *_feature_branch (test flows)
 # wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
 # again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
-RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.4.0}}"
+RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v2.0.0}}"
 HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.4.0}}"
 SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.4.0}}"
 DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"

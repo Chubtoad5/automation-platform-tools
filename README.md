@@ -518,7 +518,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `RKE2_VERSION` | `v1.34.5+rke2r1` | RKE2 release to install. |
+| `RKE2_VERSION` | `v1.36.6+rke2r1` | RKE2 release to install. When it isn't set, a re-run of `install rke2` keeps the version already running, and `join` takes the cluster's version (or the air-gap bundle's). v1.3.0 and earlier defaulted to `v1.34.5+rke2r1`. |
 | `CLUSTER_TYPE` | `single-node` | Set to `multi-node` when planning to join additional nodes (adjusts Longhorn replica count). |
 | `MAX_PODS` | `250` | Maximum pods per node. |
 | `CNI_TYPE` | `calico` | CNI plugin (`calico` or `canal`). |
@@ -672,11 +672,11 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 
 | Variable | Default | Sub-tool |
 |:---------|:--------|:---------|
-| `RKE2_INSTALLER_REF` | `v1.3.1` | `rke2_installer.sh` |
-| `HARBOR_INSTALLER_REF` | `v1.3.0` | `install_harbor.sh` |
-| `SWFS_INSTALLER_REF` | `v1.3.0` | `install-seaweedfs` |
+| `RKE2_INSTALLER_REF` | `v2.0.0` | `rke2_installer.sh` |
+| `HARBOR_INSTALLER_REF` | `v1.4.0` | `install_harbor.sh` |
+| `SWFS_INSTALLER_REF` | `v1.4.0` | `install-seaweedfs` |
 | `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |
-| `IMAGE_PULL_PUSH_REF` | `v1.1.2` | `image_pull_push.sh` |
+| `IMAGE_PULL_PUSH_REF` | `v1.2.0` | `image_pull_push.sh` |
 | `INSTALL_PACKAGES_REF` | `v1.1.3` | `install_packages.sh` |
 
 - **Each takes a tag, a branch or a commit.** `rke2_feature_branch`, `harbor_feature_branch`, `swfs_feature_branch`

@@ -1,5 +1,34 @@
 # Changelog — automation-platform-tools
 
+## v2.0.0 — 2026-11-20 — DAP 2.1.1.3 and DDPC 4.4.0.0 on RKE2 1.36
+
+Spec 30 (chubtoad-automation). **Major:** a plain install now builds Kubernetes 1.36 and DAP 2.1.1.3, the DDPC default
+refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0 or earlier take the version they run.
+
+### Changed
+- **RKE2 v1.36.6+rke2r1 by default, through rke2-installer v2.0.0** (D1). v1.34.5 left upstream support on 2026-10-27.
+  ap-tools still passes `INSTALL_INGRESS=false`, and rke2-installer v2.0.0 then disables Traefik as well as
+  ingress-nginx, so HAProxy stays DAP's only ingress. DAP 2.1.1.3 accepts Kubernetes 1.33 to 1.36.
+- **DAP 2.1.1.3 and DDPC 4.4.0.0** (D2). `DDPC_REQUIRED_DAP_VERSION` is `2.1.1.3`, the DAP release DDPC 4.4.0.0
+  ships with; set it to `any`, or another version, for a pairing Dell supports. Neither bundle adds a parameter or
+  changes a resource gate, so the generated command blocks and ap-tools' 18 CPU / 34 GB / 850 GB gates are unchanged.
+- **An unset `RKE2_VERSION` no longer breaks re-runs and joins on older clusters** (D3). ap-tools used to pass its own
+  default every time, so after the default moved a re-run of `install rke2` on a 1.34.5 node stopped at "already
+  running", and a join to a 1.34.5 cluster was refused. Now a version you set is always used; unset, a re-run passes
+  the version running on the node, and `join` and air-gapped installs pass none, so rke2-installer takes the cluster's
+  version or the bundle's. A fresh online install gets the new default.
+- **The upgrade docs go one minor version at a time** (D4): v1.34.5 → v1.35.10 → v1.36.6. rke2-installer v2.0.0
+  refuses `stable` when it's two minor versions ahead, and a multi-server move to 1.36 asks for a `rke2-traefik`
+  line on each server first.
+- **The manual install guide** moves to RKE2 1.36.6, DAP 2.1.1.3 and DDPC 4.4.0.0, and disables `rke2-traefik` (D5).
+- **The README's sub-tool pin table and `inputs.env.example`** list the real pins (D8); they still named v1.3.x.
+- **The air-gap bundle's notices** name Traefik (MIT), which RKE2 1.36's images carry (D7).
+
+### Tests
+- `tests/unit/rke2-version.bats`: what install and join pass for `RKE2_VERSION`, set or unset (D3).
+- A2 checks there's no Traefik on 1.36 and nothing but HAProxy on host ports 80 and 443; A5's re-run over the last
+  release keeps the running Kubernetes version (D6).
+
 ## v1.3.0 — 2026-11-12 — Any complex password works everywhere
 
 Spec 21 (chubtoad-automation). The DAP run uses a registry password with every symbol (spec 21, Q12).

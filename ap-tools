@@ -41,6 +41,8 @@ user_set_harbor_version="${HARBOR_VERSION+x}"
 user_set_purge_data="${PURGE_DATA+x}"
 user_set_swfs_remove_images="${SWFS_REMOVE_IMAGES+x}"
 user_set_dns_remove_dotnet="${DNS_REMOVE_DOTNET+x}"
+# D3 (spec 30): an empty RKE2_VERSION counts as unset, as it does in rke2_installer.sh v2.0.0
+user_set_rke2_version="${RKE2_VERSION:+x}"
 
 # --- USER DEFINED CONFIGURATION VARIABLES --- #
 # Every variable in this section is override-friendly (VAR="${VAR:-default}"): set it
@@ -489,6 +491,45 @@ rke2_bin_dir () {
     printf '%s/bin' "$d"
 }
 
+# running_rke2_version: the version of RKE2 running on this node, or nothing when no rke2 service is active.
+running_rke2_version () {
+    systemctl is-active --quiet rke2-server.service || systemctl is-active --quiet rke2-agent.service || return 0
+    local b
+    for b in "$(rke2_bin_dir)/rke2" /usr/local/bin/rke2 /usr/bin/rke2 /opt/rke2/bin/rke2; do
+        if [[ -x "$b" ]]; then
+            "$b" --version 2>/dev/null | awk '/^rke2 version/ {print $3; exit}' || true
+            return 0
+        fi
+    done
+}
+
+# resolve_rke2_version_arg (D3, spec 30): sets RKE2_VERSION_ARG, the RKE2_VERSION that install and join pass to
+# rke2_installer.sh. A version the user set is always passed. When it isn't set:
+#   - join passes none, so rke2 v2.0.0 takes the cluster's version (online) or the bundle's (air-gapped);
+#   - an air-gapped install passes none, so rke2 takes the bundle's version;
+#   - a re-run of install on a node where RKE2 runs passes the running version, so it reconciles instead of
+#     stopping at "already running" when ap-tools' default has moved on;
+#   - a fresh online install, and an online push-only run, pass ap-tools' default.
+resolve_rke2_version_arg () {
+    RKE2_VERSION_ARG=$RKE2_VERSION
+    [[ -n "$user_set_rke2_version" ]] && return 0
+    if [[ $JOIN_MODE -eq 1 || $AIR_GAPPED_MODE == "1" ]]; then
+        RKE2_VERSION_ARG=""
+        echo "  RKE2_VERSION isn't set: rke2_installer.sh takes the $([[ $JOIN_MODE -eq 1 ]] && echo "cluster's" || echo "bundle's") version."
+        return 0
+    fi
+    [[ $INSTALL_MODE -eq 1 ]] || return 0   # push-only: the default version's images, as before
+    local running
+    running=$(running_rke2_version)
+    if [[ -n "$running" ]]; then
+        RKE2_VERSION_ARG=$running
+        if [[ "$running" != "$RKE2_VERSION" ]]; then
+            echo "  RKE2_VERSION isn't set: keeping the running $running (this ap-tools installs $RKE2_VERSION on a new node)."
+            echo "  To move the cluster: ./$SCRIPT_NAME upgrade rke2 <server|agent|both> <version>, one minor version at a time."
+        fi
+    fi
+}
+
 mask_secret () {
     # mask_secret <text> - prints <text> with any occurrence of REG_PASS masked (AP-11),
     # in its raw form, its double-quote-escaped (dq_escape) form, and the single-quoted form (sq) of the generated
@@ -611,9 +652,10 @@ run_install_join_push () {
       run_debug stage_addon_images
     fi
     echo "  Running Kubernetes install in air-gapped mode"
+    resolve_rke2_version_arg
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    RKE2_VERSION=$RKE2_VERSION_ARG CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
@@ -628,8 +670,9 @@ run_install_join_push () {
     ./install_packages.sh online jq zip unzip hostname bc openssl $longhorn_packages
     echo "  Running Kubernetes install with online mode"
     rke2_installer_check
+    resolve_rke2_version_arg
     cd $WORKING_DIR/rke2
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    RKE2_VERSION=$RKE2_VERSION_ARG CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \

@@ -284,10 +284,16 @@ Upgrades RKE2 cluster nodes using the system-upgrade-controller. Only `rke2` is 
 | `server` | Upgrades control-plane nodes only. |
 | `agent` | Upgrades worker nodes only. |
 | `both` | Upgrades all nodes (servers first, then agents). |
-| `stable` | Uses the latest stable RKE2 release channel. |
-| `<version>` | A specific RKE2 version (e.g., `v1.33.4+rke2r1`). |
+| `stable` | Uses the latest stable RKE2 release channel. Refused when that's more than one Kubernetes minor version ahead of the cluster. |
+| `<version>` | A specific RKE2 version (e.g., `v1.35.10+rke2r1`). |
 
 Optional: `-registry` to pull/push upgrade images through a private registry.
+
+Upgrade **one Kubernetes minor version at a time**. rke2-installer v2.0.0 refuses a step that skips one, and names the
+version in between. A cluster built by ap-tools v1.3.0 or earlier runs v1.34.5, so it goes v1.34.5 → v1.35.10 → v1.36.6.
+The move to 1.36 also keeps Traefik off on a single-server cluster. With more than one server, the upgrade stops first
+and prints a `rke2-traefik` line to add to each server's `/etc/rancher/rke2/config.yaml`; add it on every server, then
+run the upgrade again. Upgrading an existing DAP cluster to 1.36 hasn't been tested end to end yet.
 
 #### `push`
 
@@ -411,10 +417,11 @@ The script validates argument combinations at startup. The following table shows
 | `join server <fqdn> <token> -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin 'pass' -tls-san cluster.lab` |
 | `join agent <fqdn> <token>` | `./ap-tools join agent node1.lab K10...` |
 | `join agent <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join agent node1.lab K10... -registry reg.lab:443 admin 'pass'` |
-| `upgrade rke2 server stable` | `./ap-tools upgrade rke2 server stable` |
-| `upgrade rke2 agent <version>` | `./ap-tools upgrade rke2 agent v1.33.4+rke2r1` |
-| `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` |
-| `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin 'pass'` |
+| `upgrade rke2 server <version>` | `./ap-tools upgrade rke2 server v1.35.10+rke2r1` |
+| `upgrade rke2 agent <version>` | `./ap-tools upgrade rke2 agent v1.35.10+rke2r1` |
+| `upgrade rke2 both <version>` | `./ap-tools upgrade rke2 both v1.36.6+rke2r1` |
+| `upgrade rke2 both <version> -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both v1.36.6+rke2r1 -registry reg.lab:443 admin 'pass'` |
+| `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` (only when the cluster is one minor version behind stable) |
 | `offline-prep` | `./ap-tools offline-prep` |
 | `version` | `./ap-tools version` |
 | `uninstall <component>` | `./ap-tools uninstall rke2` |
@@ -713,14 +720,18 @@ sudo ./ap-tools install rke2 push -registry myregistry.lab:443 admin 'password' 
 ### RKE2 Upgrade
 
 ```bash
-# Upgrade all nodes to latest stable version
-sudo ./ap-tools upgrade rke2 both stable
+# One minor version at a time: a cluster on v1.34.5 goes to v1.35.10 first, then v1.36.6
+sudo ./ap-tools upgrade rke2 both v1.35.10+rke2r1
+sudo ./ap-tools upgrade rke2 both v1.36.6+rke2r1
 
 # Upgrade only server (control-plane) nodes to a specific version
-sudo ./ap-tools upgrade rke2 server v1.33.4+rke2r1
+sudo ./ap-tools upgrade rke2 server v1.35.10+rke2r1
 
 # Upgrade agent (worker) nodes using a private registry
-sudo ./ap-tools upgrade rke2 agent stable -registry myregistry.lab:443 admin 'password'
+sudo ./ap-tools upgrade rke2 agent v1.35.10+rke2r1 -registry myregistry.lab:443 admin 'password'
+
+# 'stable' works when the cluster is one minor version behind it (multi-server 1.36 moves: see 'upgrade' above)
+sudo ./ap-tools upgrade rke2 both stable
 ```
 
 ### Cluster Join

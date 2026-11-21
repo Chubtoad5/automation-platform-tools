@@ -432,7 +432,8 @@ Commands:
                  Delegates to rke2_installer.sh. Only supports rke2 at this time.
     [rke2]       Upgrade target. Only 'rke2' is supported.
       [server|agent|both]  Nodes to upgrade: server (control-plane), agent (workers), or both.
-      [stable|<version>]   Target version: 'stable' for latest, or specific version (e.g. v1.33.4+rke2r1).
+      [stable|<version>]   Target version: 'stable' for latest, or specific version (e.g. v1.35.10+rke2r1).
+                           One Kubernetes minor version at a time: 'stable' is refused when it's further ahead.
 
   -registry    : Used with [install rke2], [install ap-bundle], [install ddpc-bundle], [push], and [upgrade rke2] to provide a valid registry and credentials.
     [registry:port username password]

@@ -648,8 +648,8 @@ the stale record.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `VELERO_VERSION` | `v1.18.0` | Velero release version. |
-| `VELERO_AWS_PLUGIN_VERSION` | `v1.14.0` | Velero AWS S3 plugin version. |
+| `VELERO_VERSION` | `v1.18.4` | Velero release version. |
+| `VELERO_AWS_PLUGIN_VERSION` | `v1.14.4` | Velero AWS S3 plugin version. |
 | `VELERO_BUCKET` | `velero` | S3 bucket for backup storage. In a multi-cluster environment set this per cluster (e.g. to match `CLUSTER_NAME`) to avoid backup collision. `install velero` warns if left at the default `velero` while `CLUSTER_NAME` is customised. |
 | `VELERO_S3_URL` | *(empty)* | **Required.** SeaweedFS S3 endpoint (e.g., `https://s3.example.com:8333`). |
 | `VELERO_S3_ACCESS_KEY` | *(empty)* | **Required.** S3 access key for the Velero bucket. |
@@ -666,9 +666,9 @@ the stale record.
 |:---------|:--------|:------------|
 | `MONITORING_HOST` | *(empty)* | **Required for `install monitoring`.** FQDN or IP of the external monitoring host running Prometheus and Loki. |
 | `CLUSTER_NAME` | `edge-lab` | Label attached to all metrics and logs for multi-cluster identification. |
-| `KUBE_PROMETHEUS_STACK_VERSION` | `84.5.0` | kube-prometheus-stack Helm chart version. |
-| `FLUENT_BIT_CHART_VERSION` | `0.57.3` | Fluent Bit Helm chart version (fluent/fluent-bit, `0.x.x` scheme). |
-| `FLUENT_BIT_VERSION` | `5.0.4` | Fluent Bit application/image version. |
+| `KUBE_PROMETHEUS_STACK_VERSION` | `92.22.0` | kube-prometheus-stack Helm chart version. |
+| `FLUENT_BIT_CHART_VERSION` | `0.58.3` | Fluent Bit Helm chart version (fluent/fluent-bit, `0.x.x` scheme). |
+| `FLUENT_BIT_VERSION` | `5.1.5` | Fluent Bit application/image version. |
 | `PROMETHEUS_RETENTION` | `48h` | In-cluster Prometheus data retention (short; long-term storage is on the external host). |
 | `PROMETHEUS_STORAGE_SIZE` | `50Gi` | PVC size for in-cluster Prometheus. |
 | `PROMETHEUS_STORAGE_CLASS` | `longhorn` | StorageClass for Prometheus PVCs. |
@@ -685,8 +685,8 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 
 | Variable | Default | Sub-tool |
 |:---------|:--------|:---------|
-| `RKE2_INSTALLER_REF` | `v2.0.0` | `rke2_installer.sh` |
-| `HARBOR_INSTALLER_REF` | `v1.4.0` | `install_harbor.sh` |
+| `RKE2_INSTALLER_REF` | `v2.1.0` | `rke2_installer.sh` |
+| `HARBOR_INSTALLER_REF` | `v1.5.0` | `install_harbor.sh` |
 | `SWFS_INSTALLER_REF` | `v1.4.0` | `install-seaweedfs` |
 | `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |
 | `IMAGE_PULL_PUSH_REF` | `v1.2.0` | `image_pull_push.sh` |
@@ -820,6 +820,18 @@ Before running, set `MONITORING_HOST` in the script to the FQDN or IP of the ext
 ```bash
 sudo ./ap-tools install monitoring
 ```
+
+**Air-gapped, on a cluster built by an older ap-tools:** the monitoring chart's webhook image comes from `ghcr.io`, and
+only a new node's `/etc/rancher/rke2/registries.yaml` mirrors `ghcr.io` to your registry. Before the first
+`install monitoring`, re-run `install rke2` (or `join`) once on each node with the same registry and
+`RKE2_RECONFIGURE=true`, which rewrites the file and restarts RKE2 on that node:
+
+```bash
+sudo RKE2_RECONFIGURE=true ./ap-tools install rke2 -registry <host:port> <username> <password>
+```
+
+Without it, kube-prometheus-stack's admission-webhook job stays in `ImagePullBackOff` and the install fails. The
+registry needs the `jkroepke` project, which `install harbor` creates.
 
 ### Dell Automation Platform Bundle
 
@@ -1224,14 +1236,12 @@ When using a private registry, all required container images must exist on the r
 | `e2e-test-images` | registry.k8s.io | DNS utility (when `INSTALL_DNS_UTILITY=true`) |
 | `library` | docker.io | Local Path Provisioner (when `INSTALL_LOCAL_PATH_PROVISIONER=true`) |
 | `velero` | docker.io | Velero backup |
-| `grafana` | docker.io | Grafana and Loki (SeaweedFS monitoring), Grafana (RKE2 monitoring) |
+| `grafana` | docker.io | Grafana and Loki (SeaweedFS monitoring) |
 | `prom` | docker.io | Prometheus (SeaweedFS monitoring) |
 | `prometheus` | quay.io | Prometheus, node-exporter, Alertmanager (RKE2 monitoring) |
 | `prometheus-operator` | quay.io | Prometheus Operator and its config reloader |
 | `kube-state-metrics` | registry.k8s.io | kube-state-metrics |
 | `jkroepke` | ghcr.io | The monitoring chart's webhook certgen (kube-prometheus-stack 84 and later) |
-| `bats` | docker.io | Helm test images |
-| `kiwigrid` | quay.io | Grafana's sidecar |
 | `fluent` | cr.fluentbit.io | Fluent Bit |
 | `$REGISTRY_PROJECT_NAME` | AP bundle | Dell Automation Platform images |
 

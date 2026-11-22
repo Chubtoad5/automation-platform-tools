@@ -21,6 +21,21 @@ refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0
   refuses `stable` when it's two minor versions ahead, and a multi-server move to 1.36 asks for a `rke2-traefik`
   line on each server first.
 - **The manual install guide** moves to RKE2 1.36.6, DAP 2.1.1.3 and DDPC 4.4.0.0, and disables `rke2-traefik` (D5).
+- **rke2-installer v2.1.0 and harbor-registry-installer v1.5.0** (Amendment A, Q19). v2.1.0 brings spec 31's add-on
+  fixes: air-gapped `install monitoring` can pull its webhook image from `ghcr.io` (new nodes' `registries.yaml` mirror
+  it) and its bundle holds the config-reloader and the Fluent Bit tag that runs; `install velero` with a custom
+  `KUBELET_DATA`, Velero and monitoring upgrades on re-run, Fluent Bit under SELinux, single-node Cilium, and an
+  air-gapped `upgrade rke2` that checks for `rke2-runtime` first. On a cluster without Longhorn
+  (`INSTALL_LOCAL_PATH_PROVISIONER=true`), local-path makes `local` volumes and Velero backs their data up with its
+  node-agent; before, a restore brought those PVCs back empty.
+- **Add-on versions move to rke2-installer v2.1.0's** (D10, Q15): Velero v1.18.4 with velero-plugin-for-aws v1.14.4
+  (were v1.18.0 and v1.14.0), kube-prometheus-stack 92.22.0 (was 84.5.0), fluent-bit chart 0.58.3 with Fluent Bit
+  5.1.5 (were 0.57.3 and 5.0.4). A re-run of `install monitoring` or `install velero` upgrades an existing cluster.
+- **`PROJECTS` drops `kiwigrid` and `bats`** (D11, Q16), which v2.1.0's monitoring list no longer has (Grafana is off
+  in the cluster). The deploy-dell-ap skill's project list now matches `PROJECTS` (D12): it gains `jkroepke` and
+  drops `ingress-nginx`.
+- **README: air-gapped `install monitoring` on a cluster built by an older ap-tools** needs one re-run of
+  `install rke2 -registry …` with `RKE2_RECONFIGURE=true` on each node first, for the `ghcr.io` mirror (D13, Q17).
 - **The README's sub-tool pin table and `inputs.env.example`** list the real pins (D8); they still named v1.3.x.
 - **The air-gap bundle's notices** name Traefik (MIT), which RKE2 1.36's images carry (D7).
 

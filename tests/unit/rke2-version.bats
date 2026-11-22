@@ -11,9 +11,9 @@ setup() {
 }
 running() { eval "running_rke2_version() { echo '$1'; }"; }
 
-@test "the default is v1.36.6, and the pin is rke2-installer v2.0.0" {
+@test "the default is v1.36.6, and the pin is rke2-installer v2.1.0" {
   run env -u RKE2_VERSION -u RKE2_INSTALLER_REF -u rke2_feature_branch bash -c 'source "$1" >/dev/null 2>&1; echo "$RKE2_VERSION $RKE2_INSTALLER_REF"' _ "$BATS_TEST_DIRNAME/../../ap-tools"
-  [ "$output" = "v1.36.6+rke2r1 v2.0.0" ]
+  [ "$output" = "v1.36.6+rke2r1 v2.1.0" ]
 }
 @test "RKE2_VERSION from the environment or inputs.env counts as set; empty or absent doesn't" {
   run env RKE2_VERSION=v1.35.10+rke2r1 bash -c 'source "$1" >/dev/null 2>&1; echo "[$user_set_rke2_version]"' _ "$BATS_TEST_DIRNAME/../../ap-tools"

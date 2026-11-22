@@ -36,6 +36,15 @@ refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0
   drops `ingress-nginx`.
 - **README: air-gapped `install monitoring` on a cluster built by an older ap-tools** needs one re-run of
   `install rke2 -registry …` with `RKE2_RECONFIGURE=true` on each node first, for the `ghcr.io` mirror (D13, Q17).
+- **DAP on local-path storage, single node only** (Amendment B, Q21, Q22). With `INSTALL_LOCAL_PATH_PROVISIONER=true`,
+  `join` and `install rke2` with `CLUSTER_TYPE=multi-node` are refused before anything changes, and `install ap-bundle`
+  refuses a cluster of more than one node whose default class is local-path (R4): a local-path volume stays on the
+  node that made it, so a lost node took its pods' data with it, with no warning. The README's new "Local-path
+  storage" section covers `PVC_DATA` on its own disk (local-path has no disk guard, R5), `uninstall rke2` removing a
+  custom `PVC_DATA`, and Velero's file-system backup (D15).
+- **`install monitoring` on a cluster without a `longhorn` class** puts Prometheus on the cluster's default class when
+  `PROMETHEUS_STORAGE_CLASS` is unset (D14). It used to pass `longhorn` and get rke2-installer's "StorageClass
+  'longhorn' not found" warning before the same fallback. A class you set is still passed as it is.
 - **The README's sub-tool pin table and `inputs.env.example`** list the real pins (D8); they still named v1.3.x.
 - **The air-gap bundle's notices** name Traefik (MIT), which RKE2 1.36's images carry (D7).
 

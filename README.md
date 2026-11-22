@@ -538,7 +538,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `CLUSTER_CIDR` | `10.42.0.0/16` | Pod CIDR range. |
 | `SERVICE_CIDR` | `10.43.0.0/16` | Service CIDR range. |
 | `INSTALL_DNS_UTILITY` | `true` | Deploy the `dnsutils` pod in the default namespace for DNS troubleshooting. |
-| `INSTALL_LOCAL_PATH_PROVISIONER` | `false` | When `true`, uses Local Path Provisioner instead of Longhorn. |
+| `INSTALL_LOCAL_PATH_PROVISIONER` | `false` | When `true`, uses Local Path Provisioner instead of Longhorn. Single node only: see [Local-path storage](#local-path-storage-single-node-only). |
 | `LOCAL_PATH_PROVISIONER_VERSION` | `v0.0.35` | Local Path Provisioner version (only relevant when enabled). |
 | `LONGHORN_VERSION` | `1.11.1` | Longhorn Helm chart version. |
 | `LONGHORN_UI_PORT` | `31000` | NodePort for the Longhorn UI. |
@@ -551,7 +551,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `RKE2_RECONFIGURE` | `false` | Forwarded to `rke2_installer.sh`: set `true` to let `install rke2`/`join` apply a **changed** config to an already-running node (service restart). With unchanged config, re-runs reconcile as a no-op. |
 | `RKE2_DATA` | `default` | Custom path for etcd, containerd, and RKE2 data. Set to a valid local path or leave as `default`. |
 | `KUBELET_DATA` | `default` | Custom path for kubelet data. |
-| `PVC_DATA` | `default` | Custom path for Longhorn PVC storage. |
+| `PVC_DATA` | `default` | Custom path for PVC storage (Longhorn's data path, or local-path's folder; `default` is `/opt/local-path-provisioner` for local-path). |
 
 **The HAProxy ingress passes TLS through.** ap-tools sets `ssl-passthrough: "true"` for every Ingress on it, which Dell
 Automation Platform needs: its Ingresses carry no annotation of their own, and their nginx gateways end TLS themselves.
@@ -671,7 +671,7 @@ the stale record.
 | `FLUENT_BIT_VERSION` | `5.1.5` | Fluent Bit application/image version. |
 | `PROMETHEUS_RETENTION` | `48h` | In-cluster Prometheus data retention (short; long-term storage is on the external host). |
 | `PROMETHEUS_STORAGE_SIZE` | `50Gi` | PVC size for in-cluster Prometheus. |
-| `PROMETHEUS_STORAGE_CLASS` | `longhorn` | StorageClass for Prometheus PVCs. |
+| `PROMETHEUS_STORAGE_CLASS` | `longhorn` | StorageClass for Prometheus PVCs. Left unset on a cluster with no `longhorn` class, Prometheus uses the cluster's default class. |
 | `MONITOR_CONFIGS_DIR` | *(empty)* | Optional path to a directory of custom ServiceMonitor YAML files. |
 | `MONITORING_LOKI_PORT` | `3100` | Loki HTTP port on the monitoring host. |
 | `MONITORING_PROMETHEUS_PORT` | `9090` | Prometheus remote-write receiver port on the monitoring host. |
@@ -1299,6 +1299,29 @@ Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set 
 ### Storage — multipathd
 
 `multipathd` claims Longhorn's iSCSI `sd*` block devices via device-mapper and breaks every CSI mount (`exit status 32` / `Can't open blockdev`, pods stuck in `Init:`). The node preparation step disables and masks `multipathd` and writes an `sd*` blacklist drop-in at `/etc/multipath/conf.d/99-ap-tools.conf` on every node (a pre-existing site `/etc/multipath.conf` is preserved untouched) so the protection persists even if a package update re-enables it. Prior enablement is recorded in `/var/lib/ap-tools/state.env` and restored by `uninstall rke2`. On these nodes the OS root disk is NVMe, so excluding all `sd*` devices is safe. No manual action is required for new deployments.
+
+### Local-path storage (single node only)
+
+With `INSTALL_LOCAL_PATH_PROVISIONER=true`, `install rke2` installs Rancher's Local Path Provisioner as the default
+StorageClass instead of Longhorn, and skips Longhorn's packages and `iscsid`. DAP needs only a default StorageClass,
+and all of its volumes are `ReadWriteOnce`, which local-path serves. Each volume is a folder (`local` volume) on the
+node's disk. Before you choose it:
+
+- **Single node only.** A local-path volume stays on the node that made it. If that node is lost, its pods can't
+  start anywhere else, and their data is gone with it. ap-tools refuses `join` and `install rke2` with
+  `CLUSTER_TYPE=multi-node` when `INSTALL_LOCAL_PATH_PROVISIONER=true`, and `install ap-bundle` refuses a cluster of
+  more than one node whose default class is local-path. For more than one node, use Longhorn.
+- **Put `PVC_DATA` on its own disk.** Local-path doesn't enforce PVC sizes, and nothing stops a volume filling the
+  disk (Longhorn keeps 5 to 10 % free). By default the volumes sit in `/opt/local-path-provisioner`, on the same disk
+  whose 850 GB DAP counts as ephemeral storage. When that disk fills, the node goes into `DiskPressure`, evicts pods,
+  and DAP goes down. A separate disk mounted at, say, `/data` with `PVC_DATA=/data` keeps DAP's data apart.
+- **`uninstall rke2` deletes the volumes.** With a custom `PVC_DATA`, rke2-installer removes that folder, and DAP's
+  data with it. Back up first.
+- **Velero copies files, not snapshots.** Without Longhorn's CSI driver, `install velero` backs volumes up with
+  Velero's node-agent (file-system backup), file by file while the pods keep running. Databases copied this way may
+  not restore cleanly; see the release notes for what was tested.
+- **`install monitoring`** puts Prometheus on the cluster's default class when you leave `PROMETHEUS_STORAGE_CLASS`
+  unset.
 
 ### Co-location Constraints
 

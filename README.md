@@ -1224,15 +1224,15 @@ When using a private registry, all required container images must exist on the r
 | `e2e-test-images` | registry.k8s.io | DNS utility (when `INSTALL_DNS_UTILITY=true`) |
 | `library` | docker.io | Local Path Provisioner (when `INSTALL_LOCAL_PATH_PROVISIONER=true`) |
 | `velero` | docker.io | Velero backup |
-| `grafana` | docker.io | Grafana (monitoring stack) |
-| `prom` | docker.io | Prometheus components |
-| `prometheus` | quay.io | Prometheus Operator |
-| `prometheus-operator` | quay.io | Prometheus Operator |
+| `grafana` | docker.io | Grafana and Loki (SeaweedFS monitoring), Grafana (RKE2 monitoring) |
+| `prom` | docker.io | Prometheus (SeaweedFS monitoring) |
+| `prometheus` | quay.io | Prometheus, node-exporter, Alertmanager (RKE2 monitoring) |
+| `prometheus-operator` | quay.io | Prometheus Operator and its config reloader |
 | `kube-state-metrics` | registry.k8s.io | kube-state-metrics |
-| `ingress-nginx` | registry.k8s.io | Ingress NGINX (monitoring) |
+| `jkroepke` | ghcr.io | The monitoring chart's webhook certgen (kube-prometheus-stack 84 and later) |
 | `bats` | docker.io | Helm test images |
-| `kiwigrid` | quay.io | Sidecar containers |
-| `fluent` | docker.io | Fluent Bit |
+| `kiwigrid` | quay.io | Grafana's sidecar |
+| `fluent` | cr.fluentbit.io | Fluent Bit |
 | `$REGISTRY_PROJECT_NAME` | AP bundle | Dell Automation Platform images |
 
 ---

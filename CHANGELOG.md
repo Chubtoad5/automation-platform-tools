@@ -29,6 +29,9 @@ refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0
 - A2 checks there's no Traefik on 1.36 and nothing but HAProxy on host ports 80 and 443; A5's re-run over the last
   release keeps the running Kubernetes version (D6).
 
+### Fixed
+- **`install harbor` creates the `jkroepke` project, and no longer `ingress-nginx`** (spec 31). kube-prometheus-stack 84.5.0, ap-tools' pin, takes its webhook certgen from `ghcr.io/jkroepke`, so an air-gapped monitoring push into ap-tools' own Harbor failed on that image (`Failed to push image … Skipping`); the chart's pre-84 image lived in `ingress-nginx`, which nothing ap-tools pushes uses now. `PROJECTS` lists only the projects ap-tools pushes to. The README's project table is corrected to match.
+
 ## v1.3.0 — 2026-11-12 — Any complex password works everywhere
 
 Spec 21 (chubtoad-automation). The DAP run uses a registry password with every symbol (spec 21, Q12).

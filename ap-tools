@@ -123,7 +123,12 @@ LOCATION="${LOCATION:-EDGE}"
 ORGANIZATION="${ORGANIZATION:-LAB}"
 HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-$(svc_fqdn registry)}"  # Default registry.$HOST_FQDN, or HOST_FQDN itself on a host named 'registry.'
 DURATION_DAYS="${DURATION_DAYS:-730}"   # Harbor server certificate; Harbor caps it at 730 (Apple rejects over 825), its CA keeps 3650
-PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
+# The projects ap-tools pushes to with its own pins: DAP and DDPC ($REGISTRY_PROJECT_NAME), SeaweedFS (chrislusf, library,
+# grafana, prom), RKE2 and its add-ons (rancher, e2e-test-images, library, velero, fluent, prometheus, prometheus-operator,
+# kube-state-metrics, jkroepke, and from rke2-installer v2.0.0's monitoring list grafana, kiwigrid, bats), HAProxy,
+# Longhorn and MetalLB (haproxytech, longhornio, metallb, frrouting). jkroepke: kube-prometheus-stack 84.5.0's webhook
+# certgen comes from ghcr.io/jkroepke (spec 31); ingress-nginx held that image before 84, so it is no longer needed.
+PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator jkroepke kube-state-metrics fluent}"
 
 # SeaweedFS Configuration
 # Empty = install-seaweedfs's own pinned images, so online installs, 'offline-prep' (which saves

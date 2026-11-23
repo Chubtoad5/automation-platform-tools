@@ -42,6 +42,13 @@ refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0
   node that made it, so a lost node took its pods' data with it, with no warning. The README's new "Local-path
   storage" section covers `PVC_DATA` on its own disk (local-path has no disk guard, R5), `uninstall rke2` removing a
   custom `PVC_DATA`, and Velero's file-system backup (D15).
+- **README: restoring a DAP namespace with Velero.** A plain namespace restore of `dell-portal` came back without its
+  data: DAP's cluster-wide sidecar webhook (`failurePolicy: Fail`) outlives the namespace and refuses the pods Velero
+  creates. The new section gives a three-step restore, webhook first, which spec 30's DAP runs passed on local-path and
+  on Longhorn (data back, the administrator's post-install password working). It also says how to free the two
+  `dsp-secrets-service` pods a local-path restore can leave in `Init` (Velero's helper and `runAsNonRoot`).
+- **README: on SELinux hosts, a local-path volume locks the old pod out during a rolling update** (spec 30, T2 on
+  Rocky 10.3): the new pod relabels the folder, and the old one gets `Permission denied` until it stops.
 - **`install monitoring` on a cluster without a `longhorn` class** puts Prometheus on the cluster's default class when
   `PROMETHEUS_STORAGE_CLASS` is unset (D14). It used to pass `longhorn` and get rke2-installer's "StorageClass
   'longhorn' not found" warning before the same fallback. A class you set is still passed as it is.

@@ -813,6 +813,32 @@ Before running, set `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, and `VELERO_S3_SECR
 sudo ./ap-tools install velero
 ```
 
+#### Restoring a DAP namespace
+
+A plain `velero restore create --from-backup <backup> --include-namespaces dell-portal` after the namespace is gone
+brings DAP back **without its data**. DAP installs a cluster-wide mutating webhook (`dell-portal-hzp-iam-sidecar-injector`,
+`failurePolicy: Fail`) whose server runs inside `dell-portal`. It outlives the namespace, so it rejects every pod Velero
+creates (`failed calling webhook "hzp-iam-webhook.injector.dell-portal"`). The Deployments and StatefulSets then make
+their pods themselves, on new empty volumes, and PostgreSQL starts an empty database. `dell-orchestrator` has the same
+webhook. Restore in three steps instead, webhook first:
+
+```bash
+V="velero --kubeconfig /etc/rancher/rke2/rke2.yaml"; B=<backup>; NS=dell-portal
+$V restore create r1-$B --from-backup $B --include-namespaces $NS \
+   --include-resources secrets,configmaps,serviceaccounts,roles.rbac.authorization.k8s.io,rolebindings.rbac.authorization.k8s.io --wait
+$V restore create r2-$B --from-backup $B --include-namespaces $NS --selector hzp-app=hzp-iam-webhook --wait
+kubectl -n $NS rollout status deploy/hzp-iam-webhook
+$V restore create r3-$B --from-backup $B --include-namespaces $NS
+```
+
+Deleting `dell-portal` takes about 5 minutes: `dsp-secrets-service` has a 300-second grace period.
+
+**On local-path (file-system backups)**, two `dsp-secrets-service` pods can stop in `Init:CreateContainerConfigError`:
+Velero's `restore-wait` helper runs as a non-numeric user, and the pod requires `runAsNonRoot`. The volumes they wait
+for are only their `logging` `emptyDir`, so delete those two pods and their ReplicaSet starts them normally. The
+restore itself then stays `InProgress` until Velero's timeout. Spec 30's T1 restored `dell-portal` this way, with its
+PostgreSQL, vault and OpenSearch data, and the administrator's post-install password still working.
+
 ### Monitoring Stack
 
 Before running, set `MONITORING_HOST` in the script to the FQDN or IP of the external Prometheus/Loki host.
@@ -1318,8 +1344,9 @@ node's disk. Before you choose it:
 - **`uninstall rke2` deletes the volumes.** With a custom `PVC_DATA`, rke2-installer removes that folder, and DAP's
   data with it. Back up first.
 - **Velero copies files, not snapshots.** Without Longhorn's CSI driver, `install velero` backs volumes up with
-  Velero's node-agent (file-system backup), file by file while the pods keep running. Databases copied this way may
-  not restore cleanly; see the release notes for what was tested.
+  Velero's node-agent (file-system backup), file by file while the pods keep running. Spec 30's T1 restored
+  `dell-portal` from such a backup with its databases working; restore it as
+  [Restoring a DAP namespace](#restoring-a-dap-namespace) says.
 - **`install monitoring`** puts Prometheus on the cluster's default class when you leave `PROMETHEUS_STORAGE_CLASS`
   unset.
 - **With SELinux enforcing (Rocky, RHEL), a rolling update locks the old pod out of its volume.** Each pod that

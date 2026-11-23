@@ -1322,6 +1322,14 @@ node's disk. Before you choose it:
   not restore cleanly; see the release notes for what was tested.
 - **`install monitoring`** puts Prometheus on the cluster's default class when you leave `PROMETHEUS_STORAGE_CLASS`
   unset.
+- **With SELinux enforcing (Rocky, RHEL), a rolling update locks the old pod out of its volume.** Each pod that
+  mounts a local-path volume relabels its folder with that pod's own SELinux categories. During a rolling update the new
+  pod starts beside the old one on the same volume, and from then on the old pod gets `Permission denied` on its data
+  until it stops. SELinux logs no denial for it. The new pod works. In DAP, `hzp-product-svc` (which holds
+  `hzp-shared-pvc` and `hzp-ese-pvc`) rolls one pod at a time, but its new pod still starts while the old one is shutting
+  down (about 30 seconds in spec 30's run), so on these hosts the old pod's last writes as it stops can fail. A workload
+  that surges keeps the old pod locked out until the new one is ready. Ubuntu (AppArmor) is not affected. Leap 16
+  also enforces SELinux by default and is likely affected, but wasn't tested. Checked on Rocky 10.3 (spec 30, T2).
 
 ### Co-location Constraints
 

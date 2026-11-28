@@ -34,7 +34,7 @@ the job.
 - Identity: organization name and description; admin first name, last name, username, email.
 - Mode: online or air-gapped.
 - Optional Dell Distributed Private Cloud (DDPC) add-on: whether the user wants it; bundle source (pinned
-  4.3.0.0 / URL / pre-staged zip); registry for its images (`-registry …` or reuse the orchestrator's
+  4.4.0.0 / URL / pre-staged zip); registry for its images (`-registry …` or reuse the orchestrator's
   `docker-secret`); whether its images are already in the registry (`DDPC_SKIP_IMAGES_LOADER=true`).
 - Confirmation of sizing + supported OS: single-node 18 vCPU / 36 GB RAM / 850 GB+ disk (1 TB preferred);
   multi-node 16 vCPU / **≥ 20 GB RAM per node (3-node)** / 850 GB+ disk per node (16 GB/node wedges the

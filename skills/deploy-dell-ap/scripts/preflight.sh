@@ -30,7 +30,7 @@ MIN_RAM_GB=36          # single-node floor. The bundle pre-check measures ALLOCA
 MIN_RAM_GB_MULTI=20    # per-node floor for a 3-node cluster (16 GB/node wedges the Orchestrator install).
 RAM_TOLERANCE_GB=2     # a VM "allocated" N GiB presents MemTotal a bit under N (firmware/kernel reserve);
                        # accept mem >= floor - tolerance so a real 20 GB node (shows ~19) passes while 16 still fails.
-# 850 GB, raised from 500: DAP 2.1.1.0's own pre_install_check enforces REQUIRED_DISK_SPACE=850Gi against each
+# 850 GB, raised from 500: DAP 2.1.1.0's (and 2.1.1.3's) own pre_install_check enforces REQUIRED_DISK_SPACE=850Gi against each
 # node's ALLOCATABLE ephemeral-storage. Allocatable is always below the raw filesystem size, so a host with
 # exactly 850 GB free can still fail Dell's gate - 1 TB is the safe provisioning target. A 500 GB host used to
 # pass this script and then fail Dell's check partway through the install.
@@ -42,7 +42,7 @@ RAM_EXPLICIT=0
 SKIP_DNS=0
 SKIP_RES=0
 DDPC=0
-DDPC_DAP_VERSION="2.1.1.0"     # DAP orchestrator app version the DDPC 4.3.0.0 bundle pairs with (exact match)
+DDPC_DAP_VERSION="2.1.1.3"     # DAP orchestrator app version the DDPC 4.4.0.0 bundle pairs with (exact match)
 DDPC_NS="dell-orchestrator"
 DDPC_PORTAL_NS="dell-portal"
 DDPC_MIN_CPU_HEADROOM=2        # unrequested cores; mirrors ap-tools DDPC_REQUIRED_CPU_HEADROOM

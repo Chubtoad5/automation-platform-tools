@@ -8,11 +8,11 @@ everywhere.
 
 | Resource | Minimum | Notes |
 |:--|:--|:--|
-| CPU | **18 vCPU** | DAP 2.1.1.0's own floor is `12000m`; 18 is the supported spec. |
+| CPU | **18 vCPU** | DAP 2.1.1.3's own floor is `12000m` (as 2.1.1.0's); 18 is the supported spec. |
 | RAM (single-node) | **36 GB** | Provision 36, not 34. RKE2 + platform services reserve ~2 GB, and the DAP bundle's pre-flight measures *Kubernetes-allocatable* capacity — `ap-tools` gates on **34 GB allocatable**, which a 36 GB host satisfies and a 34 GB host does not. |
 | RAM (multi-node, per node) | **≥ 20 GB** for a 3-node cluster | The platform footprint requests **~46 GB cluster-wide**. **16 GB/node is insufficient** — a 16 GB × 3 cluster saturates to 90-99% memory and the Orchestrator install wedges mid-convergence (services can't pass liveness). 20 GB/node (validated) leaves ~84% headroom and converges cleanly. Fewer than 3 nodes need more per node. |
 | All-in-one single-node | **20 vCPU / 40 GB / 1 TB** | Only when co-locating a local Harbor + SeaweedFS with RKE2/DAP on one host. The extra CPU/RAM covers the registry + storage services; the larger disk holds the locally-pushed image set (`SKIP_IMAGES_LOADER=false`). |
-| Disk | **850 GB SSD** | **1 TB strongly recommended.** DAP 2.1.1.0 enforces `REQUIRED_DISK_SPACE=850Gi` against each node's *allocatable ephemeral-storage*, which sits below the raw filesystem size — so a host with exactly 850 GB will not reliably pass. Applies **per node**, multi-node included (Longhorn also replicates volumes across nodes). |
+| Disk | **850 GB SSD** | **1 TB strongly recommended.** DAP 2.1.1.3 enforces `REQUIRED_DISK_SPACE=850Gi` against each node's *allocatable ephemeral-storage*, which sits below the raw filesystem size — so a host with exactly 850 GB will not reliably pass. Applies **per node**, multi-node included (Longhorn also replicates volumes across nodes). |
 
 > **Provisioning the floor:** a host provisioned at *exactly* the RAM floor reports slightly less than
 > allocated (firmware/kernel reserve) — a "20 GB" node shows ~19 GiB, a "36 GB" node ~35 GiB. That is

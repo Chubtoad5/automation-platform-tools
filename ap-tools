@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.3.0"
+SCRIPT_VERSION="2.0.0"
 
 # --- OPTIONAL INPUTS FILE (inputs.env) --- #
 # If an inputs file exists it is sourced BEFORE the defaults below. The file itself
@@ -41,6 +41,10 @@ user_set_harbor_version="${HARBOR_VERSION+x}"
 user_set_purge_data="${PURGE_DATA+x}"
 user_set_swfs_remove_images="${SWFS_REMOVE_IMAGES+x}"
 user_set_dns_remove_dotnet="${DNS_REMOVE_DOTNET+x}"
+# D3 (spec 30): an empty RKE2_VERSION counts as unset, as it does in rke2_installer.sh v2.0.0
+user_set_rke2_version="${RKE2_VERSION:+x}"
+# D14 (spec 30): an unset PROMETHEUS_STORAGE_CLASS follows the cluster when there's no 'longhorn' class
+user_set_prometheus_sc="${PROMETHEUS_STORAGE_CLASS:+x}"
 
 # --- USER DEFINED CONFIGURATION VARIABLES --- #
 # Every variable in this section is override-friendly (VAR="${VAR:-default}"): set it
@@ -74,7 +78,7 @@ SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and
 AP_ASSUME_YES="${AP_ASSUME_YES:-false}"                # true = skip the typed 'yes-destroy' confirmation on destructive 'uninstall' commands (for automation)
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14962193M/1/Dell_Automation_Platform_Linux_2.1.1.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir. NOTE: the dl.dell.com FOLDER path changes per release - replace the whole URL, not just the version.
+AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/protected/drivers/FOLDER15269935M/1/Dell_Automation_Platform_Linux_2.1.1.3.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir. NOTE: the dl.dell.com FOLDER path changes per release - replace the whole URL, not just the version.
 DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
 IMAGE_LOADER_THREAD_COUNT="${IMAGE_LOADER_THREAD_COUNT:-5}"  # parallel image-push threads for install-upgrade.sh (DAP default 5, max 20). The image push dominates install time; raise it to shorten that phase.
@@ -99,9 +103,9 @@ EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 # REGISTRY_CERT_FILE_PATH, SKIP_IMAGES_LOADER, IMAGE_LOADER_PARALLEL_JOBS, INSTALL_TYPE,
 # INSTALL_TIMEOUT (unknown keys are rejected), plus the env-only knobs
 # IMAGE_LOADER_MAX_RETRIES and LOG_LEVEL. Every one of them is exposed below.
-DDPC_BUNDLE_URL="${DDPC_BUNDLE_URL:-https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip}"  # DDPC bundle URL, or a pre-staged .zip filename in ap-install/. The dl.dell.com FOLDER path changes per release - replace the whole URL.
+DDPC_BUNDLE_URL="${DDPC_BUNDLE_URL:-https://dl.dell.com/FOLDER15248433M/1/dell-distributed-private-cloud_4.4.0.0.zip}"  # DDPC bundle URL, or a pre-staged .zip filename in ap-install/. The dl.dell.com FOLDER path changes per release - replace the whole URL.
 DOWNLOAD_DDPC_BUNDLE="${DOWNLOAD_DDPC_BUNDLE:-false}"    # Include the (~6GB) DDPC bundle in 'offline-prep'
-DDPC_REQUIRED_DAP_VERSION="${DDPC_REQUIRED_DAP_VERSION:-2.1.1.0}"  # DAP orchestrator app version DDPC must sit on top of (exact match against the deployed helm release; 'any' disables the gate)
+DDPC_REQUIRED_DAP_VERSION="${DDPC_REQUIRED_DAP_VERSION:-2.1.1.3}"  # DAP orchestrator app version DDPC must sit on top of (4.4.0.0 ships with DAP 2.1.1.3; its bundle names no version itself) (exact match against the deployed helm release; 'any' disables the gate)
 DDPC_SKIP_IMAGES_LOADER="${DDPC_SKIP_IMAGES_LOADER:-$SKIP_IMAGES_LOADER}"  # true = the DDPC images are already in the registry; skip the push (defaults to SKIP_IMAGES_LOADER)
 DDPC_IMAGE_LOADER_PARALLEL_JOBS="${DDPC_IMAGE_LOADER_PARALLEL_JOBS:-5}"  # parallel image pushes in the DDPC image loader (IMAGE_LOADER_PARALLEL_JOBS, Dell default 5)
 DDPC_IMAGE_LOADER_MAX_RETRIES="${DDPC_IMAGE_LOADER_MAX_RETRIES:-3}"  # per-image push retries (env-only IMAGE_LOADER_MAX_RETRIES, Dell default 3)
@@ -121,7 +125,13 @@ LOCATION="${LOCATION:-EDGE}"
 ORGANIZATION="${ORGANIZATION:-LAB}"
 HARBOR_COMMON_NAME="${HARBOR_COMMON_NAME:-$(svc_fqdn registry)}"  # Default registry.$HOST_FQDN, or HOST_FQDN itself on a host named 'registry.'
 DURATION_DAYS="${DURATION_DAYS:-730}"   # Harbor server certificate; Harbor caps it at 730 (Apple rejects over 825), its CA keeps 3650
-PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom bats kiwigrid prometheus prometheus-operator ingress-nginx kube-state-metrics fluent}"
+# The projects ap-tools pushes to with its own pins: DAP and DDPC ($REGISTRY_PROJECT_NAME), SeaweedFS (chrislusf, library,
+# grafana, prom), RKE2 and its add-ons (rancher, e2e-test-images, library, velero, fluent, prometheus, prometheus-operator,
+# kube-state-metrics, jkroepke), HAProxy, Longhorn and MetalLB (haproxytech, longhornio, metallb, frrouting).
+# jkroepke: kube-prometheus-stack's webhook certgen comes from ghcr.io/jkroepke since 84 (spec 31); ingress-nginx held it
+# before. rke2-installer v2.1.0 renders the chart with Grafana off, so its sidecar (kiwigrid) and test image (bats) are
+# no longer pushed; grafana stays for SeaweedFS (spec 30, D11).
+PROJECTS="${PROJECTS:-$REGISTRY_PROJECT_NAME chrislusf e2e-test-images library frrouting haproxytech longhornio metallb rancher velero grafana prom prometheus prometheus-operator jkroepke kube-state-metrics fluent}"
 
 # SeaweedFS Configuration
 # Empty = install-seaweedfs's own pinned images, so online installs, 'offline-prep' (which saves
@@ -192,8 +202,8 @@ DNS_FDO_RV_IP="${DNS_FDO_RV_IP:-}"                              # IP for rv.dell
 DNS_EXTRA_RECORDS="${DNS_EXTRA_RECORDS:-}"                      # Extra A records "name=ip,name=ip": a FQDN under DNS_ZONE, a bare label, or '*.label' (deeper relative names must be FQDNs); repeat a name for round-robin
 
 # Velero Backup Configuration
-VELERO_VERSION=${VELERO_VERSION:-"v1.18.0"}
-VELERO_AWS_PLUGIN_VERSION=${VELERO_AWS_PLUGIN_VERSION:-"v1.14.0"}
+VELERO_VERSION=${VELERO_VERSION:-"v1.18.4"}
+VELERO_AWS_PLUGIN_VERSION=${VELERO_AWS_PLUGIN_VERSION:-"v1.14.4"}
 VELERO_BUCKET=${VELERO_BUCKET:-"velero"}
 VELERO_S3_URL=${VELERO_S3_URL:-""}                     # SeaweedFS S3 endpoint for Velero backups, i.e: https://s3.example.com:8333
 VELERO_S3_ACCESS_KEY=${VELERO_S3_ACCESS_KEY:-""}       # SeaweedFS S3 access key
@@ -207,9 +217,9 @@ VELERO_BACKUP_NAMESPACES=${VELERO_BACKUP_NAMESPACES:-"dell-portal,dell-orchestra
 # Monitoring Configuration
 MONITORING_HOST=${MONITORING_HOST:-""}
 CLUSTER_NAME=${CLUSTER_NAME:-"edge-lab"}               # Cluster label for metrics and logs
-KUBE_PROMETHEUS_STACK_VERSION="${KUBE_PROMETHEUS_STACK_VERSION:-84.5.0}"  # kube-prometheus-stack Helm chart version
-FLUENT_BIT_CHART_VERSION="${FLUENT_BIT_CHART_VERSION:-0.57.3}"  # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
-FLUENT_BIT_VERSION="${FLUENT_BIT_VERSION:-5.0.4}"     # Fluent Bit application/image version (appVersion in the chart above)
+KUBE_PROMETHEUS_STACK_VERSION="${KUBE_PROMETHEUS_STACK_VERSION:-92.22.0}"  # kube-prometheus-stack Helm chart version
+FLUENT_BIT_CHART_VERSION="${FLUENT_BIT_CHART_VERSION:-0.58.3}"  # Fluent Bit Helm chart version (fluent/fluent-bit, uses 0.x.x versioning)
+FLUENT_BIT_VERSION="${FLUENT_BIT_VERSION:-5.1.5}"     # Fluent Bit application/image version (appVersion in the chart above)
 PROMETHEUS_RETENTION="${PROMETHEUS_RETENTION:-48h}"   # In-cluster Prometheus retention (short; long-term on external host)
 PROMETHEUS_STORAGE_SIZE="${PROMETHEUS_STORAGE_SIZE:-50Gi}"  # PVC size for in-cluster Prometheus
 PROMETHEUS_STORAGE_CLASS="${PROMETHEUS_STORAGE_CLASS:-longhorn}"  # StorageClass for Prometheus PVCs
@@ -220,7 +230,7 @@ MONITOR_EXCLUDE_NS="${MONITOR_EXCLUDE_NS:-kube-system kube-public kube-node-leas
 MONITOR_PORT_NAMES="${MONITOR_PORT_NAMES:-manager metrics http-metrics prometheus prom stat metrics-port}"     # Port names to include in ServiceMonitor auto-discovery
 
 # RKE2 Kubernetes Configuration
-RKE2_VERSION="${RKE2_VERSION:-v1.34.5+rke2r1}"
+RKE2_VERSION="${RKE2_VERSION:-v1.36.6+rke2r1}"  # v2.0.0 (spec 30): Kubernetes 1.36; v1.3.0 and earlier used v1.34.5+rke2r1
 CLUSTER_TYPE="${CLUSTER_TYPE:-single-node}"
 MAX_PODS="${MAX_PODS:-250}"
 CNI_TYPE="${CNI_TYPE:-calico}"
@@ -325,7 +335,7 @@ ap_jq_qty_defs='
       elif test("T$") then (sub("T$"; "") | tonumber) * 1000
       else (tonumber / 1073741824) end;'
 # Cluster resource gates, measured against ALLOCATABLE resources (not provisioned) after the
-# cluster is up. Aligned to DAP 2.1.1.0, whose own pre_install_check enforces
+# cluster is up. Aligned to DAP 2.1.1.0 and 2.1.1.3, whose own pre_install_check enforces
 # REQUIRED_CPU=12000m / REQUIRED_MEMORY=24Gi / REQUIRED_DISK_SPACE=850Gi against each node's
 # allocatable ephemeral-storage. We keep CPU/memory above Dell's floor as the supported spec.
 REQUIRED_CPU=18
@@ -333,7 +343,7 @@ REQUIRED_CPU=18
 # so a correctly-provisioned 36 GB node reports ~35 GB allocatable. Same 2 GB relationship the
 # previous 34-provisioned / 32-allocatable pair used.
 REQUIRED_MEM_GB=34
-# 850 GB matches DAP 2.1.1.0's ephemeral-storage gate exactly. A 500 GB host used to pass here
+# 850 GB matches DAP 2.1.1.0's and 2.1.1.3's ephemeral-storage gate exactly. A 500 GB host used to pass here
 # and then fail Dell's own check mid-install.
 REQUIRED_STORAGE_GB=850
 kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs_pkb_en_US_1.zip"
@@ -341,8 +351,8 @@ kb_000216838_file="https://supportkb.dell.com/attachment/ka0Do000000iqQzIAI/logs
 # Each ap-tools release fetches the sub-tool releases it was tested with, never main. A *_feature_branch (test flows)
 # wins over the pin, and an explicit *_REF wins over both. A vX.Y.Z tag or a full commit is cached; a branch is fetched
 # again on every online run. Air-gapped, the copies in ap-offline.tar.gz are used and nothing is fetched.
-RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v1.4.0}}"
-HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.4.0}}"
+RKE2_INSTALLER_REF="${RKE2_INSTALLER_REF:-${rke2_feature_branch:-v2.1.0}}"
+HARBOR_INSTALLER_REF="${HARBOR_INSTALLER_REF:-${harbor_feature_branch:-v1.5.0}}"
 SWFS_INSTALLER_REF="${SWFS_INSTALLER_REF:-${swfs_feature_branch:-v1.4.0}}"
 DNS_INSTALLER_REF="${DNS_INSTALLER_REF:-${dns_feature_branch:-v1.3.0}}"
 IMAGE_PULL_PUSH_REF="${IMAGE_PULL_PUSH_REF:-v1.2.0}"
@@ -430,7 +440,8 @@ Commands:
                  Delegates to rke2_installer.sh. Only supports rke2 at this time.
     [rke2]       Upgrade target. Only 'rke2' is supported.
       [server|agent|both]  Nodes to upgrade: server (control-plane), agent (workers), or both.
-      [stable|<version>]   Target version: 'stable' for latest, or specific version (e.g. v1.33.4+rke2r1).
+      [stable|<version>]   Target version: 'stable' for latest, or specific version (e.g. v1.35.10+rke2r1).
+                           One Kubernetes minor version at a time: 'stable' is refused when it's further ahead.
 
   -registry    : Used with [install rke2], [install ap-bundle], [install ddpc-bundle], [push], and [upgrade rke2] to provide a valid registry and credentials.
     [registry:port username password]
@@ -487,6 +498,45 @@ rke2_bin_dir () {
     [[ -z "$d" || "$d" == "default" ]] && d=/var/lib/rancher/rke2
     while [[ "$d" == */ && "$d" != / ]]; do d=${d%/}; done
     printf '%s/bin' "$d"
+}
+
+# running_rke2_version: the version of RKE2 running on this node, or nothing when no rke2 service is active.
+running_rke2_version () {
+    systemctl is-active --quiet rke2-server.service || systemctl is-active --quiet rke2-agent.service || return 0
+    local b
+    for b in "$(rke2_bin_dir)/rke2" /usr/local/bin/rke2 /usr/bin/rke2 /opt/rke2/bin/rke2; do
+        if [[ -x "$b" ]]; then
+            "$b" --version 2>/dev/null | awk '/^rke2 version/ {print $3; exit}' || true
+            return 0
+        fi
+    done
+}
+
+# resolve_rke2_version_arg (D3, spec 30): sets RKE2_VERSION_ARG, the RKE2_VERSION that install and join pass to
+# rke2_installer.sh. A version the user set is always passed. When it isn't set:
+#   - join passes none, so rke2 v2.0.0 takes the cluster's version (online) or the bundle's (air-gapped);
+#   - an air-gapped install passes none, so rke2 takes the bundle's version;
+#   - a re-run of install on a node where RKE2 runs passes the running version, so it reconciles instead of
+#     stopping at "already running" when ap-tools' default has moved on;
+#   - a fresh online install, and an online push-only run, pass ap-tools' default.
+resolve_rke2_version_arg () {
+    RKE2_VERSION_ARG=$RKE2_VERSION
+    [[ -n "$user_set_rke2_version" ]] && return 0
+    if [[ $JOIN_MODE -eq 1 || $AIR_GAPPED_MODE == "1" ]]; then
+        RKE2_VERSION_ARG=""
+        echo "  RKE2_VERSION isn't set: rke2_installer.sh takes the $([[ $JOIN_MODE -eq 1 ]] && echo "cluster's" || echo "bundle's") version."
+        return 0
+    fi
+    [[ $INSTALL_MODE -eq 1 ]] || return 0   # push-only: the default version's images, as before
+    local running
+    running=$(running_rke2_version)
+    if [[ -n "$running" ]]; then
+        RKE2_VERSION_ARG=$running
+        if [[ "$running" != "$RKE2_VERSION" ]]; then
+            echo "  RKE2_VERSION isn't set: keeping the running $running (this ap-tools installs $RKE2_VERSION on a new node)."
+            echo "  To move the cluster: ./$SCRIPT_NAME upgrade rke2 <server|agent|both> <version>, one minor version at a time."
+        fi
+    fi
 }
 
 mask_secret () {
@@ -611,9 +661,10 @@ run_install_join_push () {
       run_debug stage_addon_images
     fi
     echo "  Running Kubernetes install in air-gapped mode"
+    resolve_rke2_version_arg
     cd $WORKING_DIR/rke2
     tar xzf rke2-save.tar.gz
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    RKE2_VERSION=$RKE2_VERSION_ARG CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
@@ -628,8 +679,9 @@ run_install_join_push () {
     ./install_packages.sh online jq zip unzip hostname bc openssl $longhorn_packages
     echo "  Running Kubernetes install with online mode"
     rke2_installer_check
+    resolve_rke2_version_arg
     cd $WORKING_DIR/rke2
-    RKE2_VERSION=$RKE2_VERSION CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
+    RKE2_VERSION=$RKE2_VERSION_ARG CNI_TYPE=$CNI_TYPE ENABLE_CIS=$ENABLE_CIS CLUSTER_CIDR=$CLUSTER_CIDR \
     SERVICE_CIDR=$SERVICE_CIDR MAX_PODS=$MAX_PODS INSTALL_INGRESS=$INSTALL_INGRESS INSTALL_SERVICELB=$INSTALL_SERVICELB \
     INSTALL_LOCAL_PATH_PROVISIONER=$INSTALL_LOCAL_PATH_PROVISIONER LOCAL_PATH_PROVISIONER_VERSION=$LOCAL_PATH_PROVISIONER_VERSION \
     INSTALL_DNS_UTILITY=$INSTALL_DNS_UTILITY MGMT_IP=$MGMT_IP RKE2_DATA=$RKE2_DATA KUBELET_DATA=$KUBELET_DATA \
@@ -959,12 +1011,72 @@ run_install_velero () {
   cd $base_dir
 }
 
+# ap_kubectl: kubectl on this node's cluster, from PATH or rke2's bin directory.
+ap_kubectl () {
+  local k
+  k=$(command -v kubectl 2>/dev/null || true)
+  [[ -n "$k" ]] || k="$(rke2_bin_dir)/kubectl"
+  KUBECONFIG="${KUBECONFIG:-/etc/rancher/rke2/rke2.yaml}" "$k" "$@"
+}
+
+# The cluster's default StorageClass: its name, or its provisioner with 'provisioner'. Empty when there's none.
+default_storage_class () {
+  local field='{.metadata.name}'
+  [[ "${1:-}" == "provisioner" ]] && field='{.provisioner}'
+  ap_kubectl get storageclass -o jsonpath="{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class==\"true\")]}$field{\"\n\"}{end}" 2>/dev/null | head -n1
+}
+
+resolve_prometheus_storage_class () {
+  # D14 (spec 30): on a local-path cluster there's no 'longhorn' class. Unless you chose a class, Prometheus gets the
+  # cluster's default, without rke2-installer's "StorageClass 'longhorn' not found" warning.
+  [[ -z "$user_set_prometheus_sc" && "$PROMETHEUS_STORAGE_CLASS" == "longhorn" ]] || return 0
+  ap_kubectl get storageclass longhorn >/dev/null 2>&1 && return 0
+  local sc
+  sc=$(default_storage_class)
+  [[ -n "$sc" ]] || return 0
+  echo "  No 'longhorn' StorageClass: Prometheus uses the cluster's default, '$sc'. Set PROMETHEUS_STORAGE_CLASS to choose another."
+  PROMETHEUS_STORAGE_CLASS=$sc
+}
+
+local_path_single_node_check () {
+  # R4 (spec 30, Q21): a local-path volume lives on the node that made it, so a lost node takes its pods' data with it.
+  # ap-tools runs local-path on a single node only: 'install rke2' with CLUSTER_TYPE=multi-node and 'join' are refused.
+  [[ "$INSTALL_LOCAL_PATH_PROVISIONER" != "false" ]] || return 0
+  local what=""
+  if [[ "$JOIN_MODE" == "1" ]]; then
+    what="'join'"
+  elif [[ "$INSTALL_MODE" == "1" && "$INSTALL_TYPE" == "rke2" && "$CLUSTER_TYPE" == "multi-node" ]]; then
+    what="'install rke2' with CLUSTER_TYPE=multi-node"
+  fi
+  [[ -n "$what" ]] || return 0
+  echo "Error: $what can't be used with INSTALL_LOCAL_PATH_PROVISIONER=true. Nothing has been changed."
+  echo "  ap-tools supports local-path storage on a single node only: a local-path volume stays on the node that"
+  echo "  made it, so if that node is lost, its pods can't start elsewhere and their data is gone."
+  echo "  For more than one node, leave INSTALL_LOCAL_PATH_PROVISIONER=false (Longhorn keeps replicas on other nodes)."
+  exit 1
+}
+
+local_path_cluster_check () {
+  # R4 (spec 30, Q21): 'install ap-bundle' refuses a cluster of more than one node whose default class is local-path,
+  # which a 'join' run without INSTALL_LOCAL_PATH_PROVISIONER=true can still build.
+  local provisioner nodes
+  provisioner=$(default_storage_class provisioner)
+  [[ "$provisioner" == "rancher.io/local-path" ]] || return 0
+  nodes=$(ap_kubectl get nodes --no-headers 2>/dev/null | wc -l)
+  [[ "$nodes" -gt 1 ]] || return 0
+  echo "Error: this cluster has $nodes nodes, and its default StorageClass is local-path. Nothing has been changed."
+  echo "  ap-tools supports DAP on local-path on a single node only: each volume stays on the node that made it,"
+  echo "  so a lost node takes its DAP pods' data with it. Use Longhorn (INSTALL_LOCAL_PATH_PROVISIONER=false) for more than one node."
+  exit 1
+}
+
 run_install_monitoring () {
   rke2_installer_check
   if [[ -z "$MONITORING_HOST" ]]; then
     echo "Error: 'install monitoring' command requires a valid server fqdn/ip from the swfs host."
     exit 1
   fi
+  resolve_prometheus_storage_class
   cd $WORKING_DIR/rke2
   echo "  Installing monitoring stack in RKE2 cluster via rke2_installer.sh..."
   MONITORING_HOST=$MONITORING_HOST \
@@ -2730,7 +2842,8 @@ generate_bundle_licenses () {
         echo "images into your registry. Notable licenses among the bundled images:"
         echo ""
         echo "  RKE2 + add-ons, Longhorn, Velero, fluent, ingress-nginx, metallb,"
-        echo "  kube-state-metrics, prometheus-operator ........ Apache-2.0"
+        echo "  kube-state-metrics, prometheus-operator ........ Apache-2.0        (RKE2 1.36+ bundles carry no ingress-nginx)"
+        echo "  Traefik (RKE2's built-in ingress from 1.36, in its core images; ap-tools keeps it disabled) ... MIT"
         echo "  Grafana ........................................ AGPL-3.0          (see WRITTEN_OFFER.txt)"
         echo "  HAProxy (within haproxytech ingress image v${HAPROXY_APP_VERSION}) GPL-2.0-or-later (see WRITTEN_OFFER.txt)"
         echo ""
@@ -3844,6 +3957,9 @@ if [[ "$UPGRADE_MODE" == "1" ]]; then
     fi
 fi
 
+# R4 (spec 30, Q21): local-path storage on a single node only
+local_path_single_node_check
+
 # Verify REGISTRY_MODE is an FQDN/IP and port
 if [[ "$REGISTRY_MODE" == "1" ]]; then
     if [[ "$REGISTRY_INFO" =~ ^https?:// ]]; then
@@ -3927,6 +4043,7 @@ if [[ $INSTALL_TYPE == "ap-bundle" ]]; then
   fi
   firewalld_selinux_preflight
   ensure_bundle_prereqs
+  local_path_cluster_check
   ap_preflight_checks
   ap_bundle_prep
 fi

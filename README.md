@@ -46,7 +46,7 @@ meets:
 |:--|:--|
 | CPU | **18 vCPU** |
 | RAM | **36 GB** — the `install ap-bundle` pre-flight measures **allocatable** memory and requires **34 GB**; RKE2 + the OS reserve ~2 GB, so provision 36 GB. A host provisioned with exactly 34 GB fails the check. |
-| Disk | **1 TB SSD minimum.** DAP 2.1.1.0 enforces **850 GB of allocatable *ephemeral-storage*** on every node. Allocatable is always below the raw filesystem size, so a host with exactly 850 GB will not reliably pass — 1 TB is the safe target. |
+| Disk | **1 TB SSD minimum.** DAP 2.1.1.3 (like 2.1.1.0) enforces **850 GB of allocatable *ephemeral-storage*** on every node. Allocatable is always below the raw filesystem size, so a host with exactly 850 GB will not reliably pass — 1 TB is the safe target. |
 | OS | Ubuntu 22.04+, RHEL 9.2+, or SLES 15 SP7 (x86_64) |
 | Network | A **static IP** (or DHCP reservation) |
 | Hostname | Lowercase letters, numbers, and hyphens only (DNS-1123) |
@@ -269,6 +269,12 @@ Installs a component and its dependencies. When `ap-offline.tar.gz` is present, 
 
 Creates `ap-offline.tar.gz` containing all binaries, container images, Helm charts, OS packages and the Technitium DNS Server bundle for a fully disconnected installation. Cannot be combined with `install`, `push`, or `join`. Requires an active internet connection (including `download.technitium.com` and `dot.net` for the DNS bundle, which is always included).
 
+**For a cluster that already runs.** The bundle's RKE2 is `RKE2_VERSION` at the time of `offline-prep`, v1.36.6 by
+default, and an air-gapped node can install only that version. To re-run `install rke2` on, or join a node to, a
+cluster on another version (v1.34.5 for clusters built by ap-tools v1.3.0 or earlier), build the bundle with that
+version: `sudo RKE2_VERSION=v1.34.5+rke2r1 ./ap-tools offline-prep`. With the default bundle, rke2-installer refuses
+before it changes anything.
+
 #### `version`
 
 Prints the `ap-tools` version and the release of each sub-tool it fetches, plus the releases an extracted
@@ -284,10 +290,16 @@ Upgrades RKE2 cluster nodes using the system-upgrade-controller. Only `rke2` is 
 | `server` | Upgrades control-plane nodes only. |
 | `agent` | Upgrades worker nodes only. |
 | `both` | Upgrades all nodes (servers first, then agents). |
-| `stable` | Uses the latest stable RKE2 release channel. |
-| `<version>` | A specific RKE2 version (e.g., `v1.33.4+rke2r1`). |
+| `stable` | Uses the latest stable RKE2 release channel. Refused when that's more than one Kubernetes minor version ahead of the cluster. |
+| `<version>` | A specific RKE2 version (e.g., `v1.35.10+rke2r1`). |
 
 Optional: `-registry` to pull/push upgrade images through a private registry.
+
+Upgrade **one Kubernetes minor version at a time**. rke2-installer v2.0.0 refuses a step that skips one, and names the
+version in between. A cluster built by ap-tools v1.3.0 or earlier runs v1.34.5, so it goes v1.34.5 → v1.35.10 → v1.36.6.
+The move to 1.36 also keeps Traefik off on a single-server cluster. With more than one server, the upgrade stops first
+and prints a `rke2-traefik` line to add to each server's `/etc/rancher/rke2/config.yaml`; add it on every server, then
+run the upgrade again. Upgrading an existing DAP cluster to 1.36 hasn't been tested end to end yet.
 
 #### `push`
 
@@ -411,10 +423,11 @@ The script validates argument combinations at startup. The following table shows
 | `join server <fqdn> <token> -registry <r> <u> <p> -tls-san <fqdn>` | `./ap-tools join server node1.lab K10... -registry reg.lab:443 admin 'pass' -tls-san cluster.lab` |
 | `join agent <fqdn> <token>` | `./ap-tools join agent node1.lab K10...` |
 | `join agent <fqdn> <token> -registry <r> <u> <p>` | `./ap-tools join agent node1.lab K10... -registry reg.lab:443 admin 'pass'` |
-| `upgrade rke2 server stable` | `./ap-tools upgrade rke2 server stable` |
-| `upgrade rke2 agent <version>` | `./ap-tools upgrade rke2 agent v1.33.4+rke2r1` |
-| `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` |
-| `upgrade rke2 both stable -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both stable -registry reg.lab:443 admin 'pass'` |
+| `upgrade rke2 server <version>` | `./ap-tools upgrade rke2 server v1.35.10+rke2r1` |
+| `upgrade rke2 agent <version>` | `./ap-tools upgrade rke2 agent v1.35.10+rke2r1` |
+| `upgrade rke2 both <version>` | `./ap-tools upgrade rke2 both v1.36.6+rke2r1` |
+| `upgrade rke2 both <version> -registry <r> <u> <p>` | `./ap-tools upgrade rke2 both v1.36.6+rke2r1 -registry reg.lab:443 admin 'pass'` |
+| `upgrade rke2 both stable` | `./ap-tools upgrade rke2 both stable` (only when the cluster is one minor version behind stable) |
 | `offline-prep` | `./ap-tools offline-prep` |
 | `version` | `./ap-tools version` |
 | `uninstall <component>` | `./ap-tools uninstall rke2` |
@@ -471,7 +484,7 @@ to the problem, and the rest fell back to the defaults, `changeme` among them.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.0**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
+| `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.3**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
 | `DOWNLOAD_AP_BUNDLE` | `false` | When `true`, the bundle is downloaded during `offline-prep` or `install rke2`. |
 | `AP_FORCE_ONLINE` | `false` | When `true`, a run goes online even though `ap-install/` holds an extracted offline bundle and `ap-offline.tar.gz` isn't beside `ap-tools`. Without it, such a run stops. |
 | `SKIP_IMAGES_LOADER` | `false` | When `true`, skips pushing AP images to the registry during `install-upgrade.sh`. |
@@ -501,9 +514,9 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `DDPC_BUNDLE_URL` | Dell download URL (**v4.3.0.0**) | URL to the DDPC add-on bundle `.zip` (~6 GB). Set to a local filename if the bundle was placed manually into `ap-install/`. As with `AP_BUNDLE_URL`, the `dl.dell.com` `FOLDER…` path changes with every release — replace the whole URL. |
+| `DDPC_BUNDLE_URL` | Dell download URL (**v4.4.0.0**) | URL to the DDPC add-on bundle `.zip` (~6 GB). Set to a local filename if the bundle was placed manually into `ap-install/`. As with `AP_BUNDLE_URL`, the `dl.dell.com` `FOLDER…` path changes with every release — replace the whole URL. |
 | `DOWNLOAD_DDPC_BUNDLE` | `false` | When `true`, the DDPC bundle is included in `offline-prep` (`ap-offline.tar.gz`). |
-| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.0` | DAP orchestrator app version the DDPC bundle must be installed on top of. The pre-flight compares it **exactly** against the deployed `native-edge-orchestrator` helm release and aborts on a mismatch. Override for a different pairing, or set `any` to disable the gate. |
+| `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.3` | DAP orchestrator app version the DDPC bundle must be installed on top of. DDPC 4.4.0.0 ships with DAP 2.1.1.3; the bundle itself names no version. The pre-flight compares it **exactly** against the deployed `native-edge-orchestrator` helm release and aborts on a mismatch. Override for a different pairing, or set `any` to disable the gate. |
 | `DDPC_SKIP_IMAGES_LOADER` | `$SKIP_IMAGES_LOADER` | `true` if the 19 DDPC images are already in the registry (skips the push). Defaults to whatever `SKIP_IMAGES_LOADER` is. |
 | `DDPC_IMAGE_LOADER_PARALLEL_JOBS` | `5` | Parallel image pushes in the DDPC image loader (`IMAGE_LOADER_PARALLEL_JOBS`). |
 | `DDPC_IMAGE_LOADER_MAX_RETRIES` | `3` | Per-image push retries (`IMAGE_LOADER_MAX_RETRIES`, env-only in Dell's script — emitted as an `env` prefix in the generated command). |
@@ -518,14 +531,14 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `RKE2_VERSION` | `v1.34.5+rke2r1` | RKE2 release to install. |
+| `RKE2_VERSION` | `v1.36.6+rke2r1` | RKE2 release to install. When it isn't set, a re-run of `install rke2` keeps the version already running, and `join` takes the cluster's version (or the air-gap bundle's). v1.3.0 and earlier defaulted to `v1.34.5+rke2r1`. |
 | `CLUSTER_TYPE` | `single-node` | Set to `multi-node` when planning to join additional nodes (adjusts Longhorn replica count). |
 | `MAX_PODS` | `250` | Maximum pods per node. |
 | `CNI_TYPE` | `calico` | CNI plugin (`calico` or `canal`). |
 | `CLUSTER_CIDR` | `10.42.0.0/16` | Pod CIDR range. |
 | `SERVICE_CIDR` | `10.43.0.0/16` | Service CIDR range. |
 | `INSTALL_DNS_UTILITY` | `true` | Deploy the `dnsutils` pod in the default namespace for DNS troubleshooting. |
-| `INSTALL_LOCAL_PATH_PROVISIONER` | `false` | When `true`, uses Local Path Provisioner instead of Longhorn. |
+| `INSTALL_LOCAL_PATH_PROVISIONER` | `false` | When `true`, uses Local Path Provisioner instead of Longhorn. Single node only: see [Local-path storage](#local-path-storage-single-node-only). |
 | `LOCAL_PATH_PROVISIONER_VERSION` | `v0.0.35` | Local Path Provisioner version (only relevant when enabled). |
 | `LONGHORN_VERSION` | `1.11.1` | Longhorn Helm chart version. |
 | `LONGHORN_UI_PORT` | `31000` | NodePort for the Longhorn UI. |
@@ -538,7 +551,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 | `RKE2_RECONFIGURE` | `false` | Forwarded to `rke2_installer.sh`: set `true` to let `install rke2`/`join` apply a **changed** config to an already-running node (service restart). With unchanged config, re-runs reconcile as a no-op. |
 | `RKE2_DATA` | `default` | Custom path for etcd, containerd, and RKE2 data. Set to a valid local path or leave as `default`. |
 | `KUBELET_DATA` | `default` | Custom path for kubelet data. |
-| `PVC_DATA` | `default` | Custom path for Longhorn PVC storage. |
+| `PVC_DATA` | `default` | Custom path for PVC storage (Longhorn's data path, or local-path's folder; `default` is `/opt/local-path-provisioner` for local-path). |
 
 **The HAProxy ingress passes TLS through.** ap-tools sets `ssl-passthrough: "true"` for every Ingress on it, which Dell
 Automation Platform needs: its Ingresses carry no annotation of their own, and their nginx gateways end TLS themselves.
@@ -635,8 +648,8 @@ the stale record.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `VELERO_VERSION` | `v1.18.0` | Velero release version. |
-| `VELERO_AWS_PLUGIN_VERSION` | `v1.14.0` | Velero AWS S3 plugin version. |
+| `VELERO_VERSION` | `v1.18.4` | Velero release version. |
+| `VELERO_AWS_PLUGIN_VERSION` | `v1.14.4` | Velero AWS S3 plugin version. |
 | `VELERO_BUCKET` | `velero` | S3 bucket for backup storage. In a multi-cluster environment set this per cluster (e.g. to match `CLUSTER_NAME`) to avoid backup collision. `install velero` warns if left at the default `velero` while `CLUSTER_NAME` is customised. |
 | `VELERO_S3_URL` | *(empty)* | **Required.** SeaweedFS S3 endpoint (e.g., `https://s3.example.com:8333`). |
 | `VELERO_S3_ACCESS_KEY` | *(empty)* | **Required.** S3 access key for the Velero bucket. |
@@ -653,12 +666,12 @@ the stale record.
 |:---------|:--------|:------------|
 | `MONITORING_HOST` | *(empty)* | **Required for `install monitoring`.** FQDN or IP of the external monitoring host running Prometheus and Loki. |
 | `CLUSTER_NAME` | `edge-lab` | Label attached to all metrics and logs for multi-cluster identification. |
-| `KUBE_PROMETHEUS_STACK_VERSION` | `84.5.0` | kube-prometheus-stack Helm chart version. |
-| `FLUENT_BIT_CHART_VERSION` | `0.57.3` | Fluent Bit Helm chart version (fluent/fluent-bit, `0.x.x` scheme). |
-| `FLUENT_BIT_VERSION` | `5.0.4` | Fluent Bit application/image version. |
+| `KUBE_PROMETHEUS_STACK_VERSION` | `92.22.0` | kube-prometheus-stack Helm chart version. |
+| `FLUENT_BIT_CHART_VERSION` | `0.58.3` | Fluent Bit Helm chart version (fluent/fluent-bit, `0.x.x` scheme). |
+| `FLUENT_BIT_VERSION` | `5.1.5` | Fluent Bit application/image version. |
 | `PROMETHEUS_RETENTION` | `48h` | In-cluster Prometheus data retention (short; long-term storage is on the external host). |
 | `PROMETHEUS_STORAGE_SIZE` | `50Gi` | PVC size for in-cluster Prometheus. |
-| `PROMETHEUS_STORAGE_CLASS` | `longhorn` | StorageClass for Prometheus PVCs. |
+| `PROMETHEUS_STORAGE_CLASS` | `longhorn` | StorageClass for Prometheus PVCs. Left unset on a cluster with no `longhorn` class, Prometheus uses the cluster's default class. |
 | `MONITOR_CONFIGS_DIR` | *(empty)* | Optional path to a directory of custom ServiceMonitor YAML files. |
 | `MONITORING_LOKI_PORT` | `3100` | Loki HTTP port on the monitoring host. |
 | `MONITORING_PROMETHEUS_PORT` | `9090` | Prometheus remote-write receiver port on the monitoring host. |
@@ -672,11 +685,11 @@ reaches `ap-tools` users only with a new `ap-tools` release. `./ap-tools version
 
 | Variable | Default | Sub-tool |
 |:---------|:--------|:---------|
-| `RKE2_INSTALLER_REF` | `v1.3.1` | `rke2_installer.sh` |
-| `HARBOR_INSTALLER_REF` | `v1.3.0` | `install_harbor.sh` |
-| `SWFS_INSTALLER_REF` | `v1.3.0` | `install-seaweedfs` |
+| `RKE2_INSTALLER_REF` | `v2.1.0` | `rke2_installer.sh` |
+| `HARBOR_INSTALLER_REF` | `v1.5.0` | `install_harbor.sh` |
+| `SWFS_INSTALLER_REF` | `v1.4.0` | `install-seaweedfs` |
 | `DNS_INSTALLER_REF` | `v1.3.0` | `technitium_dns_installer.sh` |
-| `IMAGE_PULL_PUSH_REF` | `v1.1.2` | `image_pull_push.sh` |
+| `IMAGE_PULL_PUSH_REF` | `v1.2.0` | `image_pull_push.sh` |
 | `INSTALL_PACKAGES_REF` | `v1.1.3` | `install_packages.sh` |
 
 - **Each takes a tag, a branch or a commit.** `rke2_feature_branch`, `harbor_feature_branch`, `swfs_feature_branch`
@@ -713,14 +726,18 @@ sudo ./ap-tools install rke2 push -registry myregistry.lab:443 admin 'password' 
 ### RKE2 Upgrade
 
 ```bash
-# Upgrade all nodes to latest stable version
-sudo ./ap-tools upgrade rke2 both stable
+# One minor version at a time: a cluster on v1.34.5 goes to v1.35.10 first, then v1.36.6
+sudo ./ap-tools upgrade rke2 both v1.35.10+rke2r1
+sudo ./ap-tools upgrade rke2 both v1.36.6+rke2r1
 
 # Upgrade only server (control-plane) nodes to a specific version
-sudo ./ap-tools upgrade rke2 server v1.33.4+rke2r1
+sudo ./ap-tools upgrade rke2 server v1.35.10+rke2r1
 
 # Upgrade agent (worker) nodes using a private registry
-sudo ./ap-tools upgrade rke2 agent stable -registry myregistry.lab:443 admin 'password'
+sudo ./ap-tools upgrade rke2 agent v1.35.10+rke2r1 -registry myregistry.lab:443 admin 'password'
+
+# 'stable' works when the cluster is one minor version behind it (multi-server 1.36 moves: see 'upgrade' above)
+sudo ./ap-tools upgrade rke2 both stable
 ```
 
 ### Cluster Join
@@ -796,6 +813,32 @@ Before running, set `VELERO_S3_URL`, `VELERO_S3_ACCESS_KEY`, and `VELERO_S3_SECR
 sudo ./ap-tools install velero
 ```
 
+#### Restoring a DAP namespace
+
+A plain `velero restore create --from-backup <backup> --include-namespaces dell-portal` after the namespace is gone
+brings DAP back **without its data**. DAP installs a cluster-wide mutating webhook (`dell-portal-hzp-iam-sidecar-injector`,
+`failurePolicy: Fail`) whose server runs inside `dell-portal`. It outlives the namespace, so it rejects every pod Velero
+creates (`failed calling webhook "hzp-iam-webhook.injector.dell-portal"`). The Deployments and StatefulSets then make
+their pods themselves, on new empty volumes, and PostgreSQL starts an empty database. `dell-orchestrator` has the same
+webhook. Restore in three steps instead, webhook first:
+
+```bash
+V="velero --kubeconfig /etc/rancher/rke2/rke2.yaml"; B=<backup>; NS=dell-portal
+$V restore create r1-$B --from-backup $B --include-namespaces $NS \
+   --include-resources secrets,configmaps,serviceaccounts,roles.rbac.authorization.k8s.io,rolebindings.rbac.authorization.k8s.io --wait
+$V restore create r2-$B --from-backup $B --include-namespaces $NS --selector hzp-app=hzp-iam-webhook --wait
+kubectl -n $NS rollout status deploy/hzp-iam-webhook
+$V restore create r3-$B --from-backup $B --include-namespaces $NS
+```
+
+Deleting `dell-portal` takes about 5 minutes: `dsp-secrets-service` has a 300-second grace period.
+
+**On local-path (file-system backups)**, two `dsp-secrets-service` pods can stop in `Init:CreateContainerConfigError`:
+Velero's `restore-wait` helper runs as a non-numeric user, and the pod requires `runAsNonRoot`. The volumes they wait
+for are only their `logging` `emptyDir`, so delete those two pods and their ReplicaSet starts them normally. The
+restore itself then stays `InProgress` until Velero's timeout. Spec 30's T1 restored `dell-portal` this way, with its
+PostgreSQL, vault and OpenSearch data, and the administrator's post-install password still working.
+
 ### Monitoring Stack
 
 Before running, set `MONITORING_HOST` in the script to the FQDN or IP of the external Prometheus/Loki host.
@@ -803,6 +846,18 @@ Before running, set `MONITORING_HOST` in the script to the FQDN or IP of the ext
 ```bash
 sudo ./ap-tools install monitoring
 ```
+
+**Air-gapped, on a cluster built by an older ap-tools:** the monitoring chart's webhook image comes from `ghcr.io`, and
+only a new node's `/etc/rancher/rke2/registries.yaml` mirrors `ghcr.io` to your registry. Before the first
+`install monitoring`, re-run `install rke2` (or `join`) once on each node with the same registry and
+`RKE2_RECONFIGURE=true`, which rewrites the file and restarts RKE2 on that node:
+
+```bash
+sudo RKE2_RECONFIGURE=true ./ap-tools install rke2 -registry <host:port> <username> <password>
+```
+
+Without it, kube-prometheus-stack's admission-webhook job stays in `ImagePullBackOff` and the install fails. The
+registry needs the `jkroepke` project, which `install harbor` creates.
 
 ### Dell Automation Platform Bundle
 
@@ -903,11 +958,11 @@ Resource checks are performed against Kubernetes allocatable capacity (`kubectl 
 > **Storage caution for multi-node.** `ap-tools` sums allocatable capacity across the cluster, but DAP's own
 > `pre_install_check` applies its **850 GB ephemeral-storage requirement to every node individually**. A 3-node
 > cluster of 500 GB nodes therefore passes the `ap-tools` gate and still fails Dell's. The per-node figures above
-> predate DAP 2.1.1.0 and have not been re-validated against it — size multi-node nodes for 850 GB allocatable
+> predate DAP 2.1.1.x and have not been re-validated against it — size multi-node nodes for 850 GB allocatable
 > ephemeral-storage each until they are.
 
-> **DAP version note.** These figures target **DAP 2.1.1.0**, the version pinned in `AP_BUNDLE_URL`. Requirements
-> move between releases — 2.1.1.0's own floor is `12000m` CPU / `24Gi` memory / `850Gi` ephemeral-storage, i.e.
+> **DAP version note.** These figures target **DAP 2.1.1.3**, the version pinned in `AP_BUNDLE_URL`. Requirements
+> move between releases — 2.1.1.3's own floor (unchanged from 2.1.1.0) is `12000m` CPU / `24Gi` memory / `850Gi` ephemeral-storage, i.e.
 > *less* RAM but far more storage than 2.0.0.0. The values above stay above Dell's floor as the supported spec.
 
 #### SeaweedFS host
@@ -1207,15 +1262,13 @@ When using a private registry, all required container images must exist on the r
 | `e2e-test-images` | registry.k8s.io | DNS utility (when `INSTALL_DNS_UTILITY=true`) |
 | `library` | docker.io | Local Path Provisioner (when `INSTALL_LOCAL_PATH_PROVISIONER=true`) |
 | `velero` | docker.io | Velero backup |
-| `grafana` | docker.io | Grafana (monitoring stack) |
-| `prom` | docker.io | Prometheus components |
-| `prometheus` | quay.io | Prometheus Operator |
-| `prometheus-operator` | quay.io | Prometheus Operator |
+| `grafana` | docker.io | Grafana and Loki (SeaweedFS monitoring) |
+| `prom` | docker.io | Prometheus (SeaweedFS monitoring) |
+| `prometheus` | quay.io | Prometheus, node-exporter, Alertmanager (RKE2 monitoring) |
+| `prometheus-operator` | quay.io | Prometheus Operator and its config reloader |
 | `kube-state-metrics` | registry.k8s.io | kube-state-metrics |
-| `ingress-nginx` | registry.k8s.io | Ingress NGINX (monitoring) |
-| `bats` | docker.io | Helm test images |
-| `kiwigrid` | quay.io | Sidecar containers |
-| `fluent` | docker.io | Fluent Bit |
+| `jkroepke` | ghcr.io | The monitoring chart's webhook certgen (kube-prometheus-stack 84 and later) |
+| `fluent` | cr.fluentbit.io | Fluent Bit |
 | `$REGISTRY_PROJECT_NAME` | AP bundle | Dell Automation Platform images |
 
 ---
@@ -1272,6 +1325,38 @@ Clock skew across nodes breaks etcd quorum, TLS validation, and DAP tokens. Set 
 ### Storage — multipathd
 
 `multipathd` claims Longhorn's iSCSI `sd*` block devices via device-mapper and breaks every CSI mount (`exit status 32` / `Can't open blockdev`, pods stuck in `Init:`). The node preparation step disables and masks `multipathd` and writes an `sd*` blacklist drop-in at `/etc/multipath/conf.d/99-ap-tools.conf` on every node (a pre-existing site `/etc/multipath.conf` is preserved untouched) so the protection persists even if a package update re-enables it. Prior enablement is recorded in `/var/lib/ap-tools/state.env` and restored by `uninstall rke2`. On these nodes the OS root disk is NVMe, so excluding all `sd*` devices is safe. No manual action is required for new deployments.
+
+### Local-path storage (single node only)
+
+With `INSTALL_LOCAL_PATH_PROVISIONER=true`, `install rke2` installs Rancher's Local Path Provisioner as the default
+StorageClass instead of Longhorn, and skips Longhorn's packages and `iscsid`. DAP needs only a default StorageClass,
+and all of its volumes are `ReadWriteOnce`, which local-path serves. Each volume is a folder (`local` volume) on the
+node's disk. Before you choose it:
+
+- **Single node only.** A local-path volume stays on the node that made it. If that node is lost, its pods can't
+  start anywhere else, and their data is gone with it. ap-tools refuses `join` and `install rke2` with
+  `CLUSTER_TYPE=multi-node` when `INSTALL_LOCAL_PATH_PROVISIONER=true`, and `install ap-bundle` refuses a cluster of
+  more than one node whose default class is local-path. For more than one node, use Longhorn.
+- **Put `PVC_DATA` on its own disk.** Local-path doesn't enforce PVC sizes, and nothing stops a volume filling the
+  disk (Longhorn keeps 5 to 10 % free). By default the volumes sit in `/opt/local-path-provisioner`, on the same disk
+  whose 850 GB DAP counts as ephemeral storage. When that disk fills, the node goes into `DiskPressure`, evicts pods,
+  and DAP goes down. A separate disk mounted at, say, `/data` with `PVC_DATA=/data` keeps DAP's data apart.
+- **`uninstall rke2` deletes the volumes.** With a custom `PVC_DATA`, rke2-installer removes that folder, and DAP's
+  data with it. Back up first.
+- **Velero copies files, not snapshots.** Without Longhorn's CSI driver, `install velero` backs volumes up with
+  Velero's node-agent (file-system backup), file by file while the pods keep running. Spec 30's T1 restored
+  `dell-portal` from such a backup with its databases working; restore it as
+  [Restoring a DAP namespace](#restoring-a-dap-namespace) says.
+- **`install monitoring`** puts Prometheus on the cluster's default class when you leave `PROMETHEUS_STORAGE_CLASS`
+  unset.
+- **With SELinux enforcing (Rocky, RHEL), a rolling update locks the old pod out of its volume.** Each pod that
+  mounts a local-path volume relabels its folder with that pod's own SELinux categories. During a rolling update the new
+  pod starts beside the old one on the same volume, and from then on the old pod gets `Permission denied` on its data
+  until it stops. SELinux logs no denial for it. The new pod works. In DAP, `hzp-product-svc` (which holds
+  `hzp-shared-pvc` and `hzp-ese-pvc`) rolls one pod at a time, but its new pod still starts while the old one is shutting
+  down (about 30 seconds in spec 30's run), so on these hosts the old pod's last writes as it stops can fail. A workload
+  that surges keeps the old pod locked out until the new one is ready. Ubuntu (AppArmor) is not affected. Leap 16
+  also enforces SELinux by default and is likely affected, but wasn't tested. Checked on Rocky 10.3 (spec 30, T2).
 
 ### Co-location Constraints
 

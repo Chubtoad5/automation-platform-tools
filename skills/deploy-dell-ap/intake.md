@@ -55,23 +55,23 @@ ask follow-ups when an answer is ambiguous. Default to single-node if the user i
     doesn't re-push the ~126 images. If unsure, leave it `false` (the loader is idempotent but slower).
 
 ## 4b. DAP version + bundle source
-- **Which DAP version?** Default is the version pinned in `ap-tools` (`AP_BUNDLE_URL`, currently v2.0.0.0).
+- **Which DAP version?** Default is the version pinned in `ap-tools` (`AP_BUNDLE_URL`, currently v2.1.1.3).
   If the user wants a **different** version, ask for the bundle **URL** and pass it as `AP_BUNDLE_URL=<url>`.
 - **Is the bundle already staged on the host**, or should the tool download it?
   - **Pre-staged:** place the `.zip` in the working dir and set `AP_BUNDLE_URL` to its filename/path — the
-    tool uses it instead of downloading (~19 GB saved).
+    tool uses it instead of downloading (~16 GB saved).
   - **Download:** the tool fetches `AP_BUNDLE_URL` during `install ap-bundle` (needs outbound internet;
-    ~19 GB, 5–40 min). See [reference/commands.md](reference/commands.md).
+    ~16 GB, 5–40 min). See [reference/commands.md](reference/commands.md).
 
 ## 4c. Dell Distributed Private Cloud (DDPC) add-on — ask, don't assume
 - **Does the user also want DDPC** (Dell Distributed Private Cloud) on this DAP? It is an add-on bundle
   installed **into the running orchestrator** after DAP is up. Only if yes:
-  - **Bundle source**: default pinned version (`DDPC_BUNDLE_URL`, currently 4.3.0.0), a different URL, or a
+  - **Bundle source**: default pinned version (`DDPC_BUNDLE_URL`, currently 4.4.0.0), a different URL, or a
     pre-staged `.zip` in `ap-install/` (~6 GB saved).
   - **Registry for the DDPC images**: pass `-registry` (same or different registry/credentials), or omit it to
     reuse the orchestrator's `docker-secret` registry. If the 19 DDPC images are already there, set
     `DDPC_SKIP_IMAGES_LOADER=true`.
-  - **DAP version pairing**: the bundle's required DAP version (default gate `DDPC_REQUIRED_DAP_VERSION=2.1.1.0`,
+  - **DAP version pairing**: the bundle's required DAP version (default gate `DDPC_REQUIRED_DAP_VERSION=2.1.1.3`,
     exact match). If the user runs a different DAP version, confirm Dell supports the pairing before overriding.
 
 ## 5. Identity / organization (for DAP setup)

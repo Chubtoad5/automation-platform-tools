@@ -1,5 +1,71 @@
 # Changelog — automation-platform-tools
 
+## v2.0.0 — 2026-11-28 — DAP 2.1.1.3 and DDPC 4.4.0.0 on RKE2 1.36
+
+Spec 30 (chubtoad-automation). **Major:** a plain install now builds Kubernetes 1.36 and DAP 2.1.1.3, the DDPC default
+refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0 or earlier take the version they run.
+
+### Changed
+- **RKE2 v1.36.6+rke2r1 by default, through rke2-installer v2.0.0** (D1). v1.34.5 left upstream support on 2026-10-27.
+  ap-tools still passes `INSTALL_INGRESS=false`, and rke2-installer v2.0.0 then disables Traefik as well as
+  ingress-nginx, so HAProxy stays DAP's only ingress. DAP 2.1.1.3 accepts Kubernetes 1.33 to 1.36.
+- **DAP 2.1.1.3 and DDPC 4.4.0.0** (D2). `DDPC_REQUIRED_DAP_VERSION` is `2.1.1.3`, the DAP release DDPC 4.4.0.0
+  ships with; set it to `any`, or another version, for a pairing Dell supports. Neither bundle adds a parameter or
+  changes a resource gate, so the generated command blocks and ap-tools' 18 CPU / 34 GB / 850 GB gates are unchanged.
+  The default `AP_BUNDLE_URL` and `DDPC_BUNDLE_URL` are Dell's published downloads (`FOLDER15269935M` and
+  `FOLDER15248433M`); Dell's checksums for both match the copies every DAP run in spec 30 used. `dl.dell.com` refuses
+  some user agents on the DAP path, and ap-tools already sends a browser one.
+- **An unset `RKE2_VERSION` no longer breaks re-runs and joins on older clusters** (D3). ap-tools used to pass its own
+  default every time, so after the default moved a re-run of `install rke2` on a 1.34.5 node stopped at "already
+  running", and a join to a 1.34.5 cluster was refused. Now a version you set is always used; unset, a re-run passes
+  the version running on the node, and `join` and air-gapped installs pass none, so rke2-installer takes the cluster's
+  version or the bundle's. A fresh online install gets the new default.
+- **The upgrade docs go one minor version at a time** (D4): v1.34.5 → v1.35.10 → v1.36.6. rke2-installer v2.0.0
+  refuses `stable` when it's two minor versions ahead, and a multi-server move to 1.36 asks for a `rke2-traefik`
+  line on each server first.
+- **The manual install guide** moves to RKE2 1.36.6, DAP 2.1.1.3 and DDPC 4.4.0.0, and disables `rke2-traefik` (D5).
+- **rke2-installer v2.1.0 and harbor-registry-installer v1.5.0** (Amendment A, Q19). v2.1.0 brings spec 31's add-on
+  fixes: air-gapped `install monitoring` can pull its webhook image from `ghcr.io` (new nodes' `registries.yaml` mirror
+  it) and its bundle holds the config-reloader and the Fluent Bit tag that runs; `install velero` with a custom
+  `KUBELET_DATA`, Velero and monitoring upgrades on re-run, Fluent Bit under SELinux, single-node Cilium, and an
+  air-gapped `upgrade rke2` that checks for `rke2-runtime` first. On a cluster without Longhorn
+  (`INSTALL_LOCAL_PATH_PROVISIONER=true`), local-path makes `local` volumes and Velero backs their data up with its
+  node-agent; before, a restore brought those PVCs back empty.
+- **Add-on versions move to rke2-installer v2.1.0's** (D10, Q15): Velero v1.18.4 with velero-plugin-for-aws v1.14.4
+  (were v1.18.0 and v1.14.0), kube-prometheus-stack 92.22.0 (was 84.5.0), fluent-bit chart 0.58.3 with Fluent Bit
+  5.1.5 (were 0.57.3 and 5.0.4). A re-run of `install monitoring` or `install velero` upgrades an existing cluster.
+- **`PROJECTS` drops `kiwigrid` and `bats`** (D11, Q16), which v2.1.0's monitoring list no longer has (Grafana is off
+  in the cluster). The deploy-dell-ap skill's project list now matches `PROJECTS` (D12): it gains `jkroepke` and
+  drops `ingress-nginx`.
+- **README: air-gapped `install monitoring` on a cluster built by an older ap-tools** needs one re-run of
+  `install rke2 -registry …` with `RKE2_RECONFIGURE=true` on each node first, for the `ghcr.io` mirror (D13, Q17).
+- **DAP on local-path storage, single node only** (Amendment B, Q21, Q22). With `INSTALL_LOCAL_PATH_PROVISIONER=true`,
+  `join` and `install rke2` with `CLUSTER_TYPE=multi-node` are refused before anything changes, and `install ap-bundle`
+  refuses a cluster of more than one node whose default class is local-path (R4): a local-path volume stays on the
+  node that made it, so a lost node took its pods' data with it, with no warning. The README's new "Local-path
+  storage" section covers `PVC_DATA` on its own disk (local-path has no disk guard, R5), `uninstall rke2` removing a
+  custom `PVC_DATA`, and Velero's file-system backup (D15).
+- **README: restoring a DAP namespace with Velero.** A plain namespace restore of `dell-portal` came back without its
+  data: DAP's cluster-wide sidecar webhook (`failurePolicy: Fail`) outlives the namespace and refuses the pods Velero
+  creates. The new section gives a three-step restore, webhook first, which spec 30's DAP runs passed on local-path and
+  on Longhorn (data back, the administrator's post-install password working). It also says how to free the two
+  `dsp-secrets-service` pods a local-path restore can leave in `Init` (Velero's helper and `runAsNonRoot`).
+- **README: on SELinux hosts, a local-path volume locks the old pod out during a rolling update** (spec 30, T2 on
+  Rocky 10.3): the new pod relabels the folder, and the old one gets `Permission denied` until it stops.
+- **`install monitoring` on a cluster without a `longhorn` class** puts Prometheus on the cluster's default class when
+  `PROMETHEUS_STORAGE_CLASS` is unset (D14). It used to pass `longhorn` and get rke2-installer's "StorageClass
+  'longhorn' not found" warning before the same fallback. A class you set is still passed as it is.
+- **The README's sub-tool pin table and `inputs.env.example`** list the real pins (D8); they still named v1.3.x.
+- **The air-gap bundle's notices** name Traefik (MIT), which RKE2 1.36's images carry (D7).
+
+### Tests
+- `tests/unit/rke2-version.bats`: what install and join pass for `RKE2_VERSION`, set or unset (D3).
+- A2 checks there's no Traefik on 1.36 and nothing but HAProxy on host ports 80 and 443; A5's re-run over the last
+  release keeps the running Kubernetes version (D6).
+
+### Fixed
+- **`install harbor` creates the `jkroepke` project, and no longer `ingress-nginx`** (spec 31). kube-prometheus-stack 84.5.0, ap-tools' pin, takes its webhook certgen from `ghcr.io/jkroepke`, so an air-gapped monitoring push into ap-tools' own Harbor failed on that image (`Failed to push image … Skipping`); the chart's pre-84 image lived in `ingress-nginx`, which nothing ap-tools pushes uses now. `PROJECTS` lists only the projects ap-tools pushes to. The README's project table is corrected to match.
+
 ## v1.3.0 — 2026-11-12 — Any complex password works everywhere
 
 Spec 21 (chubtoad-automation). The DAP run uses a registry password with every symbol (spec 21, Q12).

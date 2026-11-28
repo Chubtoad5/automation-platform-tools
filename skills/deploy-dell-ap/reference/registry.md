@@ -16,8 +16,11 @@ these project paths pre-created:
 ```
 rancher  haproxytech  longhornio  metallb  frrouting  chrislusf
 e2e-test-images  library  velero  grafana  prom  prometheus
-prometheus-operator  kube-state-metrics  ingress-nginx  bats  kiwigrid  fluent
+prometheus-operator  kube-state-metrics  jkroepke  fluent
 ```
+
+This is ap-tools' `PROJECTS` default. `jkroepke` holds the monitoring chart's webhook image (from `ghcr.io`);
+without it, air-gapped `install monitoring` fails.
 
 …plus a project for the DAP images themselves — the value of `REGISTRY_PROJECT_NAME` (default
 `dell-automation`).

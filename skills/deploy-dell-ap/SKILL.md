@@ -124,7 +124,7 @@ Then: phase 1 `install rke2 -tls-san <cluster>` with `CLUSTER_TYPE=multi-node LB
    cluster name must resolve to node IPs and you **join via a node IP** — see the multi-node box above.
 6. **36 GB RAM single-node, 20 GB/node multi-node — and 850 GB disk per node.** RKE2 reserves ~2 GB, so a
    34 GB single host fails the bundle's allocatable check (`ap-tools` gates on 34 GB allocatable); 16 GB/node
-   wedges the Orchestrator. DAP 2.1.1.0 also enforces **850 GB of allocatable ephemeral-storage per node** —
+   wedges the Orchestrator. DAP 2.1.1.3 also enforces **850 GB of allocatable ephemeral-storage per node** —
    provision 1 TB, since allocatable sits below the raw filesystem size and a 500 GB host passes the older
    docs and then fails Dell's own check mid-install. A node provisioned at exactly the floor reports ~1 GB
    less (firmware/kernel reserve); the preflight tolerates that. See
@@ -163,7 +163,7 @@ None of these are required to deploy DAP, and DAP never consumes them at install
 - **`install ddpc-bundle`** — stages the **Dell Distributed Private Cloud (DDPC)** add-on bundle (~6 GB), which
   installs **into the running DAP orchestrator** (same cluster, same namespace) and adds the DDPC services and
   UI to it. It mirrors `install ap-bundle`: pre-checks (API + nodes Ready, `native-edge-orchestrator` and
-  `dap-portal` releases `deployed`, DAP version **exactly** `DDPC_REQUIRED_DAP_VERSION` (default 2.1.1.0),
+  `dap-portal` releases `deployed`, DAP version **exactly** `DDPC_REQUIRED_DAP_VERSION` (default 2.1.1.3),
   no unhealthy platform pods, `ORCHESTRATOR_FQDN` served by the orchestrator ingress, registry reachable,
   unrequested CPU/memory headroom, free disk, NTP), downloads + extracts the bundle, and writes
   `ddpc-install-upgrade-cmd.txt` — **you must then run that command** (it does not deploy DDPC by itself).

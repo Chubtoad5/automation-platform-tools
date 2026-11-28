@@ -13,7 +13,7 @@ For the automated path, see the [Quick Start in the main README](../README.md#qu
 
 | Guide | OS | Network | Topology | Covers | Status |
 |:--|:--|:--|:--|:--|:--|
-| [Manual Install: DAP + DDPC on Ubuntu 24.04](dap-install/ubuntu-dap-ddpc-manual-install.md) | Ubuntu 24.04 | Connected | Single-node | RKE2, MetalLB, HAProxy, Longhorn, DAP 2.1.1.0, DDPC 4.3.0.0 | Available |
+| [Manual Install: DAP + DDPC on Ubuntu 24.04](dap-install/ubuntu-dap-ddpc-manual-install.md) | Ubuntu 24.04 | Connected | Single-node | RKE2 1.36, MetalLB, HAProxy, Longhorn, DAP 2.1.1.3, DDPC 4.4.0.0 | Available |
 | Harbor registry install | — | — | — | A private registry for the DAP images | Planned |
 | Air-gapped variant | — | Air-gapped | — | Installing from bundles with no internet access | Planned |
 | RHEL / SLES variants | RHEL 9, SLES 15 | — | — | The same steps for other supported distributions | Planned |

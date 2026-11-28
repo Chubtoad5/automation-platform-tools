@@ -78,7 +78,7 @@ SWFS_HARBOR_PASS="${SWFS_HARBOR_PASS:-changeme}"       # Password for Harbor and
 AP_ASSUME_YES="${AP_ASSUME_YES:-false}"                # true = skip the typed 'yes-destroy' confirmation on destructive 'uninstall' commands (for automation)
 
 # Dell Automation Platform Variables
-AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/FOLDER14962193M/1/Dell_Automation_Platform_Linux_2.1.1.0.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir. NOTE: the dl.dell.com FOLDER path changes per release - replace the whole URL, not just the version.
+AP_BUNDLE_URL="${AP_BUNDLE_URL:-https://dl.dell.com/protected/drivers/FOLDER15269935M/1/Dell_Automation_Platform_Linux_2.1.1.3.zip}"  # DAP bundle URL; override for a different version or a pre-staged .zip filename in the working dir. NOTE: the dl.dell.com FOLDER path changes per release - replace the whole URL, not just the version.
 DOWNLOAD_AP_BUNDLE="${DOWNLOAD_AP_BUNDLE:-false}"      # Download install bundle during offline-prep or install rke2
 SKIP_IMAGES_LOADER="${SKIP_IMAGES_LOADER:-false}"      # skip pushing images to local registry in install-upgrade.sh command
 IMAGE_LOADER_THREAD_COUNT="${IMAGE_LOADER_THREAD_COUNT:-5}"  # parallel image-push threads for install-upgrade.sh (DAP default 5, max 20). The image push dominates install time; raise it to shorten that phase.
@@ -103,7 +103,7 @@ EMAIL="${EMAIL:-changeme@example.com}"                 # Admin user email
 # REGISTRY_CERT_FILE_PATH, SKIP_IMAGES_LOADER, IMAGE_LOADER_PARALLEL_JOBS, INSTALL_TYPE,
 # INSTALL_TIMEOUT (unknown keys are rejected), plus the env-only knobs
 # IMAGE_LOADER_MAX_RETRIES and LOG_LEVEL. Every one of them is exposed below.
-DDPC_BUNDLE_URL="${DDPC_BUNDLE_URL:-https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip}"  # DDPC bundle URL, or a pre-staged .zip filename in ap-install/. The dl.dell.com FOLDER path changes per release - replace the whole URL.
+DDPC_BUNDLE_URL="${DDPC_BUNDLE_URL:-https://dl.dell.com/FOLDER15248433M/1/dell-distributed-private-cloud_4.4.0.0.zip}"  # DDPC bundle URL, or a pre-staged .zip filename in ap-install/. The dl.dell.com FOLDER path changes per release - replace the whole URL.
 DOWNLOAD_DDPC_BUNDLE="${DOWNLOAD_DDPC_BUNDLE:-false}"    # Include the (~6GB) DDPC bundle in 'offline-prep'
 DDPC_REQUIRED_DAP_VERSION="${DDPC_REQUIRED_DAP_VERSION:-2.1.1.3}"  # DAP orchestrator app version DDPC must sit on top of (4.4.0.0 ships with DAP 2.1.1.3; its bundle names no version itself) (exact match against the deployed helm release; 'any' disables the gate)
 DDPC_SKIP_IMAGES_LOADER="${DDPC_SKIP_IMAGES_LOADER:-$SKIP_IMAGES_LOADER}"  # true = the DDPC images are already in the registry; skip the push (defaults to SKIP_IMAGES_LOADER)

@@ -140,10 +140,10 @@ DAP and DDPC do not pull from Dell's servers. Their installers **push** the imag
 
 ### Dell bundles
 
-- [ ] **DAP 2.1.1.0** bundle: `Dell_Automation_Platform_Linux_2.1.1.0.zip` (about 16.4 GB), from
-  `https://dl.dell.com/FOLDER14962193M/1/Dell_Automation_Platform_Linux_2.1.1.0.zip`
-- [ ] **DDPC 4.3.0.0** bundle: `dell-distributed-private-cloud_4.3.0.0.zip` (about 6.2 GB), from
-  `https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip`
+- [ ] **DAP 2.1.1.3** bundle: `Dell_Automation_Platform_Linux_2.1.1.3.zip` (about 16.2 GB), from
+  `https://dl.dell.com/protected/drivers/FOLDER15269935M/1/Dell_Automation_Platform_Linux_2.1.1.3.zip`
+- [ ] **DDPC 4.4.0.0** bundle: `dell-distributed-private-cloud_4.4.0.0.zip` (about 6.3 GB), from
+  `https://dl.dell.com/FOLDER15248433M/1/dell-distributed-private-cloud_4.4.0.0.zip`
 - [ ] About **60 GB free** on the host for downloading and extracting both bundles (the extracted trees can be
   deleted after the install).
 
@@ -826,12 +826,12 @@ afterwards; Dell's installer pushes its own copy.
 cd "$WORK_DIR"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
 curl -fL --retry 3 -C - --user-agent "$UA" \
-  -o Dell_Automation_Platform_Linux_2.1.1.0.zip \
-  https://dl.dell.com/FOLDER14962193M/1/Dell_Automation_Platform_Linux_2.1.1.0.zip
+  -o Dell_Automation_Platform_Linux_2.1.1.3.zip \
+  https://dl.dell.com/protected/drivers/FOLDER15269935M/1/Dell_Automation_Platform_Linux_2.1.1.3.zip
 ```
 
 If the download is interrupted, run the same command again — `-C -` resumes it. Already have the zip? Copy it
-into `$WORK_DIR` instead (for example `scp Dell_Automation_Platform_Linux_2.1.1.0.zip root@<HOST_IP>:/opt/dap-install/`).
+into `$WORK_DIR` instead (for example `scp Dell_Automation_Platform_Linux_2.1.1.3.zip root@<HOST_IP>:/opt/dap-install/`).
 
 ### 5.2 Check and extract the bundle
 
@@ -1032,8 +1032,8 @@ of a broken DAP.
 cd "$WORK_DIR"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
 curl -fL --retry 3 -C - --user-agent "$UA" \
-  -o dell-distributed-private-cloud_4.3.0.0.zip \
-  https://dl.dell.com/FOLDER14941030M/1/dell-distributed-private-cloud_4.3.0.0.zip
+  -o dell-distributed-private-cloud_4.4.0.0.zip \
+  https://dl.dell.com/FOLDER15248433M/1/dell-distributed-private-cloud_4.4.0.0.zip
 
 sha256sum dell-distributed-private-cloud_4.4.0.0.zip
 # tested copy: de99bc9af5711efcc6571da63955d8dc80c4f692f8caf30f68727b458777676b (6,303,998,928 bytes)

@@ -484,7 +484,7 @@ to the problem, and the rest fell back to the defaults, `changeme` among them.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.0**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
+| `AP_BUNDLE_URL` | Dell download URL (**v2.1.1.3**) | URL to the AP on-premise bundle `.zip`. Set to a local filename if the bundle was downloaded manually into `ap-install/`. The `dl.dell.com` `FOLDER…` path changes with every release, so replace the whole URL — editing only the version string yields a 404. |
 | `DOWNLOAD_AP_BUNDLE` | `false` | When `true`, the bundle is downloaded during `offline-prep` or `install rke2`. |
 | `AP_FORCE_ONLINE` | `false` | When `true`, a run goes online even though `ap-install/` holds an extracted offline bundle and `ap-offline.tar.gz` isn't beside `ap-tools`. Without it, such a run stops. |
 | `SKIP_IMAGES_LOADER` | `false` | When `true`, skips pushing AP images to the registry during `install-upgrade.sh`. |
@@ -514,7 +514,7 @@ knobs (`IMAGE_LOADER_MAX_RETRIES`, `LOG_LEVEL`). Every one of them is exposed he
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `DDPC_BUNDLE_URL` | Dell download URL (**v4.3.0.0**) | URL to the DDPC add-on bundle `.zip` (~6 GB). Set to a local filename if the bundle was placed manually into `ap-install/`. As with `AP_BUNDLE_URL`, the `dl.dell.com` `FOLDER…` path changes with every release — replace the whole URL. |
+| `DDPC_BUNDLE_URL` | Dell download URL (**v4.4.0.0**) | URL to the DDPC add-on bundle `.zip` (~6 GB). Set to a local filename if the bundle was placed manually into `ap-install/`. As with `AP_BUNDLE_URL`, the `dl.dell.com` `FOLDER…` path changes with every release — replace the whole URL. |
 | `DOWNLOAD_DDPC_BUNDLE` | `false` | When `true`, the DDPC bundle is included in `offline-prep` (`ap-offline.tar.gz`). |
 | `DDPC_REQUIRED_DAP_VERSION` | `2.1.1.3` | DAP orchestrator app version the DDPC bundle must be installed on top of. DDPC 4.4.0.0 ships with DAP 2.1.1.3; the bundle itself names no version. The pre-flight compares it **exactly** against the deployed `native-edge-orchestrator` helm release and aborts on a mismatch. Override for a different pairing, or set `any` to disable the gate. |
 | `DDPC_SKIP_IMAGES_LOADER` | `$SKIP_IMAGES_LOADER` | `true` if the 19 DDPC images are already in the registry (skips the push). Defaults to whatever `SKIP_IMAGES_LOADER` is. |

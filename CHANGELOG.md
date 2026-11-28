@@ -1,6 +1,6 @@
 # Changelog — automation-platform-tools
 
-## v2.0.0 — 2026-11-20 — DAP 2.1.1.3 and DDPC 4.4.0.0 on RKE2 1.36
+## v2.0.0 — 2026-11-28 — DAP 2.1.1.3 and DDPC 4.4.0.0 on RKE2 1.36
 
 Spec 30 (chubtoad-automation). **Major:** a plain install now builds Kubernetes 1.36 and DAP 2.1.1.3, the DDPC default
 refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0 or earlier take the version they run.
@@ -12,6 +12,9 @@ refuses a DAP 2.1.1.0 cluster, and re-runs and joins on clusters built by v1.3.0
 - **DAP 2.1.1.3 and DDPC 4.4.0.0** (D2). `DDPC_REQUIRED_DAP_VERSION` is `2.1.1.3`, the DAP release DDPC 4.4.0.0
   ships with; set it to `any`, or another version, for a pairing Dell supports. Neither bundle adds a parameter or
   changes a resource gate, so the generated command blocks and ap-tools' 18 CPU / 34 GB / 850 GB gates are unchanged.
+  The default `AP_BUNDLE_URL` and `DDPC_BUNDLE_URL` are Dell's published downloads (`FOLDER15269935M` and
+  `FOLDER15248433M`); Dell's checksums for both match the copies every DAP run in spec 30 used. `dl.dell.com` refuses
+  some user agents on the DAP path, and ap-tools already sends a browser one.
 - **An unset `RKE2_VERSION` no longer breaks re-runs and joins on older clusters** (D3). ap-tools used to pass its own
   default every time, so after the default moved a re-run of `install rke2` on a 1.34.5 node stopped at "already
   running", and a join to a 1.34.5 cluster was refused. Now a version you set is always used; unset, a re-run passes
